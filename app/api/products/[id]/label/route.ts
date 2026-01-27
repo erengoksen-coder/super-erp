@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+type ProductLabel = {
+  id: string
+  name: string
+  sku: string
+  stock_amount?: number | null
+  image_url?: string | null
+}
+
 // GET: Ürün etiket bilgilerini getir
 export async function GET(
   request: NextRequest,
@@ -18,8 +26,8 @@ export async function GET(
 
     // Local database'den ürün bilgilerini al
     const { localDB } = await import('@/lib/database/client')
-    const products = await localDB.getProducts()
-    const product = products.find((p: any) => p.id === productId)
+    const products = await localDB.getProducts() as ProductLabel[]
+    const product = products.find((p) => p.id === productId)
 
     if (!product) {
       return NextResponse.json(

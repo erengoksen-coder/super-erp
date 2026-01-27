@@ -2,6 +2,40 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
+type BomItemRow = {
+  id: string
+  product_id: string
+  material_id: string
+  quantity: number
+  fire_percentage: number | null
+  material_name: string
+  material_code: string | null
+  material_unit: string
+  material_category: string | null
+  material_unit_price: number | null
+  product_name: string
+  product_sku: string
+}
+
+type GroupedBom = {
+  product_id: string
+  product_name: string
+  product_sku: string
+  items: BomItemRow[]
+}
+
+type ProductRow = {
+  id: string
+}
+
+type MaterialRow = {
+  id: string
+}
+
+type BomExistingRow = {
+  id: string
+}
+
 // GET: Tüm BOM kayıtlarını getir veya belirli bir ürün için
 export async function GET(request: NextRequest) {
   try {
@@ -50,10 +84,10 @@ export async function GET(request: NextRequest) {
         JOIN products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
         ORDER BY p.sku, m.name
-      `).all() as any[]
+      `).all() as BomItemRow[]
 
       // Ürün bazlı grupla
-      const groupedByProduct = allBom.reduce<Record<string, any>>((acc, item: any) => {
+      const groupedByProduct = allBom.reduce<Record<string, GroupedBom>>((acc, item) => {
         const key = item.product_id
         if (!acc[key]) {
           acc[key] = {
@@ -65,7 +99,7 @@ export async function GET(request: NextRequest) {
         }
         acc[key].items.push(item)
         return acc
-      }, {})
+      }, {} as Record<string, GroupedBom>)
 
       return NextResponse.json(Object.values(groupedByProduct))
     }
@@ -90,12 +124,12 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Ürün ve malzeme kontrolü
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id) as any
+    const product = db.prepare('SELECT id FROM products WHERE id = ?').get(product_id) as ProductRow | undefined
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
 
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(material_id) as any
+    const material = db.prepare('SELECT id FROM materials WHERE id = ?').get(material_id) as MaterialRow | undefined
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
@@ -104,7 +138,7 @@ export async function POST(request: NextRequest) {
     const existing = db.prepare(`
       SELECT id FROM bom 
       WHERE product_id = ? AND material_id = ?
-    `).get(product_id, material_id) as any
+    `).get(product_id, material_id) as BomExistingRow | undefined
 
     if (existing) {
       // Mevcut kaydı güncelle

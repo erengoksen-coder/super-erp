@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 
+type JournalEntryRow = {
+  id: string
+}
+
+type JournalEntryLineRow = {
+  id: string
+  account_code: string
+  account_name: string
+  account_type: string
+}
+
 // GET: Yevmiye kaydı detayı
 export async function GET(
   request: NextRequest,
@@ -11,7 +22,7 @@ export async function GET(
     const { id } = await params
 
     // Yevmiye kaydı
-    const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as any
+    const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as JournalEntryRow | undefined
     if (!entry) {
       return NextResponse.json({ error: 'Yevmiye kaydı bulunamadı' }, { status: 404 })
     }
@@ -27,7 +38,7 @@ export async function GET(
       JOIN chart_of_accounts coa ON jel.account_id = coa.id
       WHERE jel.journal_entry_id = ?
       ORDER BY jel.debit DESC, jel.credit DESC
-    `).all(id)
+    `).all(id) as JournalEntryLineRow[]
 
     return NextResponse.json({
       entry,

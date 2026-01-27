@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 
+type ProductSerialRow = {
+  id: string
+  product_id: string
+  production_order_id: string
+  serial_number: string
+  barcode: string
+  status: string | null
+  created_at: string
+  product_name?: string
+  product_sku?: string
+}
+
 // GET: Üretim emrine ait barkodları getir
 export async function GET(
   request: NextRequest,
@@ -20,7 +32,7 @@ export async function GET(
       JOIN products p ON psn.product_id = p.id
       WHERE psn.production_order_id = ?
       ORDER BY psn.created_at DESC
-    `).all(productionOrderId)
+    `).all(productionOrderId) as ProductSerialRow[]
 
     return NextResponse.json(barcodes)
   } catch (error: any) {
@@ -47,7 +59,7 @@ export async function POST(
     const product = db.prepare(`
       SELECT * FROM product_serial_numbers 
       WHERE barcode = ? OR serial_number = ?
-    `).get(barcode, barcode) as any
+    `).get(barcode, barcode) as ProductSerialRow | undefined
 
     if (!product) {
       return NextResponse.json({ error: 'Barkod bulunamadı' }, { status: 404 })

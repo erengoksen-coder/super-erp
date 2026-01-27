@@ -1,12 +1,35 @@
 import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 
+type MaterialStockRow = {
+  stock_amount: number | null
+  min_stock_level: number | null
+}
+
+type CountRow = {
+  count: number | null
+}
+
+type ProductionTrendRow = {
+  date: string
+  count: number | null
+  total_quantity: number | null
+}
+
+type StationStatRow = {
+  current_station: string
+  count: number | null
+  total_quantity: number | null
+}
+
 export async function GET() {
   try {
     const db = getDatabase()
 
     // 1. Toplam Stok Değeri (Hammaddeler)
-    const materials = db.prepare('SELECT stock_amount, min_stock_level FROM materials').all() as any[]
+    const materials = db
+      .prepare('SELECT stock_amount, min_stock_level FROM materials')
+      .all() as MaterialStockRow[]
     const totalStockValue = materials.reduce((sum, m) => sum + (m.stock_amount || 0), 0)
 
     // 2. Bekleyen Üretimler
@@ -14,14 +37,14 @@ export async function GET() {
       SELECT COUNT(*) as count 
       FROM production_orders 
       WHERE status IN ('pending', 'in_progress')
-    `).get() as any
+    `).get() as CountRow | undefined
 
     // 3. Kritik Stok Uyarıları
     const criticalStock = db.prepare(`
       SELECT COUNT(*) as count 
       FROM materials 
       WHERE stock_amount < min_stock_level
-    `).get() as any
+    `).get() as CountRow | undefined
 
     // 4. Son 7 günlük üretim trendi
     const sevenDaysAgo = new Date()
@@ -37,7 +60,7 @@ export async function GET() {
       WHERE date(created_at) >= date(?)
       GROUP BY date(created_at)
       ORDER BY date(created_at) ASC
-    `).all(dateStr) as any[]
+    `).all(dateStr) as ProductionTrendRow[]
 
     // Eksik günleri doldur
     const trendData = []
@@ -62,7 +85,7 @@ export async function GET() {
       FROM production_orders
       WHERE status != 'completed' AND status != 'cancelled'
       GROUP BY current_station
-    `).all() as any[]
+    `).all() as StationStatRow[]
 
     const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat']
     const stationNames: Record<string, string> = {
@@ -74,7 +97,7 @@ export async function GET() {
       sevkiyat: 'Sevkiyat',
     }
     const formattedStationStats = stationOrder.map(station => {
-      const stat = stationStats.find((s: any) => s.current_station === station)
+      const stat = stationStats.find((s) => s.current_station === station)
       return {
         station,
         station_name: stationNames[station] || station,

@@ -2,6 +2,68 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { generateBarcode, generateSerialNumber } from '@/lib/utils/barcodeGenerator'
 
+type ProductionOrderRow = {
+  id: string
+  order_number: string
+  quantity: number
+  status: string
+  current_station: string | null
+  created_at: string
+  product_name: string
+  product_sku: string
+  [key: string]: unknown
+}
+
+type OrderInfoRow = {
+  dealer_name: string | null
+  customer_name: string | null
+  id: string
+  notes: string | null
+  configuration: string | null
+  product_name: string | null
+}
+
+type StationOrderCard = ProductionOrderRow & {
+  dealer_name: string | null
+  customer_name: string | null
+  order_id: string | null
+  order_production_order_id: string | null
+  order_notes: string | null
+  order_configuration: string | null
+  order_product_name: string | null
+  item_index: number
+  item_total: number
+  display_quantity: number
+  completed_count: number
+}
+
+type ProductionOrderDetails = {
+  id: string
+  product_id: string
+  order_number: string
+  quantity: number
+  current_station: string | null
+  stock_deducted: number
+  [key: string]: unknown
+}
+
+type ProductNameRow = {
+  name: string
+}
+
+type ProductStockRow = {
+  stock_amount: number | null
+}
+
+type BarcodeCountRow = {
+  count: number | null
+}
+
+type SerialStatusRow = {
+  id: string
+  status: string | null
+}
+
 // GET: İstasyona göre üretim emirlerini getir
 export async function GET(request: NextRequest) {
   try {
@@ -55,11 +117,13 @@ export async function GET(request: NextRequest) {
         AND po.status != 'completed'
         AND po.status != 'cancelled'
       ORDER BY po.created_at ASC
-    `).all(station) as any[]
+    `).all(station) as ProductionOrderRow[]
     
     // Her üretim emri için orders tablosundan bayi/müşteri bilgisini al
-    productionOrders = productionOrders.map(po => {
-      const orderInfo = db.prepare('SELECT dealer_name, customer_name, id, notes, configuration, product_name FROM orders WHERE production_order_id = ?').get(po.id) as any
+    productionOrders = productionOrders.map((po) => {
+      const orderInfo = db
+        .prepare('SELECT dealer_name, customer_name, id, notes, configuration, product_name FROM orders WHERE production_order_id = ?')
+        .get(po.id) as OrderInfoRow | undefined
       return {
         ...po,
         dealer_name: orderInfo?.dealer_name || null,
@@ -74,12 +138,12 @@ export async function GET(request: NextRequest) {
     
     // Her üretim emri için quantity kadar ayrı kart oluştur
     // Ancak sadece tamamlanmayan kartları göster
-    const orders: any[] = []
+    const orders: StationOrderCard[] = []
     for (const po of productionOrders) {
       const quantity = po.quantity || 1
       // Bu istasyon için tamamlanan kart sayısını al
       const completedCountColumn = `${station}_completed_count`
-      const completedCount = po[completedCountColumn] || 0
+      const completedCount = (po as Record<string, number | undefined>)[completedCountColumn] || 0
       
       // Sadece tamamlanmayan kartları ekle
       // Örneğin 2 kart tamamlandıysa (completedCount=2), kalan 2 kartı göster (i=2,3 -> item_index=3,4)
@@ -137,7 +201,7 @@ export async function PATCH(request: NextRequest) {
     const db = getDatabase()
 
     // Üretim emrini bul
-    const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(order_id) as any
+    const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(order_id) as ProductionOrderDetails | undefined
     if (!order) {
       return NextResponse.json({ error: 'Üretim emri bulunamadı' }, { status: 404 })
     }
@@ -244,7 +308,7 @@ export async function PATCH(request: NextRequest) {
     } // item_index ve item_total varsa buraya gelmez, early return yapıyor
     
     // Ürün bilgisini al (berjer kontrolü için)
-    const product = db.prepare('SELECT name FROM products WHERE id = ?').get(order.product_id) as any
+    const product = db.prepare('SELECT name FROM products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
     const isBerjer = product?.name && product.name.toLowerCase().includes('berjer')
     
     const stationOrder = ['iskelet', 'terzihane', 'döseme', 'montaj', 'berjer', 'sevkiyat', 'completed']
@@ -279,7 +343,7 @@ export async function PATCH(request: NextRequest) {
       // İstasyon geçişi
       // Tüm kartlar tamamlandığında buraya geliyoruz
       let updateQuery = `UPDATE production_orders SET current_station = ?, updated_at = ?`
-      const updateParams: any[] = [nextStation, now]
+      const updateParams: Array<string | number | null> = [nextStation, now]
 
       // Önceki istasyonu tamamla (zaten completed_at kaydedildi, ama başlangıç zamanını kontrol et)
       if (currentStation === 'iskelet') {
@@ -393,7 +457,9 @@ export async function PATCH(request: NextRequest) {
       // Berjer istasyonundan direkt mamül depoya ekle
       if (currentStation === 'berjer' && nextStation === 'completed') {
         // Mevcut stoku al
-        const currentStock = db.prepare('SELECT stock_amount FROM products WHERE id = ?').get(order.product_id) as any
+      const currentStock = db
+        .prepare('SELECT stock_amount FROM products WHERE id = ?')
+        .get(order.product_id) as ProductStockRow | undefined
         const newStock = (currentStock?.stock_amount || 0) + order.quantity
         
         // Ürün stokunu artır
@@ -405,11 +471,11 @@ export async function PATCH(request: NextRequest) {
         `).run(newStock, order.product_id)
 
         // Barkodlar oluştur (eğer yoksa) veya mevcut barkodları mamül depoya al
-        const existingBarcodes = db.prepare(`
+      const existingBarcodes = db.prepare(`
           SELECT id, status
           FROM product_serial_numbers
           WHERE production_order_id = ?
-        `).all(order_id) as any[]
+        `).all(order_id) as SerialStatusRow[]
 
         if (existingBarcodes.length === 0) {
           // Her ürün için barkod oluştur
@@ -418,7 +484,7 @@ export async function PATCH(request: NextRequest) {
             SELECT COUNT(*) as count
             FROM product_serial_numbers
             WHERE DATE(created_at) = DATE('now')
-          `).get() as any
+          `).get() as BarcodeCountRow | undefined
           const sequence = (todayCount?.count || 0) + 1
 
           for (let i = 0; i < order.quantity; i++) {
@@ -464,7 +530,9 @@ export async function PATCH(request: NextRequest) {
       // Montaj tamamlandığında direkt mamül depoya ekle
       if (currentStation === 'montaj' && nextStation === 'completed') {
         // Mevcut stoku al
-        const currentStock = db.prepare('SELECT stock_amount FROM products WHERE id = ?').get(order.product_id) as any
+        const currentStock = db
+          .prepare('SELECT stock_amount FROM products WHERE id = ?')
+          .get(order.product_id) as ProductStockRow | undefined
         const newStock = (currentStock?.stock_amount || 0) + order.quantity
         
         // Ürün stokunu artır
@@ -480,7 +548,7 @@ export async function PATCH(request: NextRequest) {
           SELECT id, status
           FROM product_serial_numbers
           WHERE production_order_id = ?
-        `).all(order_id) as any[]
+          `).all(order_id) as SerialStatusRow[]
 
         if (existingBarcodes.length === 0) {
           // Her ürün için barkod oluştur
@@ -489,7 +557,7 @@ export async function PATCH(request: NextRequest) {
             SELECT COUNT(*) as count
             FROM product_serial_numbers
             WHERE DATE(created_at) = DATE('now')
-          `).get() as any
+          `).get() as BarcodeCountRow | undefined
           const sequence = (todayCount?.count || 0) + 1
 
           for (let i = 0; i < order.quantity; i++) {
