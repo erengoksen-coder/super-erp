@@ -6,7 +6,7 @@
 import Database from 'better-sqlite3'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
-import { createHash } from 'crypto'
+import { hashPassword } from '@/lib/auth/password'
 
 // Veritabanı dosyası proje klasöründe saklanır
 const dbPath = join(process.cwd(), 'data', 'erp.db')
@@ -905,8 +905,7 @@ function initializeDatabase() {
   }
 
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
-  const { createHash } = require('crypto')
-  const adminPasswordHash = createHash('sha256').update('admin1234').digest('hex')
+  const adminPasswordHash = hashPassword('admin1234')
   try {
     db.prepare(`
       INSERT OR IGNORE INTO users (id, username, email, password_hash, full_name, role, is_approved, job_title)

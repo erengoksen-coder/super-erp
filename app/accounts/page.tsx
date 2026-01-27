@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Users, Building2, Edit, Trash2, X } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { getUserId } from '@/lib/auth'
+import { useApi } from '@/lib/api/client'
 
 interface Account {
   id: string
@@ -28,8 +29,6 @@ interface Account {
 }
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
@@ -43,37 +42,22 @@ export default function AccountsPage() {
     address: ''
   })
 
-  useEffect(() => {
-    loadAccounts()
-  }, [filterType])
+  const accountsUrl = useMemo(() => (
+    filterType === 'all'
+      ? '/api/accounts'
+      : `/api/accounts?type=${filterType}`
+  ), [filterType])
 
-  async function loadAccounts() {
-    try {
-      const url = filterType === 'all' 
-        ? '/api/accounts'
-        : `/api/accounts?type=${filterType}`
-      
-      const response = await fetch(url, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      })
-      if (!response.ok) throw new Error('Cari hesaplar yüklenemedi')
-      const data = await response.json()
-      // Müşteri koduna göre sırala (API'den zaten sıralı geliyor ama ekstra güvence için)
-      const sorted = [...data].sort((a, b) => {
-        const codeA = a.code || ''
-        const codeB = b.code || ''
-        return codeA.localeCompare(codeB, 'tr', { numeric: true })
-      })
-      setAccounts(sorted)
-    } catch (error) {
-      console.error('Error loading accounts:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data: accountsData, isLoading, mutate } = useApi<Account[]>(accountsUrl)
+
+  const accounts = useMemo(() => {
+    const list = accountsData ?? []
+    return [...list].sort((a, b) => {
+      const codeA = a.code || ''
+      const codeB = b.code || ''
+      return codeA.localeCompare(codeB, 'tr', { numeric: true })
+    })
+  }, [accountsData])
 
   const filteredAccounts = accounts.filter((account) => {
     const searchLower = searchTerm.toLowerCase()
@@ -124,7 +108,7 @@ export default function AccountsPage() {
       alert('✅ Cari hesap başarıyla güncellendi')
       setShowEditModal(false)
       setEditingAccount(null)
-      loadAccounts()
+      await mutate()
     } catch (error: any) {
       alert('Hata: ' + error.message)
     }
@@ -152,16 +136,19 @@ export default function AccountsPage() {
       }
       
       // State'ten hemen kaldır (optimistic update)
-      setAccounts(prevAccounts => prevAccounts.filter(acc => acc.id !== account.id))
+      mutate(
+        (current) => current?.filter(acc => acc.id !== account.id),
+        { revalidate: false }
+      )
       
       alert('✅ Cari hesap başarıyla silindi')
       
       // Veritabanından tekrar yükle (senkronizasyon için)
-      await loadAccounts()
+      await mutate()
     } catch (error: any) {
       alert('Hata: ' + error.message)
       // Hata durumunda tekrar yükle
-      loadAccounts()
+      await mutate()
     }
   }
 
@@ -217,7 +204,7 @@ export default function AccountsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="text-center py-12">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <p className="mt-2 text-gray-400">Yükleniyor...</p>

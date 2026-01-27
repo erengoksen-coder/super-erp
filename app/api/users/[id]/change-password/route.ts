@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
-import { createHash } from 'crypto'
+import { z } from 'zod'
+import { rateLimit } from '@/lib/api/rateLimit'
+import { hashPassword, verifyPassword } from '@/lib/auth/password'
+
+type UserRow = {
+  id: string
+  password_hash: string
+}
+
+const changePasswordSchema = z.object({
+  old_password: z.string().optional(),
+  new_password: z.string().min(6, 'Şifre en az 6 karakter olmalıdır'),
+  force_change: z.boolean().optional(),
+})
 
 // PATCH: Kullanıcı şifresini değiştir
 export async function PATCH(
@@ -10,19 +23,37 @@ export async function PATCH(
   try {
     const resolvedParams = await Promise.resolve(params)
     const userId = resolvedParams.id
-    const body = await request.json()
-    const { old_password, new_password, force_change } = body
-
-    if (!new_password) {
+    const limit = rateLimit(request, {
+      keyPrefix: 'users:change-password',
+      max: 10,
+      windowMs: 60_000,
+    })
+    if (!limit.allowed) {
       return NextResponse.json(
-        { error: 'Yeni şifre gerekli' },
+        { error: 'Çok fazla deneme. Lütfen sonra tekrar deneyin.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': Math.ceil((limit.reset - Date.now()) / 1000).toString(),
+          },
+        }
+      )
+    }
+
+    const body = await request.json()
+    const parsed = changePasswordSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.errors[0]?.message || 'Geçersiz istek' },
         { status: 400 }
       )
     }
 
-    if (new_password.length < 6) {
+    const { old_password, new_password, force_change } = parsed.data
+
+    if (!force_change && !old_password) {
       return NextResponse.json(
-        { error: 'Şifre en az 6 karakter olmalıdır' },
+        { error: 'Eski şifre gerekli' },
         { status: 400 }
       )
     }
@@ -30,15 +61,14 @@ export async function PATCH(
     const db = getDatabase()
 
     // Kullanıcıyı bul
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any
+    const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(userId) as UserRow | undefined
     if (!user) {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })
     }
 
     // Eğer force_change değilse, eski şifreyi kontrol et
     if (!force_change && old_password) {
-      const oldPasswordHash = createHash('sha256').update(old_password).digest('hex')
-      if (user.password_hash !== oldPasswordHash) {
+      if (!verifyPassword(old_password, user.password_hash)) {
         return NextResponse.json(
           { error: 'Eski şifre hatalı' },
           { status: 400 }
@@ -47,7 +77,7 @@ export async function PATCH(
     }
 
     // Yeni şifreyi hashle ve güncelle
-    const newPasswordHash = createHash('sha256').update(new_password).digest('hex')
+    const newPasswordHash = hashPassword(new_password)
     db.prepare(`
       UPDATE users 
       SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
