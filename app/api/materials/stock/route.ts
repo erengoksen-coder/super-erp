@@ -2,10 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
+type MaterialRow = {
+  id: string
+  stock_amount: number
+  [key: string]: unknown
+}
+
+type StockUpdateInput = {
+  material_id?: string
+  quantity?: number
+  movement_type?: 'in' | 'out'
+  notes?: string
+}
+
 // POST: Stok giriş/çıkış işlemi
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const body = await request.json() as StockUpdateInput
     const { material_id, quantity, movement_type, notes } = body
 
     if (!material_id || quantity === undefined) {
@@ -18,7 +31,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Malzeme bilgisini al
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(material_id) as any
+    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(material_id) as MaterialRow | undefined
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }

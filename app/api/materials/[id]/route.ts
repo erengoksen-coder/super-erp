@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
+import { ok, fail } from '@/lib/api/response'
+import { materialsRepo } from '@/lib/repositories/materials'
+
+type MaterialRow = {
+  id: string
+  stock_amount: number | null
+  min_stock_level: number | null
+  name: string
+  code: string | null
+  unit: string
+  category: string | null
+  unit_price: number | null
+}
+
+type CountRow = {
+  count: number | null
+}
+
+type MaterialUpdateInput = {
+  stock_amount?: number
+  min_stock_level?: number
+  name?: string
+  code?: string
+  unit?: string
+  category?: string | null
+  unit_price?: number
+  user_id?: string | null
+}
 
 // GET: Tek bir malzeme bilgisini getir
 export async function GET(
@@ -10,15 +38,15 @@ export async function GET(
   try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(resolvedParams.id) as any
+    const material = materialsRepo.getById(resolvedParams.id)
 
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
-    return NextResponse.json(material)
+    return ok(material)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
@@ -29,20 +57,20 @@ export async function PATCH(
 ) {
   try {
     const resolvedParams = await Promise.resolve(params)
-    const body = await request.json()
+    const body = await request.json() as MaterialUpdateInput
     const { stock_amount, min_stock_level, name, code, unit, category, unit_price } = body
 
     const db = getDatabase()
 
     // Malzemeyi bul
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(resolvedParams.id) as any
+    const material = materialsRepo.getById(resolvedParams.id)
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
     // Güncelleme sorgusu oluştur
     let updateQuery = 'UPDATE materials SET updated_at = CURRENT_TIMESTAMP'
-    const updateParams: any[] = []
+    const updateParams: Array<string | number | null> = []
 
     if (stock_amount !== undefined) {
       // Eski stok miktarını al
@@ -74,7 +102,7 @@ export async function PATCH(
             `Manuel stok düzeltmesi: ${oldStockAmount} → ${newStockAmount}`,
             user_id || null
           )
-        } catch (movementError: any) {
+        } catch (movementError: unknown) {
           // Eğer stock_movements tablosu yoksa veya hata varsa, sadece logla
           console.error('Stock movement kaydı eklenirken hata:', movementError)
         }
@@ -117,15 +145,14 @@ export async function PATCH(
     db.prepare(updateQuery).run(...updateParams)
 
     // Güncellenmiş malzeme bilgisini döndür
-    const updatedMaterial = db.prepare('SELECT * FROM materials WHERE id = ?').get(resolvedParams.id) as any
+    const updatedMaterial = materialsRepo.getById(resolvedParams.id)
 
-    return NextResponse.json({
-      success: true,
-      message: 'Malzeme başarıyla güncellendi',
-      material: updatedMaterial,
-    })
+    return ok(
+      { material: updatedMaterial },
+      { message: 'Malzeme başarıyla güncellendi' }
+    )
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
@@ -139,36 +166,30 @@ export async function DELETE(
     const db = getDatabase()
 
     // Malzemeyi bul
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(resolvedParams.id) as any
+    const material = materialsRepo.getById(resolvedParams.id)
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
     // İlişkili kayıtları kontrol et
-    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(resolvedParams.id) as any
-    const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(resolvedParams.id) as any
+    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(resolvedParams.id) as CountRow | undefined
+    const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(resolvedParams.id) as CountRow | undefined
 
-    if (bomCount.count > 0 || movementCount.count > 0) {
-      return NextResponse.json(
-        { 
-          error: 'Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.',
-          details: {
-            bom_count: bomCount.count,
-            movement_count: movementCount.count,
-          }
+    if ((bomCount?.count || 0) > 0 || (movementCount?.count || 0) > 0) {
+      return fail('Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.', {
+        status: 400,
+        details: {
+          bom_count: bomCount?.count || 0,
+          movement_count: movementCount?.count || 0,
         },
-        { status: 400 }
-      )
+      })
     }
 
     // Malzemeyi sil
     db.prepare('DELETE FROM materials WHERE id = ?').run(resolvedParams.id)
 
-    return NextResponse.json({
-      success: true,
-      message: 'Malzeme başarıyla silindi',
-    })
+    return ok(null, { message: 'Malzeme başarıyla silindi' })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }

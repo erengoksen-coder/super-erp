@@ -1,5 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { ok, fail } from '@/lib/api/response'
+
+type AccountTransactionRow = {
+  id: string
+  account_id: string
+  transaction_type: string
+  amount: number
+  reference_type: string | null
+  reference_id: string | null
+  product_id?: string | null
+  quantity?: number | null
+  unit_price?: number | null
+  total_price?: number | null
+  product_name?: string | null
+  product_sku?: string | null
+  shipment_number?: string | null
+}
 
 // GET: Cari hesap işlemlerini getir
 export async function GET(
@@ -27,10 +44,10 @@ export async function GET(
       LEFT JOIN products p ON si.product_id = p.id
       WHERE at.account_id = ?
       ORDER BY at.created_at DESC
-    `).all(accountId) as any[]
+    `).all(accountId) as AccountTransactionRow[]
 
-    return NextResponse.json(transactions)
+    return ok(transactions)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }

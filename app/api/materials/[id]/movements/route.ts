@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 
+type StockMovementRow = {
+  id: string
+  movement_type: string
+  quantity: number
+  reference_type: string | null
+  reference_id: string | null
+  invoice_number: string | null
+  shipment_number: string | null
+  notes: string | null
+  created_at: string
+  user_id: string | null
+  user_name: string | null
+  user_username: string | null
+}
+
+type StockMovementFormatted = StockMovementRow & {
+  date: string
+  time: string
+  datetime: string
+}
+
 // GET: Belirli bir malzemenin stok hareket geçmişi
 export async function GET(
   request: NextRequest,
@@ -29,10 +50,10 @@ export async function GET(
       WHERE sm.material_id = ?
       ORDER BY sm.created_at DESC
       LIMIT 100
-    `).all(resolvedParams.id) as any[]
+    `).all(resolvedParams.id) as StockMovementRow[]
 
     // Tarih formatını düzenle
-    const formattedMovements = movements.map((movement) => {
+    const formattedMovements = movements.map((movement): StockMovementFormatted => {
       const date = new Date(movement.created_at)
       return {
         ...movement,
