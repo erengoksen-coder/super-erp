@@ -5,12 +5,14 @@ import Sidebar from '@/components/Sidebar'
 import AuthGuard from '@/components/AuthGuard'
 import { I18nProvider } from '@/lib/i18n'
 import SWRProvider from '@/components/SWRProvider'
+import ServiceWorker from '@/components/ServiceWorker'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'LIVASOFA - Süper ERP',
   description: 'Koltuk Üretim Yönetim Sistemi',
+  manifest: '/manifest.webmanifest',
 }
 
 export default function RootLayout({
@@ -27,6 +29,7 @@ export default function RootLayout({
         <I18nProvider>
           <SWRProvider>
             <AuthGuard>
+              <ServiceWorker />
               <Sidebar />
               <main className="lg:ml-64 min-h-screen pt-16 lg:pt-0">
                 <div className="p-3 sm:p-4 md:p-6 lg:p-8">
