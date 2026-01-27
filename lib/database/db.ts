@@ -922,6 +922,33 @@ function initializeDatabase() {
     // Admin zaten varsa hata verme
   }
 
+  // Performans için temel indeksler
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(type);
+      CREATE INDEX IF NOT EXISTS idx_accounts_code ON accounts(code);
+      CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+      CREATE INDEX IF NOT EXISTS idx_orders_production_order_id ON orders(production_order_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_order_date ON orders(order_date);
+      CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
+      CREATE INDEX IF NOT EXISTS idx_shipments_customer_id ON shipments(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_shipments_shipment_date ON shipments(shipment_date);
+      CREATE INDEX IF NOT EXISTS idx_shipment_items_shipment_id ON shipment_items(shipment_id);
+      CREATE INDEX IF NOT EXISTS idx_account_transactions_account_id ON account_transactions(account_id);
+      CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_ready_for_shipment ON product_serial_numbers(ready_for_shipment);
+      CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_shipment_id ON product_serial_numbers(shipment_id);
+      CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_customer_id ON product_serial_numbers(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_product_id ON product_serial_numbers(product_id);
+      CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_barcode ON product_serial_numbers(barcode);
+      CREATE INDEX IF NOT EXISTS idx_bom_product_id ON bom(product_id);
+      CREATE INDEX IF NOT EXISTS idx_bom_material_id ON bom(material_id);
+      CREATE INDEX IF NOT EXISTS idx_materials_supplier_id ON materials(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_stock_movements_material_id ON stock_movements(material_id);
+    `)
+  } catch (e: any) {
+    console.warn('Indeksler eklenirken hata:', e.message)
+  }
+
   // Örnek veriler (sadece ilk kurulumda)
   seedInitialData()
 }

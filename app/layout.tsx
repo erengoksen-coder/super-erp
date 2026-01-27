@@ -4,6 +4,7 @@ import './globals.css'
 import Sidebar from '@/components/Sidebar'
 import AuthGuard from '@/components/AuthGuard'
 import { I18nProvider } from '@/lib/i18n'
+import SWRProvider from '@/components/SWRProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -24,14 +25,16 @@ export default function RootLayout({
       </head>
       <body className={`${inter.className} bg-gray-950 text-gray-100`}>
         <I18nProvider>
-          <AuthGuard>
-            <Sidebar />
-            <main className="lg:ml-64 min-h-screen pt-16 lg:pt-0">
-              <div className="p-3 sm:p-4 md:p-6 lg:p-8">
-                {children}
-              </div>
-            </main>
-          </AuthGuard>
+          <SWRProvider>
+            <AuthGuard>
+              <Sidebar />
+              <main className="lg:ml-64 min-h-screen pt-16 lg:pt-0">
+                <div className="p-3 sm:p-4 md:p-6 lg:p-8">
+                  {children}
+                </div>
+              </main>
+            </AuthGuard>
+          </SWRProvider>
         </I18nProvider>
       </body>
     </html>

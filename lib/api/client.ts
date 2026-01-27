@@ -61,6 +61,10 @@ export function useApi<T>(
 ) {
   return useSWR<T, Error>(key, fetchApi, {
     revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    dedupingInterval: 30_000,
+    errorRetryCount: 2,
+    errorRetryInterval: 5_000,
     ...config,
   })
 }
