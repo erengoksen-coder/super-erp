@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword, isLegacySha256Hash, verifyPassword } from '@/lib/auth/password'
+import { ok, fail } from '@/lib/api/response'
 
 type UserRow = {
   id: string
@@ -61,17 +62,11 @@ export async function POST(request: NextRequest) {
     `).get(username) as UserRow | undefined
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'Kullanıcı adı veya şifre hatalı' },
-        { status: 401 }
-      )
+      return fail('Kullanıcı adı veya şifre hatalı', { status: 401 })
     }
 
     if (!verifyPassword(password, user.password_hash)) {
-      return NextResponse.json(
-        { error: 'Kullanıcı adı veya şifre hatalı' },
-        { status: 401 }
-      )
+      return fail('Kullanıcı adı veya şifre hatalı', { status: 401 })
     }
 
     if (isLegacySha256Hash(user.password_hash)) {
@@ -85,10 +80,7 @@ export async function POST(request: NextRequest) {
 
     // Onay kontrolü
     if (!user.is_approved) {
-      return NextResponse.json(
-        { error: 'Hesabınız henüz onaylanmamış. Lütfen admin onayı bekleyin.' },
-        { status: 403 }
-      )
+      return fail('Hesabınız henüz onaylanmamış. Lütfen admin onayı bekleyin.', { status: 403 })
     }
 
     // Son giriş zamanını güncelle
@@ -101,8 +93,7 @@ export async function POST(request: NextRequest) {
     // Basit token oluştur (gerçek uygulamada JWT kullanılmalı)
     const token = randomUUID()
 
-    return NextResponse.json({
-      success: true,
+    return ok({
       token,
       user: {
         id: user.id,
@@ -114,7 +105,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 

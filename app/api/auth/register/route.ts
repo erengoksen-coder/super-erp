@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword } from '@/lib/auth/password'
+import { ok, fail } from '@/lib/api/response'
 
 type UserIdRow = {
   id: string
@@ -54,20 +55,14 @@ export async function POST(request: NextRequest) {
     // Kullanıcı adı kontrolü
     const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username) as UserIdRow | undefined
     if (existingUser) {
-      return NextResponse.json(
-        { error: 'Bu kullanıcı adı zaten kullanılıyor' },
-        { status: 400 }
-      )
+      return fail('Bu kullanıcı adı zaten kullanılıyor', { status: 400 })
     }
 
     // E-posta kontrolü (varsa)
     if (email) {
       const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as UserIdRow | undefined
       if (existingEmail) {
-        return NextResponse.json(
-          { error: 'Bu e-posta adresi zaten kullanılıyor' },
-          { status: 400 }
-        )
+        return fail('Bu e-posta adresi zaten kullanılıyor', { status: 400 })
       }
     }
 
@@ -77,19 +72,20 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?, ?, 'user', ?, 0)
     `).run(userId, username, email || null, passwordHash, full_name || null, job_title)
 
-    return NextResponse.json({
-      success: true,
-      message: 'Kayıt başarılı! Admin onayı bekleniyor.',
-      user: {
-        id: userId,
-        username,
-        email,
-        full_name,
-        job_title,
+    return ok(
+      {
+        user: {
+          id: userId,
+          username,
+          email,
+          full_name,
+          job_title,
+        },
       },
-    })
+      { message: 'Kayıt başarılı! Admin onayı bekleniyor.' }
+    )
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 

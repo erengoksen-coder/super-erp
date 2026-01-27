@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LogIn, User, Lock, AlertCircle } from 'lucide-react'
+import { fetchApi } from '@/lib/api/client'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,17 +18,11 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const data = await fetchApi('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Giriş başarısız')
-      }
 
       // Token'ı localStorage'a kaydet
       if (data.token) {

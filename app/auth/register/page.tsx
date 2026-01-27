@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, User, Lock, Mail, Briefcase, AlertCircle } from 'lucide-react'
+import { fetchApi } from '@/lib/api/client'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -41,7 +42,7 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/auth/register', {
+      await fetchApi('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -52,12 +53,6 @@ export default function RegisterPage() {
           job_title: formData.job_title,
         }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Kayıt başarısız')
-      }
 
       alert('✅ Kayıt başarılı! Admin onayı bekleniyor. Onaylandıktan sonra giriş yapabilirsiniz.')
       router.push('/auth/login')
