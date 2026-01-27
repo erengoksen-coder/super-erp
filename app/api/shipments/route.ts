@@ -151,7 +151,11 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return ok(shipmentsWithItems)
+    return ok(shipmentsWithItems, {
+      headers: {
+        'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
+      },
+    })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

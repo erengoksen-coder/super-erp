@@ -189,7 +189,11 @@ export async function GET(request: NextRequest) {
         })
       }
       
-      return ok(filteredOrders)
+      return ok(filteredOrders, {
+        headers: {
+          'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
+        },
+      })
     }
 
     // Diğer status'ler için normal sorgu
@@ -223,7 +227,11 @@ export async function GET(request: NextRequest) {
     const orders = db.prepare(query).all(...params) as OrderRow[]
     
     // Status pending değilse normal filtreleme
-    return ok(orders)
+    return ok(orders, {
+      headers: {
+        'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
+      },
+    })
   } catch (error: any) {
     console.error('Siparişler yüklenirken hata:', error)
     return fail(error.message, { status: 500 })
