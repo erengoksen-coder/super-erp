@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+build
+.turbo
+coverage
+.vercel
+.git
+.idea
+.vscode
+data
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env*

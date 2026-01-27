@@ -1,0 +1,36 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getDatabase } from '@/lib/database/db'
+
+// GET: Cari hesap işlemlerini getir
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
+  try {
+    const db = getDatabase()
+    const resolvedParams = await Promise.resolve(params)
+    const accountId = resolvedParams.id
+
+    const transactions = db.prepare(`
+      SELECT 
+        at.*,
+        si.product_id,
+        si.quantity,
+        si.unit_price,
+        si.total_price,
+        p.name as product_name,
+        p.sku as product_sku,
+        s.shipment_number
+      FROM account_transactions at
+      LEFT JOIN shipment_items si ON at.reference_id = si.id AND at.reference_type = 'shipment_item'
+      LEFT JOIN shipments s ON si.shipment_id = s.id
+      LEFT JOIN products p ON si.product_id = p.id
+      WHERE at.account_id = ?
+      ORDER BY at.created_at DESC
+    `).all(accountId) as any[]
+
+    return NextResponse.json(transactions)
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}

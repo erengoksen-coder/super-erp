@@ -1,0 +1,46 @@
+{
+  "name": "super-erp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NEXT_DISABLE_TURBO=1 node server-https.js",
+    "dev:https": "cross-env NEXT_DISABLE_TURBO=1 node server-https.js",
+    "dev:simple": "next dev -H 0.0.0.0",
+    "dev:clean": "rm -rf .next .turbo && next dev -H 0.0.0.0",
+    "dev:local": "next dev",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.89.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.5.0",
+    "canvg": "^4.0.3",
+    "core-js": "^3.47.0",
+    "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
+    "jsbarcode": "^3.12.1",
+    "jspdf": "^3.0.4",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.1",
+    "qrcode.react": "^4.2.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^2.12.7",
+    "selfsigned": "^2.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "cross-env": "^7.0.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
