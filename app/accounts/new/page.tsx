@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Save, X } from 'lucide-react'
 import { getUserId } from '@/lib/auth'
+import { fetchApi } from '@/lib/api/client'
 
 export default function NewAccountPage() {
   const router = useRouter()
@@ -24,7 +25,7 @@ export default function NewAccountPage() {
 
     try {
       const userId = getUserId()
-      const response = await fetch('/api/accounts', {
+      await fetchApi('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -32,11 +33,6 @@ export default function NewAccountPage() {
           created_by: userId
         }),
       })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Cari hesap oluşturulamadı')
-      }
 
       router.push('/accounts')
     } catch (error: any) {

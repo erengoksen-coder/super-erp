@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Truck, User, Package, Plus, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { getUserRole } from '@/lib/auth'
+import { fetchApi, useApi } from '@/lib/api/client'
 
 interface Customer {
   id: string
@@ -41,8 +42,8 @@ export default function NewShipmentPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([])
   const [shipmentItems, setShipmentItems] = useState<ShipmentItem[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
   
   // Kullanıcı rolünü kontrol et
@@ -59,55 +60,43 @@ export default function NewShipmentPage() {
       setSelectedCustomerId(customerIdFromUrl)
     }
     
-    // Müşteri listesini yükle (admin için seçim, normal kullanıcı için gösterim)
-    loadCustomers()
   }, [searchParams])
 
   useEffect(() => {
-    if (selectedCustomerId) {
-      loadReadyItems(selectedCustomerId)
-    } else {
+    if (!selectedCustomerId) {
       setReadyItems([])
       setShipmentItems([])
     }
   }, [selectedCustomerId])
 
-  async function loadCustomers() {
-    try {
-      const response = await fetch('/api/accounts?type=customer')
-      if (response.ok) {
-        const data = await response.json()
-        setCustomers(data)
-      }
-    } catch (error) {
-      console.error('Error loading customers:', error)
-    }
-  }
+  const { data: customersData } = useApi<Customer[]>('/api/accounts?type=customer')
 
-  async function loadReadyItems(customerId: string) {
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/shipments/ready-items?customer_id=${customerId}`)
-      if (!response.ok) throw new Error('Sevk edilebilir ürünler yüklenemedi')
-      const data = await response.json()
-      setReadyItems(data.items || [])
-      
-      // Shipment items'ı başlat - Barkodlar boş olarak başlat (kullanıcı girecek)
-      const initialItems: ShipmentItem[] = (data.items || []).map((item: ReadyItem) => ({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        product_sku: item.product_sku,
-        quantity: item.total_count,
-        barcodes: [], // Barkodlar boş başlar, kullanıcı girecek
-        required_count: item.total_count,
-      }))
-      setShipmentItems(initialItems)
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    setCustomers(customersData ?? [])
+  }, [customersData])
+
+  const readyItemsKey = useMemo(() => {
+    return selectedCustomerId
+      ? `/api/shipments/ready-items?customer_id=${selectedCustomerId}`
+      : null
+  }, [selectedCustomerId])
+
+  const { data: readyItemsData, isLoading } = useApi<{ items: ReadyItem[] }>(readyItemsKey)
+
+  useEffect(() => {
+    if (!readyItemsData?.items) return
+    setReadyItems(readyItemsData.items)
+    const initialItems: ShipmentItem[] = readyItemsData.items.map((item) => ({
+      product_id: item.product_id,
+      product_name: item.product_name,
+      product_sku: item.product_sku,
+      quantity: item.total_count,
+      barcodes: [],
+      required_count: item.total_count,
+    }))
+    setShipmentItems(initialItems)
+    setError('')
+  }, [readyItemsData])
 
   function handleBarcodeInput(productId: string, barcode: string) {
     if (!barcode.trim()) return
@@ -168,7 +157,7 @@ export default function NewShipmentPage() {
       return
     }
 
-    setLoading(true)
+    setIsSubmitting(true)
     setError('')
 
     try {
@@ -185,21 +174,18 @@ export default function NewShipmentPage() {
       // Ürün fiyatlarını hesapla - Tüm ürünleri tek seferde al
       let totalAmount = 0
       try {
-        const productsResponse = await fetch('/api/products')
-        if (productsResponse.ok) {
-          const allProducts = await productsResponse.json()
-          for (const item of shipmentItems) {
-            const product = allProducts.find((p: any) => p.id === item.product_id)
-            if (product && product.selling_price) {
-              totalAmount += product.selling_price * item.barcodes.length
-            }
+        const allProducts = await fetchApi<any[]>('/api/products')
+        for (const item of shipmentItems) {
+          const product = allProducts.find((p) => p.id === item.product_id)
+          if (product && product.selling_price) {
+            totalAmount += product.selling_price * item.barcodes.length
           }
         }
       } catch (e) {
         console.warn('Ürün fiyatları alınamadı:', e)
       }
 
-      const response = await fetch('/api/shipments', {
+      const shipmentData = await fetchApi<any>('/api/shipments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -211,13 +197,6 @@ export default function NewShipmentPage() {
           notes: 'Mamül depodan sevk edildi',
         }),
       })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Sevkiyat oluşturulamadı')
-      }
-
-      const shipmentData = await response.json()
       // API response'u shipment objesi olarak dönüyor
       const shipmentId = shipmentData.id || shipmentData.shipment?.id
       if (!shipmentId) {
@@ -230,7 +209,7 @@ export default function NewShipmentPage() {
     } catch (error: any) {
       setError(error.message)
     } finally {
-      setLoading(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -296,7 +275,7 @@ export default function NewShipmentPage() {
         {/* Sevk Edilebilir Ürünler */}
         {selectedCustomerId && (
           <div className="space-y-4">
-            {loading ? (
+            {isLoading ? (
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-400">Yükleniyor...</p>
@@ -479,12 +458,12 @@ export default function NewShipmentPage() {
                     </button>
                     <button
                       onClick={handleCreateShipment}
-                      disabled={loading || !validateShipment().valid}
+                      disabled={isSubmitting || isLoading || !validateShipment().valid}
                       className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                       title={!validateShipment().valid ? 'Lütfen tüm barkodları girin' : ''}
                     >
                       <Truck className="w-5 h-5" />
-                      <span>{loading ? 'Oluşturuluyor...' : 'Sevkiyat Oluştur'}</span>
+                      <span>{isSubmitting ? 'Oluşturuluyor...' : 'Sevkiyat Oluştur'}</span>
                     </button>
                   </div>
                 </div>

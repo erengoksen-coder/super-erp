@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Package, AlertTriangle, ArrowUp, ArrowDown, Edit, Trash2, Save, X, History as HistoryIcon, Clock, Printer, Truck, User } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { getUserRole, isAdmin } from '@/lib/auth'
+import { fetchApi } from '@/lib/api/client'
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
   const { localDB } = await import('@/lib/database/client')
@@ -187,11 +188,8 @@ export default function ProductsInventoryPage() {
 
   async function loadCustomers() {
     try {
-      const response = await fetch('/api/accounts?type=customer')
-      if (response.ok) {
-        const data = await response.json()
-        setCustomers(data)
-      }
+      const data = await fetchApi('/api/accounts?type=customer')
+      setCustomers(data)
     } catch (error) {
       console.error('Müşteriler yüklenirken hata:', error)
     }
@@ -201,20 +199,14 @@ export default function ProductsInventoryPage() {
     try {
       setLoading(true)
       // Tüm barkodları al
-      const response = await fetch('/api/barcodes')
-      if (response.ok) {
-        const data = await response.json()
-        // Sadece mamül depoda olanları filtrele (sold değil, in_production değil)
-        const availableBarcodes = data.filter((b: any) => {
-          // Eğer production_order_status varsa ve completed değilse, üretimde demektir
-          if (b.production_order_status && b.production_order_status !== 'completed') {
-            return false
-          }
-          // Status kontrolü
-          return b.status === 'available' || b.status === 'in_stock' || (!b.status || b.status === null) || b.status === ''
-        })
-        setBarcodes(availableBarcodes)
-      }
+      const data = await fetchApi<any[]>('/api/barcodes')
+      const availableBarcodes = data.filter((b) => {
+        if (b.production_order_status && b.production_order_status !== 'completed') {
+          return false
+        }
+        return b.status === 'available' || b.status === 'in_stock' || (!b.status || b.status === null) || b.status === ''
+      })
+      setBarcodes(availableBarcodes)
     } catch (error) {
       console.error('Barkodlar yüklenirken hata:', error)
     } finally {

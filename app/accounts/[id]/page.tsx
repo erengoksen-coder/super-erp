@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight } from 'lucide-react'
+import { fetchApi } from '@/lib/api/client'
 
 interface Account {
   id: string
@@ -80,9 +81,7 @@ export default function AccountDetailPage() {
 
   async function loadAccount(id: string) {
     try {
-      const response = await fetch(`/api/accounts/${id}`)
-      if (!response.ok) throw new Error('Cari hesap yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi(`/api/accounts/${id}`)
       setAccount(data)
     } catch (error) {
       console.error('Error loading account:', error)
@@ -95,9 +94,7 @@ export default function AccountDetailPage() {
 
   async function loadShipments(accountId: string) {
     try {
-      const response = await fetch(`/api/shipments?customer_id=${accountId}`)
-      if (!response.ok) throw new Error('Sevkiyatlar yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi(`/api/shipments?customer_id=${accountId}`)
       setShipments(data)
     } catch (error) {
       console.error('Error loading shipments:', error)
@@ -106,9 +103,7 @@ export default function AccountDetailPage() {
 
   async function loadTransactions(accountId: string) {
     try {
-      const response = await fetch(`/api/accounts/${accountId}/transactions`)
-      if (!response.ok) throw new Error('Cari hesap işlemleri yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi(`/api/accounts/${accountId}/transactions`)
       setTransactions(data)
     } catch (error) {
       console.error('Error loading transactions:', error)

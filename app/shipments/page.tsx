@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
-import { useApi } from '@/lib/api/client'
+import { fetchApi, useApi } from '@/lib/api/client'
 
 interface Shipment {
   id: string
@@ -156,11 +156,8 @@ export default function ShipmentsPage() {
 
   async function loadCustomers() {
     try {
-      const response = await fetch('/api/accounts?type=customer')
-      if (response.ok) {
-        const data = await response.json()
-        setCustomers(data)
-      }
+      const data = await fetchApi('/api/accounts?type=customer')
+      setCustomers(data)
     } catch (error) {
       console.error('Error loading customers:', error)
     }

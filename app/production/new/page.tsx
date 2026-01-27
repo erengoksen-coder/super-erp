@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle, Package, Factory, Search, Filter } from 'luci
 import { Modal } from '@/components/ui/modal'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
+import { fetchApi } from '@/lib/api/client'
 
 interface Product {
   id: string
@@ -427,21 +428,18 @@ export default function NewProductionOrderPage() {
             
             // Hammadde depodan siparişteki kumaş koduna sahip malzemeyi bul
             try {
-              const materialsResponse = await fetch('/api/materials')
-              if (materialsResponse.ok) {
-                const allMaterials = await materialsResponse.json()
-                orderFabricMaterial = allMaterials.find((m: any) => 
-                  m.category && m.category.toLowerCase() === 'kumaş' && (
-                    m.name.toLowerCase().trim() === orderFabricCode.toLowerCase().trim() ||
-                    m.name.toLowerCase().trim().includes(orderFabricCode.toLowerCase().trim()) ||
-                    (m.code && m.code.toLowerCase().trim() === orderFabricCode.toLowerCase().trim())
-                  )
+              const allMaterials = await fetchApi<any[]>('/api/materials')
+              orderFabricMaterial = allMaterials.find((m) => 
+                m.category && m.category.toLowerCase() === 'kumaş' && (
+                  m.name.toLowerCase().trim() === orderFabricCode.toLowerCase().trim() ||
+                  m.name.toLowerCase().trim().includes(orderFabricCode.toLowerCase().trim()) ||
+                  (m.code && m.code.toLowerCase().trim() === orderFabricCode.toLowerCase().trim())
                 )
-                if (orderFabricMaterial) {
-                  console.log(`[BOM Yükleme] Siparişteki kumaş kodu için hammadde bulundu: ${orderFabricMaterial.name || orderFabricMaterial.code} (ID: ${orderFabricMaterial.id})`)
-                } else {
-                  console.warn(`[BOM Yükleme] Siparişteki kumaş kodu için hammadde bulunamadı: ${orderFabricCode}`)
-                }
+              )
+              if (orderFabricMaterial) {
+                console.log(`[BOM Yükleme] Siparişteki kumaş kodu için hammadde bulundu: ${orderFabricMaterial.name || orderFabricMaterial.code} (ID: ${orderFabricMaterial.id})`)
+              } else {
+                console.warn(`[BOM Yükleme] Siparişteki kumaş kodu için hammadde bulunamadı: ${orderFabricCode}`)
               }
             } catch (error) {
               console.error(`[BOM Yükleme] Hammadde arama hatası:`, error)
@@ -480,12 +478,9 @@ export default function NewProductionOrderPage() {
           
           // Diğer malzemeler için normal işlem
           // Malzeme stok bilgisini al - DEPO STOĞU
-          const materialResponse = await fetch(`/api/materials/${item.material_id}`)
           let availableStock = 0
-          if (materialResponse.ok) {
-            const material = await materialResponse.json()
-            availableStock = parseFloat(material.stock_amount) || 0
-          }
+          const material = await fetchApi<any>(`/api/materials/${item.material_id}`)
+          availableStock = parseFloat(material.stock_amount) || 0
 
           // Fire yüzdesini hesaba kat
           const firePercentage = parseFloat(item.fire_percentage) || 0
@@ -628,12 +623,11 @@ export default function NewProductionOrderPage() {
       
       for (const item of bomData) {
         // Malzeme stok bilgisini al - DEPO STOĞU
-        const materialResponse = await fetch(`/api/materials/${item.material_id}`)
         let availableStock = 0
-        if (materialResponse.ok) {
-          const material = await materialResponse.json()
+        try {
+          const material = await fetchApi<any>(`/api/materials/${item.material_id}`)
           availableStock = parseFloat(material.stock_amount) || 0
-        } else {
+        } catch {
           // Malzeme bulunamadıysa hata ver
           insufficientItems.push({
             stock_id: item.material_id,

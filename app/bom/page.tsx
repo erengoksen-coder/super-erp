@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Package, Plus, Edit, Trash2, Save, X, Factory } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { fetchApi } from '@/lib/api/client'
 
 interface Product {
   id: string
@@ -72,26 +73,14 @@ export default function BOMPage() {
   async function loadData() {
     setLoading(true)
     try {
-      // BOM kayıtlarını yükle
-      const bomResponse = await fetch('/api/bom')
-      if (bomResponse.ok) {
-        const bomData = await bomResponse.json()
-        setBomGroups(bomData)
-      }
-
-      // Ürünleri yükle
-      const productsResponse = await fetch('/api/products')
-      if (productsResponse.ok) {
-        const productsData = await productsResponse.json()
-        setProducts(productsData)
-      }
-
-      // Malzemeleri yükle
-      const materialsResponse = await fetch('/api/materials')
-      if (materialsResponse.ok) {
-        const materialsData = await materialsResponse.json()
-        setMaterials(materialsData)
-      }
+      const [bomData, productsData, materialsData] = await Promise.all([
+        fetchApi('/api/bom'),
+        fetchApi('/api/products'),
+        fetchApi('/api/materials'),
+      ])
+      setBomGroups(bomData)
+      setProducts(productsData)
+      setMaterials(materialsData)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
@@ -141,7 +130,7 @@ export default function BOMPage() {
     if (!productId) {
       // Yeni ürün oluştur
       try {
-        const productResponse = await fetch('/api/products', {
+        const newProduct = await fetchApi('/api/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -151,13 +140,6 @@ export default function BOMPage() {
             selling_price: 0,
           }),
         })
-        
-        if (!productResponse.ok) {
-          const error = await productResponse.json()
-          throw new Error(error.error || 'Ürün oluşturulamadı')
-        }
-        
-        const newProduct = await productResponse.json()
         productId = newProduct.id
       } catch (error: any) {
         alert('Hata: ' + error.message)

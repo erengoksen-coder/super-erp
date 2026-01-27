@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw } from 'lucide-react'
+import { fetchApi } from '@/lib/api/client'
 
 interface ProductionOrder {
   id: string
@@ -99,11 +100,8 @@ export default function ProductionOrderDetailPage() {
       }
 
       // Müşterileri yükle
-      const customersResponse = await fetch('/api/accounts?type=customer')
-      if (customersResponse.ok) {
-        const customersData = await customersResponse.json()
-        setCustomers(customersData)
-      }
+      const customersData = await fetchApi('/api/accounts?type=customer')
+      setCustomers(customersData)
     } catch (error) {
       console.error('Error loading data:', error)
       alert('Veri yüklenirken hata oluştu')

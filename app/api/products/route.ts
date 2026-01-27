@@ -1,11 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
+import { ok, fail } from '@/lib/api/response'
+import { handleApi } from '@/lib/api/handler'
 
 // GET: Tüm ürünleri getir
 export async function GET() {
-  try {
+  return handleApi(async () => {
     const db = getDatabase()
     const products = db.prepare('SELECT * FROM products ORDER BY sku').all() as any[]
     
@@ -29,17 +31,13 @@ export async function GET() {
       }
     })
     
-    return NextResponse.json(productsWithRealStock, {
-      headers: CACHE_HEADERS_SHORT,
-    })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    return ok(productsWithRealStock, { headers: CACHE_HEADERS_SHORT })
+  })
 }
 
 // POST: Yeni ürün ekle
 export async function POST(request: NextRequest) {
-  try {
+  return handleApi(async () => {
     const body = await request.json()
     const db = getDatabase()
     
@@ -51,10 +49,8 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?)
     `).run(id, name, sku, price)
 
-    return NextResponse.json({ id, ...body }, { status: 201 })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+    return ok({ id, ...body }, { status: 201 })
+  })
 }
 
 

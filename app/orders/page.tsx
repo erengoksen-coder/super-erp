@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
-import { useApi } from '@/lib/api/client'
+import { fetchApi, useApi } from '@/lib/api/client'
 
 interface Order {
   id: string
@@ -88,18 +88,14 @@ export default function OrdersPage() {
 
   async function loadAccounts() {
     try {
-      const response = await fetch('/api/accounts?type=customer')
-      if (response.ok) {
-        const data = await response.json()
-        // Müşteri koduna göre sırala
-        const sorted = [...data].sort((a, b) => {
-          const codeA = a.code || ''
-          const codeB = b.code || ''
-          return codeA.localeCompare(codeB, 'tr', { numeric: true })
-        })
-        setAccounts(sorted)
-        setFilteredAccounts(sorted)
-      }
+      const data = await fetchApi('/api/accounts?type=customer')
+      const sorted = [...data].sort((a, b) => {
+        const codeA = a.code || ''
+        const codeB = b.code || ''
+        return codeA.localeCompare(codeB, 'tr', { numeric: true })
+      })
+      setAccounts(sorted)
+      setFilteredAccounts(sorted)
     } catch (error) {
       console.error('Cari hesaplar yüklenirken hata:', error)
     }
@@ -144,7 +140,7 @@ export default function OrdersPage() {
     // Eğer bayi yoksa otomatik oluştur
     if (!existingAccount) {
       try {
-        const response = await fetch('/api/accounts', {
+        const data = await fetchApi('/api/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -152,18 +148,14 @@ export default function OrdersPage() {
             type: 'customer'
           })
         })
-        if (response.ok) {
-          const data = await response.json()
-          dealerAccountId = data.id
-          // Yeni cari hesabı listeye ekle
-          const newAccount: Account = {
-            id: data.id,
-            code: data.code,
-            name: newOrder.dealer_name,
-            type: 'customer'
-          }
-          setAccounts([...accounts, newAccount])
+        dealerAccountId = data.id
+        const newAccount: Account = {
+          id: data.id,
+          code: data.code,
+          name: newOrder.dealer_name,
+          type: 'customer'
         }
+        setAccounts([...accounts, newAccount])
       } catch (error) {
         console.error('Cari hesap oluşturulurken hata:', error)
       }

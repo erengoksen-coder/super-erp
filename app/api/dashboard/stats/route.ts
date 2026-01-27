@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { ok } from '@/lib/api/response'
+import { handleApi } from '@/lib/api/handler'
 import { getDatabase } from '@/lib/database/db'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 
@@ -24,7 +25,7 @@ type StationStatRow = {
 }
 
 export async function GET() {
-  try {
+  return handleApi(async () => {
     const db = getDatabase()
 
     // 1. Toplam Stok Değeri (Hammaddeler)
@@ -113,7 +114,7 @@ export async function GET() {
       formattedStationStats[0] || { station: '', station_name: '', count: 0, total_quantity: 0 }
     )
 
-    return NextResponse.json(
+    return ok(
       {
         totalStockValue,
         pendingProduction: pendingProduction?.count || 0,
@@ -124,8 +125,6 @@ export async function GET() {
       },
       { headers: CACHE_HEADERS_SHORT }
     )
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  })
 }
 

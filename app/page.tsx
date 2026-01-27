@@ -6,6 +6,7 @@ import { Package, Factory, AlertTriangle, TrendingUp, DollarSign, Clock, AlertCi
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { getUserRole } from '@/lib/auth'
 import { LogoWithBackground } from '@/components/Logo'
+import { fetchApi } from '@/lib/api/client'
 
 interface DashboardStats {
   totalStockValue: number
@@ -34,9 +35,7 @@ function PurchaseRequestsNotification() {
   async function loadPurchaseRequests() {
     try {
       // Sadece "draft" ve "ordered" status'undaki talepleri göster
-      const response = await fetch('/api/purchase-requests')
-      if (!response.ok) return
-      const data = await response.json()
+      const data = await fetchApi('/api/purchase-requests')
       // "completed" olmayanları filtrele
       const activeRequests = data.filter((r: any) => 
         (r.status === 'draft' || r.status === 'ordered') && !dismissed.includes(r.id)
@@ -156,11 +155,8 @@ export default function DashboardPage() {
 
   async function loadPlanning() {
     try {
-      const response = await fetch('/api/production/planning')
-      if (response.ok) {
-        const data = await response.json()
-        setPlanning(data)
-      }
+      const data = await fetchApi('/api/production/planning')
+      setPlanning(data)
     } catch (error) {
       console.error('Error loading planning:', error)
     }
@@ -168,9 +164,7 @@ export default function DashboardPage() {
 
   async function loadStats() {
     try {
-      const response = await fetch('/api/dashboard/stats')
-      if (!response.ok) throw new Error('İstatistikler yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi('/api/dashboard/stats')
       setStats(data)
     } catch (error) {
       console.error('Error loading stats:', error)
