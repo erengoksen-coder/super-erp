@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { Plus, Search, Users, Building2, Edit, Trash2, X } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
-import { getUserId } from '@/lib/auth'
 import { useApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface Account {
   id: string
@@ -33,6 +33,7 @@ export default function AccountsPage() {
   const [filterType, setFilterType] = useState<string>('all')
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const userId = useAuthStore((state) => state.user?.id ?? null)
   const [editForm, setEditForm] = useState({
     name: '',
     type: 'customer',
@@ -90,7 +91,6 @@ export default function AccountsPage() {
     if (!editingAccount) return
     
     try {
-      const userId = getUserId()
       const response = await fetch(`/api/accounts/${editingAccount.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { fetchApi } from '@/lib/api/client'
 
 interface ProductionOrder {
   id: string
@@ -11,6 +12,10 @@ interface ProductionOrder {
   quantity: number
   status: string
   created_at: string
+  customer_name?: string | null
+  dealer_name?: string | null
+  configuration?: string | null
+  order_date?: string | null
   due_date?: string
   estimated_completion_date?: string
   started_at?: string
@@ -22,6 +27,7 @@ export default function ProductionCalendarPage() {
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in_progress' | 'overdue'>('all')
 
   useEffect(() => {
     loadOrders()
@@ -29,9 +35,7 @@ export default function ProductionCalendarPage() {
 
   async function loadOrders() {
     try {
-      const response = await fetch('/api/production')
-      if (!response.ok) throw new Error('Üretim emirleri yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi<ProductionOrder[]>('/api/production')
       setOrders(data)
     } catch (error) {
       console.error('Error loading orders:', error)
@@ -91,12 +95,24 @@ export default function ProductionCalendarPage() {
   // Tarihe göre emirleri filtrele
   function getOrdersForDate(date: Date): ProductionOrder[] {
     const dateStr = date.toISOString().split('T')[0]
-    return orders.filter(order => {
+    return filteredOrders.filter(order => {
       const orderDate = order.due_date || order.estimated_completion_date || order.created_at
       const orderDateStr = new Date(orderDate).toISOString().split('T')[0]
       return orderDateStr === dateStr
     })
   }
+
+  const filteredOrders = orders.filter((order) => {
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'completed') return order.status === 'completed'
+    if (statusFilter === 'in_progress') return order.status === 'in_progress'
+    if (statusFilter === 'overdue') {
+      const now = new Date()
+      const dueDate = order.due_date ? new Date(order.due_date) : null
+      return Boolean(dueDate && now > dueDate && order.status !== 'completed')
+    }
+    return true
+  })
 
   // Durum rengini belirle
   function getStatusColor(order: ProductionOrder): string {
@@ -291,6 +307,18 @@ export default function ProductionCalendarPage() {
                           </div>
                           <div className="truncate">{order.product_name}</div>
                           <div className="text-xs opacity-75">{order.quantity} adet</div>
+                          {order.status === 'in_progress' && (
+                            <div className="mt-1 text-[10px] opacity-80 space-y-0.5">
+                              {(order.customer_name || order.dealer_name) && (
+                                <div className="truncate">
+                                  {order.customer_name || order.dealer_name}
+                                </div>
+                              )}
+                              {order.configuration && (
+                                <div className="truncate">Parça: {order.configuration}</div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -337,6 +365,11 @@ export default function ProductionCalendarPage() {
                               {getStatusIcon(order)}
                               <span className="truncate">{order.order_number}</span>
                             </div>
+                            {order.status === 'in_progress' && (order.customer_name || order.dealer_name) && (
+                              <div className="truncate text-[9px] opacity-80">
+                                {order.customer_name || order.dealer_name}
+                              </div>
+                            )}
                           </div>
                         ))}
                         {dayOrders.length > 3 && (
@@ -356,23 +389,47 @@ export default function ProductionCalendarPage() {
 
       {/* İstatistikler */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={`bg-gray-900 rounded-lg border border-gray-800 p-4 text-left transition ${
+            statusFilter === 'all' ? 'ring-2 ring-blue-500' : 'hover:bg-gray-800'
+          }`}
+        >
           <div className="text-sm text-gray-400 mb-1">Toplam Emir</div>
           <div className="text-2xl font-bold text-white">{orders.length}</div>
-        </div>
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('completed')}
+          className={`bg-gray-900 rounded-lg border border-gray-800 p-4 text-left transition ${
+            statusFilter === 'completed' ? 'ring-2 ring-blue-500' : 'hover:bg-gray-800'
+          }`}
+        >
           <div className="text-sm text-gray-400 mb-1">Tamamlandı</div>
           <div className="text-2xl font-bold text-green-400">
             {orders.filter((o) => o.status === 'completed').length}
           </div>
-        </div>
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('in_progress')}
+          className={`bg-gray-900 rounded-lg border border-gray-800 p-4 text-left transition ${
+            statusFilter === 'in_progress' ? 'ring-2 ring-blue-500' : 'hover:bg-gray-800'
+          }`}
+        >
           <div className="text-sm text-gray-400 mb-1">Devam Ediyor</div>
           <div className="text-2xl font-bold text-yellow-400">
             {orders.filter((o) => o.status === 'in_progress').length}
           </div>
-        </div>
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('overdue')}
+          className={`bg-gray-900 rounded-lg border border-gray-800 p-4 text-left transition ${
+            statusFilter === 'overdue' ? 'ring-2 ring-blue-500' : 'hover:bg-gray-800'
+          }`}
+        >
           <div className="text-sm text-gray-400 mb-1">Geciken</div>
           <div className="text-2xl font-bold text-red-400">
             {orders.filter((o) => {
@@ -381,7 +438,7 @@ export default function ProductionCalendarPage() {
               return dueDate && now > dueDate && o.status !== 'completed'
             }).length}
           </div>
-        </div>
+        </button>
       </div>
     </div>
   )

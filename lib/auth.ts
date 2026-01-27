@@ -3,50 +3,48 @@
  * Gerçek uygulamada JWT veya session kullanılmalı
  */
 
+import { useAuthStore } from '@/lib/store/authStore'
+
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('auth_token')
+  return useAuthStore.getState().token
 }
 
 export function getUserId(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('user_id')
+  return useAuthStore.getState().user?.id ?? null
 }
 
 export function getUserRole(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('user_role')
+  return useAuthStore.getState().user?.role ?? null
 }
 
 export function isAuthenticated(): boolean {
-  return !!getAuthToken()
+  return !!useAuthStore.getState().token
 }
 
 export function isAdmin(): boolean {
-  return getUserRole() === 'admin'
+  return useAuthStore.getState().user?.role === 'admin'
 }
 
 export function getUserName(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('user_name')
+  const user = useAuthStore.getState().user
+  return user?.full_name || user?.username || null
 }
 
 export function getCurrentUser() {
-  if (typeof window === 'undefined') return null
+  const user = useAuthStore.getState().user
+  if (!user) return null
   return {
-    id: getUserId(),
-    name: getUserName(),
-    username: getUserName(),
-    role: getUserRole(),
+    id: user.id,
+    name: user.full_name || user.username,
+    username: user.username,
+    role: user.role,
   }
 }
 
 export function logout() {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem('auth_token')
-  localStorage.removeItem('user_id')
-  localStorage.removeItem('user_role')
-  localStorage.removeItem('user_name')
-  window.location.href = '/auth/login'
+  useAuthStore.getState().clearAuth()
+  if (typeof window !== 'undefined') {
+    window.location.href = '/auth/login'
+  }
 }
 

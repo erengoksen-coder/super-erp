@@ -1,8 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-
-type Language = 'tr' | 'en'
+import { usePreferencesStore, type Language } from '@/lib/store/preferencesStore'
 
 interface Translations {
   [key: string]: string | Translations
@@ -34,7 +33,8 @@ async function loadTranslations(lang: Language): Promise<Translations> {
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('tr')
+  const language = usePreferencesStore((state) => state.language)
+  const setLanguage = usePreferencesStore((state) => state.setLanguage)
   const [loadedTranslations, setLoadedTranslations] = useState<Record<Language, Translations>>({
     tr: {},
     en: {}
@@ -62,24 +62,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       }))
       translations.tr = trans
     })
-  }, [])
-
-  const setLanguage = (lang: Language) => {
-    setLanguageState(lang)
-    // Dil tercihini localStorage'a kaydet
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('language', lang)
-    }
-  }
-
-  // localStorage'dan dil tercihini yükle
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedLang = localStorage.getItem('language') as Language | null
-      if (savedLang && (savedLang === 'tr' || savedLang === 'en')) {
-        setLanguageState(savedLang)
-      }
-    }
   }, [])
 
   const t = (key: string, params?: Record<string, string | number>): string => {

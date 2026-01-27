@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { calculateProductionCost, calculateProfit } from '@/lib/utils/costCalculator'
 
@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const customerName = searchParams.get('customer_name') // Müşteri ismi arama filtresi
+    const search = searchParams.get('search') || searchParams.get('q') // Cari/ürün araması
     
     // Önce production_orders tablosunun var olup olmadığını kontrol et
     try {
@@ -46,11 +47,28 @@ export async function GET(request: NextRequest) {
       WHERE 1=1
     `
     const params: any[] = []
+    query += ' AND po.company_id = ? AND po.branch_id = ?'
+    params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
     
     // Müşteri ismi arama filtresi
     if (customerName && customerName.trim()) {
       query += ' AND o.customer_name LIKE ?'
       params.push(`%${customerName.trim()}%`)
+    }
+
+    if (search && search.trim()) {
+      const term = `%${search.trim()}%`
+      query += `
+        AND (
+          o.customer_name LIKE ?
+          OR o.dealer_name LIKE ?
+          OR p.name LIKE ?
+          OR p.sku LIKE ?
+          OR po.order_number LIKE ?
+          OR o.order_number LIKE ?
+        )
+      `
+      params.push(term, term, term, term, term, term)
     }
     
     query += ' ORDER BY po.created_at DESC'
@@ -153,8 +171,8 @@ export async function POST(request: NextRequest) {
       const orderId = randomUUID()
       db.prepare(`
         INSERT INTO production_orders 
-        (id, order_number, product_id, quantity, status, material_cost, labor_cost, total_cost, selling_price, profit, due_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, order_number, product_id, quantity, status, material_cost, labor_cost, total_cost, selling_price, profit, due_date, company_id, branch_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderId, 
         order_number, 
@@ -166,13 +184,15 @@ export async function POST(request: NextRequest) {
         totalCost,
         sellingPrice,
         profit,
-        due_date || null
+        due_date || null,
+        DEFAULT_COMPANY_ID,
+        DEFAULT_BRANCH_ID
       )
 
       // 4. Stok hareketlerini oluştur ve stokları düş
       const insertMovement = db.prepare(`
-        INSERT INTO stock_movements (id, material_id, movement_type, quantity, reference_type, reference_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO stock_movements (id, material_id, movement_type, quantity, reference_type, reference_id, notes, company_id, branch_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       // Stok güncelleme sorgusu
@@ -203,7 +223,9 @@ export async function POST(request: NextRequest) {
           totalRequired, // quantity
           'production_order', // reference_type
           orderId, // reference_id
-          `Üretim emri: ${order_number} - ${item.material_name} (Fire: ${firePercentage}%)` // notes
+          `Üretim emri: ${order_number} - ${item.material_name} (Fire: ${firePercentage}%)`, // notes
+          DEFAULT_COMPANY_ID,
+          DEFAULT_BRANCH_ID
         )
         
         // Fiili harcanan kaydı oluştur

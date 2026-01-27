@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface User {
   id: string
@@ -68,6 +69,7 @@ export default function UsersPage() {
     can_edit: boolean
     can_delete: boolean
   }>>({})
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
 
   useEffect(() => {
     loadUsers()
@@ -160,8 +162,6 @@ export default function UsersPage() {
   async function handleSave() {
     try {
       const userId = editingUserId
-      const currentUserId = localStorage.getItem('user_id')
-
       if (userId) {
         // Güncelleme
         const response = await fetch(`/api/users/${userId}`, {

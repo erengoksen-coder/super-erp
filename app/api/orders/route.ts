@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
@@ -59,6 +59,13 @@ type InsertedOrder = {
   quantity?: number
   status: 'pending'
   product_id: string | null
+}
+
+type OrderStatusRow = {
+  id: string
+  status: string
+  production_order_id: string | null
+  order_number: string
 }
 
 // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
@@ -134,9 +141,11 @@ export async function GET(request: NextRequest) {
         WHERE o.status = 'pending'
           AND o.status != 'in_production'
           AND (o.production_order_id IS NULL OR o.production_order_id = '')
+          AND o.company_id = ?
+          AND o.branch_id = ?
         ORDER BY COALESCE(o.order_date, o.created_at) ASC
       `
-      const orders = db.prepare(query).all() as OrderRow[]
+      const orders = db.prepare(query).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as OrderRow[]
       
       // ÇOK SIKI filtreleme: JavaScript tarafında da filtrele
       const filteredOrders = orders.filter(order => {
@@ -206,6 +215,9 @@ export async function GET(request: NextRequest) {
       WHERE 1=1
     `
     const params: string[] = []
+
+    query += ' AND o.company_id = ? AND o.branch_id = ?'
+    params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     if (status) {
       query += ' AND o.status = ?'
@@ -289,8 +301,8 @@ export async function POST(request: NextRequest) {
         INSERT INTO orders (
           id, order_number, dealer_name, customer_name, customer_code, product_name, product_sku,
           product_id, quantity, unit_price, total_amount, order_date, delivery_date, status,
-          configuration, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
+          configuration, notes, company_id, branch_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         orderId,
         orderNumber,
@@ -306,7 +318,9 @@ export async function POST(request: NextRequest) {
         order.order_date || null,
         'pending',
         order.configuration || null,
-        combinedNotes || null
+        combinedNotes || null,
+        DEFAULT_COMPANY_ID,
+        DEFAULT_BRANCH_ID
       )
 
       insertedOrders.push({
@@ -328,6 +342,62 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Sipariş oluşturulurken hata:', error)
     return fail(error.message, { status: 500 })
+  }
+}
+
+// PATCH: Sipariş durumunu güncelle (ör. iptal)
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const orderId = body?.orderId || body?.id
+    const status = body?.status
+    const cancelReason = typeof body?.cancel_reason === 'string' ? body.cancel_reason.trim() : ''
+
+    if (!orderId || !status) {
+      return fail('Sipariş ID ve durum gerekli', { status: 400 })
+    }
+
+    if (status !== 'cancelled') {
+      return fail('Geçersiz durum güncellemesi', { status: 400 })
+    }
+    if (!cancelReason) {
+      return fail('İptal nedeni gerekli', { status: 400 })
+    }
+
+    const db = getDatabase()
+    const current = db
+      .prepare('SELECT id, status, production_order_id, order_number FROM orders WHERE id = ?')
+      .get(orderId) as OrderStatusRow | undefined
+
+    if (!current) {
+      return fail('Sipariş bulunamadı', { status: 404 })
+    }
+
+    if (current.status !== 'pending') {
+      return fail('Sadece beklemede olan sipariş iptal edilebilir', { status: 400 })
+    }
+
+    if (current.production_order_id && String(current.production_order_id).trim() !== '') {
+      return fail('Üretime alınan sipariş iptal edilemez', { status: 400 })
+    }
+
+    const update = db.prepare(
+      'UPDATE orders SET status = ?, cancel_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(status, cancelReason, orderId)
+
+    logger.info('[Orders API - PATCH] Sipariş iptal edildi', {
+      order_id: orderId,
+      order_number: current.order_number,
+      changes: update.changes,
+    })
+
+    return ok(
+      { id: orderId, status },
+      { message: 'Sipariş iptal edildi' }
+    )
+  } catch (error: any) {
+    logger.error('[Orders API - PATCH] Hata', { error: error?.message })
+    return fail(error.message || 'Sipariş güncellenemedi', { status: 500 })
   }
 }
 

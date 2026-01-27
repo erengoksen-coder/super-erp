@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LogIn, User, Lock, AlertCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -11,6 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const setAuth = useAuthStore((state) => state.setAuth)
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -24,12 +26,8 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       })
 
-      // Token'ı localStorage'a kaydet
       if (data.token) {
-        localStorage.setItem('auth_token', data.token)
-        localStorage.setItem('user_id', data.user.id)
-        localStorage.setItem('user_role', data.user.role)
-        localStorage.setItem('user_name', data.user.full_name || data.user.username)
+        setAuth(data.token, data.user)
       }
 
       router.push('/')

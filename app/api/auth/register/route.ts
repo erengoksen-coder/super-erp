@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
@@ -68,9 +68,14 @@ export async function POST(request: NextRequest) {
 
     // Kullanıcı oluştur (onay bekliyor)
     db.prepare(`
-      INSERT INTO users (id, username, email, password_hash, full_name, role, job_title, is_approved)
-      VALUES (?, ?, ?, ?, ?, 'user', ?, 0)
-    `).run(userId, username, email || null, passwordHash, full_name || null, job_title)
+      INSERT INTO users (id, username, email, password_hash, full_name, role, job_title, is_approved, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?, 'user', ?, 0, ?, ?)
+    `).run(userId, username, email || null, passwordHash, full_name || null, job_title, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+
+    db.prepare(`
+      INSERT OR IGNORE INTO user_roles (id, user_id, role_id, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(`ur_${userId}_role_user`, userId, 'role_user', DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     return ok(
       {

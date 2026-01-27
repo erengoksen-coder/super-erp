@@ -122,7 +122,7 @@ export default function NewProductionOrderPage() {
     try {
       // Local database kullan
       const { localDB } = await import('@/lib/database/client')
-      const data = await localDB.getProducts()
+      const data = await localDB.getProducts() as Product[]
       setProducts(data)
     } catch (error) {
       console.error('Ürünler yüklenirken hata:', error)
@@ -135,9 +135,7 @@ export default function NewProductionOrderPage() {
       if (customerName && customerName.trim()) {
         url += `&customer_name=${encodeURIComponent(customerName.trim())}`
       }
-      const response = await fetch(url)
-      if (!response.ok) throw new Error('Siparişler yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi<Order[]>(url)
       setOrders(data)
     } catch (error) {
       console.error('Siparişler yüklenirken hata:', error)
@@ -183,6 +181,8 @@ export default function NewProductionOrderPage() {
         // ÖNEMLİ: product_id veya product_sku varsa bile, ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
         // Çünkü bazen product_id yanlış ürünü işaret edebilir (örn: "galata üçlü" yerine "galata berjer" olmalı)
         
+        let hasConfigInProducts = false
+
         // Önce ürün adı + konfigürasyon kombinasyonuna göre bul (en spesifik ve güvenilir)
         if (order.product_name && order.configuration) {
           const productNameLower = order.product_name.toLowerCase().trim()
@@ -206,6 +206,10 @@ export default function NewProductionOrderPage() {
           } else if (configLower.includes('ikili') || configLower.includes('double') || configLower.includes('duo')) {
             configKeyword = 'ikili'
           }
+
+          hasConfigInProducts = configKeyword
+            ? products.some((p) => p.name.toLowerCase().includes(configKeyword))
+            : false
           
           console.log(`[Ürün Eşleştirme] Başlangıç: product_name="${order.product_name}", configuration="${order.configuration}"`)
           console.log(`  → productBaseName="${productBaseName}", configKeyword="${configKeyword}"`)
@@ -275,20 +279,26 @@ export default function NewProductionOrderPage() {
         if (!foundProduct && order.product_id) {
           const productById = products.find(p => p.id === order.product_id)
           if (productById) {
-            // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
-            const productNameLower = productById.name.toLowerCase()
-            const configLower = order.configuration?.toLowerCase() || ''
-            const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
-                                 configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
-                                 configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
-                                 configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
-            
-            if (hasConfigMatch) {
-              console.log(`[Ürün Eşleştirme] ✅ product_id ile bulundu: "${productById.name}" (ID: ${productById.id})`)
+            if (!order.configuration || !hasConfigInProducts) {
+              console.log(`[Ürün Eşleştirme] ⚠️ Konfigürasyon ürün adında yok, product_id fallback kullanılıyor: "${productById.name}"`)
               foundProduct = productById
               setSelectedProductId(productById.id)
             } else {
-              console.warn(`[Ürün Eşleştirme] ⚠️ product_id ile bulunan ürün konfigürasyonla uyuşmuyor: "${productById.name}" (sipariş: ${order.configuration})`)
+              // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
+              const productNameLower = productById.name.toLowerCase()
+              const configLower = order.configuration?.toLowerCase() || ''
+              const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
+                                   configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
+                                   configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
+                                   configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
+              
+              if (hasConfigMatch) {
+                console.log(`[Ürün Eşleştirme] ✅ product_id ile bulundu: "${productById.name}" (ID: ${productById.id})`)
+                foundProduct = productById
+                setSelectedProductId(productById.id)
+              } else {
+                console.warn(`[Ürün Eşleştirme] ⚠️ product_id ile bulunan ürün konfigürasyonla uyuşmuyor: "${productById.name}" (sipariş: ${order.configuration})`)
+              }
             }
           }
         }
@@ -296,22 +306,48 @@ export default function NewProductionOrderPage() {
         if (!foundProduct && order.product_sku) {
           const productBySku = products.find(p => p.sku === order.product_sku)
           if (productBySku) {
-            // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
-            const productNameLower = productBySku.name.toLowerCase()
-            const configLower = order.configuration?.toLowerCase() || ''
-            const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
-                                 configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
-                                 configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
-                                 configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
-            
-            if (hasConfigMatch) {
-              console.log(`[Ürün Eşleştirme] ✅ product_sku ile bulundu: "${productBySku.name}" (ID: ${productBySku.id})`)
+            if (!order.configuration || !hasConfigInProducts) {
+              console.log(`[Ürün Eşleştirme] ⚠️ Konfigürasyon ürün adında yok, product_sku fallback kullanılıyor: "${productBySku.name}"`)
               foundProduct = productBySku
               setSelectedProductId(productBySku.id)
             } else {
-              console.warn(`[Ürün Eşleştirme] ⚠️ product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${productBySku.name}" (sipariş: ${order.configuration})`)
+              // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
+              const productNameLower = productBySku.name.toLowerCase()
+              const configLower = order.configuration?.toLowerCase() || ''
+              const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
+                                   configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
+                                   configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
+                                   configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
+              
+              if (hasConfigMatch) {
+                console.log(`[Ürün Eşleştirme] ✅ product_sku ile bulundu: "${productBySku.name}" (ID: ${productBySku.id})`)
+                foundProduct = productBySku
+                setSelectedProductId(productBySku.id)
+              } else {
+                console.warn(`[Ürün Eşleştirme] ⚠️ product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${productBySku.name}" (sipariş: ${order.configuration})`)
+              }
             }
           }
+        }
+
+        if (!foundProduct && order.product_name) {
+          const nameLower = order.product_name.toLowerCase().trim()
+          const nameMatch = products.find(p => p.name.toLowerCase().includes(nameLower))
+          if (nameMatch) {
+            console.log(`[Ürün Eşleştirme] ⚠️ Ürün adı ile fallback bulundu: "${nameMatch.name}" (ID: ${nameMatch.id})`)
+            foundProduct = nameMatch
+            setSelectedProductId(nameMatch.id)
+          }
+        }
+
+        if (!foundProduct && order.product_id) {
+          console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
+          setSelectedProductId(order.product_id)
+        }
+
+        if (!foundProduct && order.product_id) {
+          console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
+          setSelectedProductId(order.product_id)
         }
         setQuantity(order.quantity)
         // Sipariş ID'yi de seçili olarak işaretle (tek sipariş seçimi için)
@@ -424,6 +460,7 @@ export default function NewProductionOrderPage() {
           const fabricMatch = (order as any).notes.match(/Kumaş:\s*([^|]+)/i)
           if (fabricMatch) {
             orderFabricCode = fabricMatch[1].trim()
+            const orderFabricCodeLower = orderFabricCode!.toLowerCase().trim()
             console.log(`[BOM Yükleme] Siparişteki kumaş kodu: ${orderFabricCode}`)
             
             // Hammadde depodan siparişteki kumaş koduna sahip malzemeyi bul
@@ -431,9 +468,9 @@ export default function NewProductionOrderPage() {
               const allMaterials = await fetchApi<any[]>('/api/materials')
               orderFabricMaterial = allMaterials.find((m) => 
                 m.category && m.category.toLowerCase() === 'kumaş' && (
-                  m.name.toLowerCase().trim() === orderFabricCode.toLowerCase().trim() ||
-                  m.name.toLowerCase().trim().includes(orderFabricCode.toLowerCase().trim()) ||
-                  (m.code && m.code.toLowerCase().trim() === orderFabricCode.toLowerCase().trim())
+                  m.name.toLowerCase().trim() === orderFabricCodeLower ||
+                  m.name.toLowerCase().trim().includes(orderFabricCodeLower) ||
+                  (m.code && m.code.toLowerCase().trim() === orderFabricCodeLower)
                 )
               )
               if (orderFabricMaterial) {
@@ -543,7 +580,8 @@ export default function NewProductionOrderPage() {
   }, [selectedProductId, quantity])
 
   async function handleStartProduction() {
-    if (!selectedProductId || quantity <= 0) {
+    const hasSelectedOrders = selectedOrderIds.size > 0 || Boolean(selectedOrderId)
+    if (!hasSelectedOrders && (!selectedProductId || quantity <= 0)) {
       alert('Lütfen ürün ve miktar seçin')
       return
     }

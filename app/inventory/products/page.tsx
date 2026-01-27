@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus, Package, AlertTriangle, ArrowUp, ArrowDown, Edit, Trash2, Save, X, History as HistoryIcon, Clock, Printer, Truck, User } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
-import { getUserRole, isAdmin } from '@/lib/auth'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
   const { localDB } = await import('@/lib/database/client')
@@ -64,15 +64,12 @@ export default function ProductsInventoryPage() {
   const [shipmentCustomerId, setShipmentCustomerId] = useState<string>('')
   const [showCustomerSelectInModal, setShowCustomerSelectInModal] = useState(false)
   const router = useRouter()
-  const [userRole, setUserRole] = useState<string | null>(null)
+  const userRole = useAuthStore((state) => state.user?.role ?? null)
 
   useEffect(() => {
     loadBarcodes()
     loadProducts()
     loadCustomers()
-    if (typeof window !== 'undefined') {
-      setUserRole(getUserRole())
-    }
   }, [])
 
   async function findCustomerId(customerName: string | null | undefined): Promise<string | null> {

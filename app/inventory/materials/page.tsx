@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Plus, Package, AlertTriangle, ArrowDown, ArrowUp, ShoppingCart, Filter, Edit, Trash2, Save, X, History as HistoryIcon, Clock, RefreshCw } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { useAuthStore } from '@/lib/store/authStore'
 
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
@@ -23,6 +24,7 @@ interface Material {
 }
 
 export default function MaterialsInventoryPage() {
+  const userId = useAuthStore((state) => state.user?.id ?? null)
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
   const [showStockIn, setShowStockIn] = useState(false)
@@ -41,6 +43,8 @@ export default function MaterialsInventoryPage() {
   const [selectedMaterialForHistory, setSelectedMaterialForHistory] = useState<string | null>(null)
   const [movementHistory, setMovementHistory] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('Tümü')
+  const [categorySearch, setCategorySearch] = useState<string>('')
 
   useEffect(() => {
     loadMaterials()
@@ -147,10 +151,6 @@ export default function MaterialsInventoryPage() {
     }
 
     try {
-      // Kullanıcı bilgisini al
-      const { getUserId } = await import('@/lib/auth')
-      const userId = getUserId()
-      
       const response = await fetch('/api/materials/stock-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -187,10 +187,6 @@ export default function MaterialsInventoryPage() {
     }
 
     try {
-      // Kullanıcı bilgisini al
-      const { getUserId } = await import('@/lib/auth')
-      const userId = getUserId()
-      
       const response = await fetch('/api/materials/stock-out', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,10 +238,6 @@ export default function MaterialsInventoryPage() {
 
   async function saveEdit(materialId: string) {
     try {
-      // Kullanıcı bilgisini al
-      const { getUserId } = await import('@/lib/auth')
-      const userId = getUserId()
-      
       const response = await fetch(`/api/materials/${materialId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -382,6 +374,14 @@ export default function MaterialsInventoryPage() {
     acc[category].push(material)
     return acc
   }, {} as Record<string, Material[]>)
+
+  const categoryTabs = ['Tümü', ...Object.keys(materialsByCategory).sort((a, b) => a.localeCompare(b, 'tr'))]
+
+  useEffect(() => {
+    if (selectedCategory !== 'Tümü' && !materialsByCategory[selectedCategory]) {
+      setSelectedCategory('Tümü')
+    }
+  }, [materialsByCategory, selectedCategory])
 
   return (
     <div>
@@ -692,14 +692,56 @@ export default function MaterialsInventoryPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(materialsByCategory).map(([category, categoryMaterials]) => (
+          <div className="flex flex-wrap gap-2">
+            {categoryTabs.map((category) => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                  selectedCategory === category
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                }`}
+                type="button"
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex justify-end">
+            <div className="relative w-full md:w-80">
+              <input
+                type="text"
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                placeholder="Bu sekmede ara..."
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {(selectedCategory === 'Tümü'
+            ? Object.entries(materialsByCategory)
+            : Object.entries(materialsByCategory).filter(([category]) => category === selectedCategory)
+          ).map(([category, categoryMaterials]) => {
+            const searchLower = categorySearch.trim().toLowerCase()
+            const filteredCategoryMaterials = searchLower
+              ? categoryMaterials.filter((material) => {
+                  const nameMatch = material.name.toLowerCase().includes(searchLower)
+                  const codeMatch = material.code?.toLowerCase().includes(searchLower) ?? false
+                  const unitMatch = material.unit.toLowerCase().includes(searchLower)
+                  return nameMatch || codeMatch || unitMatch
+                })
+              : categoryMaterials
+            return (
             <div key={category} className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
               <div className="bg-gray-800 px-6 py-3 border-b border-gray-700">
                 <h2 className="text-lg font-semibold text-white capitalize flex items-center space-x-2">
                   <Package className="w-5 h-5" />
                   <span>{category}</span>
                   <span className="text-sm text-gray-400 font-normal">
-                    ({categoryMaterials.length} adet)
+                    ({filteredCategoryMaterials.length} adet)
                   </span>
                 </h2>
               </div>
@@ -719,7 +761,7 @@ export default function MaterialsInventoryPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {categoryMaterials.map((material) => {
+                      {filteredCategoryMaterials.map((material) => {
                         const lowStock = isLowStock(material)
                         const isEditing = editingMaterial === material.id
                         return (
@@ -884,7 +926,7 @@ export default function MaterialsInventoryPage() {
                 </div>
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
 

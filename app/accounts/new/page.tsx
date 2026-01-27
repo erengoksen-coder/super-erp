@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Save, X } from 'lucide-react'
-import { getUserId } from '@/lib/auth'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 
 export default function NewAccountPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const userId = useAuthStore((state) => state.user?.id ?? null)
   const [formData, setFormData] = useState({
     name: '',
     type: 'customer',
@@ -24,7 +25,6 @@ export default function NewAccountPage() {
     setLoading(true)
 
     try {
-      const userId = getUserId()
       await fetchApi('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

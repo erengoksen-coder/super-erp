@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bell, BellOff, Send } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
-import { getUserId } from '@/lib/auth'
+import { useAuthStore } from '@/lib/store/authStore'
+import { fetchApi } from '@/lib/api/client'
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -17,6 +18,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function NotificationsPage() {
+  const userId = useAuthStore((state) => state.user?.id ?? null)
   const [supported, setSupported] = useState(false)
   const [permission, setPermission] = useState<NotificationPermission>('default')
   const [subscribed, setSubscribed] = useState(false)
@@ -57,9 +59,7 @@ export default function NotificationsPage() {
     if (!supported) return
     setLoading(true)
     try {
-      const response = await fetch('/api/notifications/vapid-public-key')
-      if (!response.ok) throw new Error('VAPID anahtarı alınamadı')
-      const { publicKey } = await response.json()
+      const { publicKey } = await fetchApi<{ publicKey: string }>('/api/notifications/vapid-public-key')
 
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.subscribe({
@@ -67,13 +67,11 @@ export default function NotificationsPage() {
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       })
 
-      const userId = getUserId()
-      const saveResponse = await fetch('/api/notifications/subscribe', {
+      await fetchApi('/api/notifications/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subscription, user_id: userId }),
       })
-      if (!saveResponse.ok) throw new Error('Abonelik kaydedilemedi')
 
       setSubscribed(true)
       setPermission(Notification.permission)
@@ -95,7 +93,7 @@ export default function NotificationsPage() {
         return
       }
       await subscription.unsubscribe()
-      await fetch('/api/notifications/unsubscribe', {
+      await fetchApi('/api/notifications/unsubscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: subscription.endpoint }),
@@ -111,9 +109,7 @@ export default function NotificationsPage() {
   async function sendTest() {
     setLoading(true)
     try {
-      const response = await fetch('/api/notifications/test', { method: 'POST' })
-      if (!response.ok) throw new Error('Bildirim gönderilemedi')
-      const data = await response.json()
+      const data = await fetchApi<{ sent?: number }>('/api/notifications/test', { method: 'POST' })
       alert(`Test bildirimi gönderildi. Basarili: ${data.sent || 0}`)
     } catch (error: any) {
       alert(error.message || 'Test bildirimi gönderilemedi')

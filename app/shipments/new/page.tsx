@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Truck, User, Package, Plus, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
-import { getUserRole } from '@/lib/auth'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface Customer {
   id: string
@@ -44,13 +44,7 @@ export default function NewShipmentPage() {
   const [shipmentItems, setShipmentItems] = useState<ShipmentItem[]>([])
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [userRole, setUserRole] = useState<string | null>(null)
-  
-  // Kullanıcı rolünü kontrol et
-  useEffect(() => {
-    setUserRole(getUserRole())
-  }, [])
-  
+  const userRole = useAuthStore((state) => state.user?.role ?? null)
   const isUserAdmin = userRole === 'admin' || userRole === 'manager'
 
   useEffect(() => {

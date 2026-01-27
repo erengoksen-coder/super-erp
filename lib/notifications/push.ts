@@ -1,21 +1,66 @@
+import fs from 'fs'
+import path from 'path'
 import webpush, { type PushSubscription } from 'web-push'
 
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
+type VapidKeys = {
+  publicKey: string
+  privateKey: string
+  subject: string
+}
+
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@livasofa.com'
 
-export function getVapidPublicKey() {
-  if (!VAPID_PUBLIC_KEY) {
-    throw new Error('VAPID_PUBLIC_KEY is not set')
+function loadOrCreateVapidKeys(): VapidKeys {
+  const envPublicKey = process.env.VAPID_PUBLIC_KEY || ''
+  const envPrivateKey = process.env.VAPID_PRIVATE_KEY || ''
+
+  if (envPublicKey && envPrivateKey) {
+    return { publicKey: envPublicKey, privateKey: envPrivateKey, subject: VAPID_SUBJECT }
   }
-  return VAPID_PUBLIC_KEY
+
+  const dataDir = path.join(process.cwd(), 'data')
+  const filePath = path.join(dataDir, 'vapid.json')
+
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8')
+      const parsed = JSON.parse(raw) as Partial<VapidKeys>
+      if (parsed.publicKey && parsed.privateKey) {
+        return {
+          publicKey: parsed.publicKey,
+          privateKey: parsed.privateKey,
+          subject: parsed.subject || VAPID_SUBJECT,
+        }
+      }
+    }
+  } catch {
+    // ignore and regenerate
+  }
+
+  const generated = webpush.generateVAPIDKeys()
+  const keys: VapidKeys = {
+    publicKey: generated.publicKey,
+    privateKey: generated.privateKey,
+    subject: VAPID_SUBJECT,
+  }
+
+  try {
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(filePath, JSON.stringify(keys, null, 2), 'utf8')
+  } catch {
+    // if write fails, still return in-memory keys
+  }
+
+  return keys
+}
+
+export function getVapidPublicKey() {
+  return loadOrCreateVapidKeys().publicKey
 }
 
 function configureWebPush() {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    throw new Error('VAPID keys are not set')
-  }
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
+  const keys = loadOrCreateVapidKeys()
+  webpush.setVapidDetails(keys.subject, keys.publicKey, keys.privateKey)
 }
 
 export async function sendPush(

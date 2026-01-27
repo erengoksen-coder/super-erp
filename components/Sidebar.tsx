@@ -21,9 +21,9 @@ import {
   Bell,
   Languages
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { LogoWithBackground } from './Logo'
-import { isAuthenticated, getUserRole, logout } from '@/lib/auth'
+import { useAuthStore } from '@/lib/store/authStore'
 import { useI18n } from '@/lib/i18n'
 
 const menuItems = [
@@ -124,15 +124,11 @@ export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [isMobileOpen, setIsMobileOpen] = useState(false)
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [userName, setUserName] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setUserRole(getUserRole())
-      setUserName(localStorage.getItem('user_name'))
-    }
-  }, [])
+  const user = useAuthStore((state) => state.user)
+  const isAuthenticated = useAuthStore((state) => !!state.token)
+  const clearAuth = useAuthStore((state) => state.clearAuth)
+  const userRole = user?.role ?? null
+  const userName = user?.full_name || user?.username || null
 
   // Public sayfalarda sidebar gösterme
   if (pathname?.startsWith('/auth/')) {
@@ -140,7 +136,7 @@ export default function Sidebar() {
   }
 
   // Auth kontrolü
-  if (typeof window !== 'undefined' && !isAuthenticated() && !pathname?.startsWith('/auth/')) {
+  if (typeof window !== 'undefined' && !isAuthenticated && !pathname?.startsWith('/auth/')) {
     return null
   }
 
@@ -244,7 +240,7 @@ export default function Sidebar() {
             </div>
             <button
               onClick={() => {
-                logout()
+                clearAuth()
                 router.push('/auth/login')
               }}
               className="w-full text-xs text-gray-500 hover:text-lime-400 text-center transition-colors"

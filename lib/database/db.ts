@@ -8,6 +8,11 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { hashPassword } from '@/lib/auth/password'
 
+export const DEFAULT_COMPANY_ID = 'company_default'
+export const DEFAULT_BRANCH_ID = 'branch_default'
+const DEFAULT_COMPANY_NAME = 'DefaultCompany'
+const DEFAULT_BRANCH_NAME = 'Merkez'
+
 // Veritabanı dosyası proje klasöründe saklanır
 const dbPath = join(process.cwd(), 'data', 'erp.db')
 
@@ -37,6 +42,40 @@ export function getDatabase(): Database.Database {
 function initializeDatabase() {
   if (!db) return
 
+  // Companies (Şirketler)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  // Branches (Şubeler)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS branches (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  // Varsayılan şirket/şube kayıtları
+  try {
+    db.prepare('INSERT OR IGNORE INTO companies (id, name) VALUES (?, ?)').run(
+      DEFAULT_COMPANY_ID,
+      DEFAULT_COMPANY_NAME
+    )
+    db.prepare('INSERT OR IGNORE INTO branches (id, company_id, name) VALUES (?, ?, ?)').run(
+      DEFAULT_BRANCH_ID,
+      DEFAULT_COMPANY_ID,
+      DEFAULT_BRANCH_NAME
+    )
+  } catch {}
+
   // Users (Kullanıcılar)
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -51,6 +90,8 @@ function initializeDatabase() {
       is_approved INTEGER DEFAULT 0,
       approved_by TEXT,
       approved_at TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       last_login TEXT,
@@ -74,6 +115,26 @@ function initializeDatabase() {
   try {
     db.exec('ALTER TABLE users ADD COLUMN position TEXT')
   } catch {}
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE users
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE users
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
 
   // User Permissions (Kullanıcı İzinleri)
   db.exec(`
@@ -85,11 +146,171 @@ function initializeDatabase() {
       can_create INTEGER DEFAULT 0,
       can_edit INTEGER DEFAULT 0,
       can_delete INTEGER DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       UNIQUE(user_id, page_path)
     )
   `)
+  try {
+    db.exec(`ALTER TABLE user_permissions ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE user_permissions ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE user_permissions
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE user_permissions
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
+
+  // Roles (RBAC)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  // Permissions (RBAC)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS permissions (
+      key TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  // Role Permissions (RBAC)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      id TEXT PRIMARY KEY,
+      role_id TEXT NOT NULL,
+      permission_key TEXT NOT NULL,
+      can_view INTEGER DEFAULT 1,
+      can_create INTEGER DEFAULT 0,
+      can_edit INTEGER DEFAULT 0,
+      can_delete INTEGER DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(role_id, permission_key)
+    )
+  `)
+
+  // User Roles (RBAC)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_roles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      role_id TEXT NOT NULL,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, role_id)
+    )
+  `)
+
+  // Varsayılan roller
+  try {
+    db.prepare('INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)').run(
+      'role_admin',
+      'admin',
+      'System administrator'
+    )
+    db.prepare('INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)').run(
+      'role_user',
+      'user',
+      'Standard user'
+    )
+  } catch {}
+
+  // Mevcut kullanıcıları role ile eşle
+  try {
+    const users = db.prepare('SELECT id, role FROM users').all() as Array<{ id: string; role?: string | null }>
+    for (const user of users) {
+      const rawRole = (user.role || 'user').toString().trim().toLowerCase()
+      const normalized = rawRole === 'admin' || rawRole === 'yönetici' || rawRole === 'yonetici'
+        ? 'admin'
+        : rawRole || 'user'
+      const roleId = normalized === 'admin' ? 'role_admin' : normalized === 'user' ? 'role_user' : `role_${normalized.replace(/[^a-z0-9_]+/g, '_')}`
+      db.prepare('INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)').run(
+        roleId,
+        normalized,
+        null
+      )
+      db.prepare('INSERT OR IGNORE INTO user_roles (id, user_id, role_id) VALUES (?, ?, ?)').run(
+        `ur_${user.id}_${roleId}`,
+        user.id,
+        roleId
+      )
+    }
+  } catch {}
+
+  // Admin kullanıcı izinlerinden role_permissions üret (boşsa)
+  try {
+    const count = db.prepare('SELECT COUNT(*) as count FROM role_permissions').get() as { count?: number }
+    if (!count?.count) {
+      const adminPerms = db.prepare(`
+        SELECT up.page_path, up.can_view, up.can_create, up.can_edit, up.can_delete
+        FROM user_permissions up
+        JOIN users u ON u.id = up.user_id
+        WHERE u.role IN ('admin', 'yönetici', 'yonetici')
+      `).all() as Array<{
+        page_path: string
+        can_view: number
+        can_create: number
+        can_edit: number
+        can_delete: number
+      }>
+
+      const insertPermission = db.prepare(`
+        INSERT OR IGNORE INTO permissions (key, name, category, company_id, branch_id)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      const insertRolePermission = db.prepare(`
+        INSERT OR IGNORE INTO role_permissions
+        (id, role_id, permission_key, can_view, can_create, can_edit, can_delete, company_id, branch_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const perm of adminPerms) {
+        const key = perm.page_path
+        const permId = `rp_role_admin_${String(key).replace(/[^a-zA-Z0-9_]+/g, '_')}`
+        insertPermission.run(key, key, null, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+        insertRolePermission.run(
+          permId,
+          'role_admin',
+          key,
+          perm.can_view ?? 0,
+          perm.can_create ?? 0,
+          perm.can_edit ?? 0,
+          perm.can_delete ?? 0,
+          DEFAULT_COMPANY_ID,
+          DEFAULT_BRANCH_ID
+        )
+      }
+    }
+  } catch {}
 
   // Materials (Hammaddeler)
   db.exec(`
@@ -104,6 +325,8 @@ function initializeDatabase() {
       purchase_price REAL DEFAULT 0,
       supplier_id TEXT,
       last_purchase_date TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (supplier_id) REFERENCES accounts(id)
@@ -117,6 +340,26 @@ function initializeDatabase() {
   // Materials tablosuna code ve category kolonları ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE materials ADD COLUMN code TEXT UNIQUE')
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE materials ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE materials ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE materials
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE materials
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
   } catch {}
   try {
     db.exec('ALTER TABLE materials ADD COLUMN category TEXT')
@@ -152,6 +395,8 @@ function initializeDatabase() {
       selling_price REAL DEFAULT 0,
       stock_amount INTEGER DEFAULT 0,
       min_stock_level INTEGER DEFAULT 5,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -176,6 +421,26 @@ function initializeDatabase() {
       console.warn('selling_price kolonu eklenirken hata:', e.message)
     }
   }
+  try {
+    db.exec(`ALTER TABLE products ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE products ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE products
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE products
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
   
   // Eğer selling_price yoksa ve price varsa, price değerini selling_price'a kopyala
   try {
@@ -272,6 +537,8 @@ function initializeDatabase() {
       sevkiyat_started_at TEXT,
       sevkiyat_completed_at TEXT,
       stock_deducted INTEGER DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (product_id) REFERENCES products(id)
@@ -293,6 +560,22 @@ function initializeDatabase() {
   try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_started_at TEXT') } catch {}
   try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_completed_at TEXT') } catch {}
   try { db.exec('ALTER TABLE production_orders ADD COLUMN stock_deducted INTEGER DEFAULT 0') } catch {}
+  try { db.exec(`ALTER TABLE production_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch {}
+  try { db.exec(`ALTER TABLE production_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch {}
+  try {
+    db.exec(`
+      UPDATE production_orders
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE production_orders
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
   
   // Her istasyon için tamamlanan adet sayacı ekle
   try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_completed_count INTEGER DEFAULT 0') } catch {}
@@ -313,6 +596,8 @@ function initializeDatabase() {
       reference_type TEXT,
       reference_id TEXT,
       notes TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (material_id) REFERENCES materials(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
@@ -334,6 +619,26 @@ function initializeDatabase() {
       console.warn('product_id kolonu eklenirken hata:', e.message)
     }
   }
+  try {
+    db.exec(`ALTER TABLE stock_movements ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE stock_movements ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE stock_movements
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE stock_movements
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
   
   // Eski veritabanlarında material_id NOT NULL olabilir, tabloyu kontrol et ve gerekirse düzelt
   try {
@@ -363,6 +668,8 @@ function initializeDatabase() {
           invoice_number TEXT,
           shipment_number TEXT,
           notes TEXT,
+          company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+          branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (material_id) REFERENCES materials(id),
           FOREIGN KEY (product_id) REFERENCES products(id),
@@ -373,8 +680,8 @@ function initializeDatabase() {
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
-        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const row of oldData as any[]) {
@@ -386,7 +693,11 @@ function initializeDatabase() {
           row.quantity,
           row.reference_type || null,
           row.reference_id || null,
+          row.invoice_number || null,
+          row.shipment_number || null,
           row.notes || null,
+          row.company_id || DEFAULT_COMPANY_ID,
+          row.branch_id || DEFAULT_BRANCH_ID,
           row.created_at || new Date().toISOString()
         )
       }
@@ -436,6 +747,8 @@ function initializeDatabase() {
           invoice_number TEXT,
           shipment_number TEXT,
           notes TEXT,
+          company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+          branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (material_id) REFERENCES materials(id),
           FOREIGN KEY (product_id) REFERENCES products(id),
@@ -446,8 +759,8 @@ function initializeDatabase() {
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
-        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const row of oldData) {
@@ -459,7 +772,11 @@ function initializeDatabase() {
           row.quantity,
           row.reference_type,
           row.reference_id,
+          row.invoice_number || null,
+          row.shipment_number || null,
           row.notes,
+          row.company_id || DEFAULT_COMPANY_ID,
+          row.branch_id || DEFAULT_BRANCH_ID,
           row.created_at
         )
       }
@@ -509,6 +826,9 @@ function initializeDatabase() {
       production_order_id TEXT,
       configuration TEXT, -- KONFİGÜRASYON
       notes TEXT,
+      cancel_reason TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       excel_row_number INTEGER,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -528,6 +848,30 @@ function initializeDatabase() {
   // Orders tablosuna order_date kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN order_date TEXT')
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  // Orders tablosuna cancel_reason kolonu ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT')
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE orders
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE orders
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
   } catch {}
 
   // Purchase Requests (Satın Alma Talepleri)
@@ -655,6 +999,8 @@ function initializeDatabase() {
       email TEXT,
       address TEXT,
       balance REAL DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_by TEXT,
@@ -680,6 +1026,26 @@ function initializeDatabase() {
       console.warn('updated_by kolonu eklenirken hata:', e.message)
     }
   }
+  try {
+    db.exec(`ALTER TABLE accounts ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE accounts ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE accounts
+      SET company_id = '${DEFAULT_COMPANY_ID}'
+      WHERE company_id IS NULL OR TRIM(company_id) = ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE accounts
+      SET branch_id = '${DEFAULT_BRANCH_ID}'
+      WHERE branch_id IS NULL OR TRIM(branch_id) = ''
+    `)
+  } catch {}
   
   // Mevcut FOREIGN KEY constraint'lerini kaldırmak için tabloyu yeniden oluştur
   // (SQLite'da ALTER TABLE ile FOREIGN KEY kaldırılamaz)
@@ -704,6 +1070,8 @@ function initializeDatabase() {
         email TEXT,
         address TEXT,
         balance REAL DEFAULT 0,
+        company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+        branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         created_by TEXT,
@@ -714,8 +1082,8 @@ function initializeDatabase() {
     // Verileri geri yükle
     if (existingAccounts.length > 0) {
       const insert = db.prepare(`
-        INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, balance, created_at, updated_at, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, balance, company_id, branch_id, created_at, updated_at, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const account of existingAccounts) {
@@ -729,6 +1097,8 @@ function initializeDatabase() {
           account.email,
           account.address,
           account.balance,
+          account.company_id || DEFAULT_COMPANY_ID,
+          account.branch_id || DEFAULT_BRANCH_ID,
           account.created_at,
           account.updated_at,
           account.created_by,

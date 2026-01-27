@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Package, Factory, AlertTriangle, TrendingUp, DollarSign, Clock, AlertCircle, BarChart3, ShoppingCart, X, QrCode, Calendar, User, Heart } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { getUserRole } from '@/lib/auth'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface DashboardStats {
   totalStockValue: number
@@ -137,13 +137,10 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [planning, setPlanning] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [userRole, setUserRole] = useState<string | null>(null)
+  const user = useAuthStore((state) => state.user)
+  const userRole = user?.role ?? null
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const { getUserRole } = require('@/lib/auth')
-      setUserRole(getUserRole())
-    }
     loadStats()
     loadPlanning()
     const interval = setInterval(() => {
@@ -187,19 +184,10 @@ export default function DashboardPage() {
     'Üretilen Miktar': item.total_quantity,
   })) || []
 
-  // Kullanıcı adını al
-  const [userName, setUserName] = useState<string>('')
+  const userName = user?.full_name || user?.username || ''
   const [showWelcome, setShowWelcome] = useState(true)
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const { getUserName } = require('@/lib/auth')
-      const name = getUserName()
-      if (name) {
-        setUserName(name)
-      }
-    }
-    
     // 5 saniye sonra hoş geldin mesajını kapat
     const timer = setTimeout(() => {
       setShowWelcome(false)
@@ -482,13 +470,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Üretim Planlama - Sadece Admin ve Yönetici için */}
-      {(() => {
-        if (typeof window === 'undefined') return null
-        const { getUserRole } = require('@/lib/auth')
-        const role = getUserRole()
-        if (role !== 'admin' && role !== 'manager') return null
-        
-        return planning && (
+      {(userRole === 'admin' || userRole === 'manager') && planning && (
           <div className="mt-6 bg-gray-900 rounded-lg border border-gray-800 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -591,8 +573,7 @@ export default function DashboardPage() {
               })}
             </div>
           </div>
-        )
-      })()}
+        )}
     </div>
   )
 }

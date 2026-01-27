@@ -1,15 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
-import { isAuthenticated, logout } from '@/lib/auth'
+import { usePathname } from 'next/navigation'
+import { useAuthStore } from '@/lib/store/authStore'
 
 const publicPaths = ['/auth/login', '/auth/register']
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
+  const token = useAuthStore((state) => state.token)
+  const hydrated = useAuthStore((state) => state.hydrated)
 
   useEffect(() => {
     // Public sayfalar için kontrol yapma
@@ -19,7 +20,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     // Auth kontrolü
-    if (!isAuthenticated()) {
+    if (hydrated && !token) {
       // window.location kullanarak kesin yönlendirme (göreli URL kullan)
       if (typeof window !== 'undefined' && pathname !== '/auth/login') {
         window.location.href = '/auth/login'
@@ -28,14 +29,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     setIsChecking(false)
-  }, [pathname, router])
+  }, [pathname, token, hydrated])
 
   // Public sayfalar veya authenticated kullanıcılar için içeriği göster
   if (publicPaths.includes(pathname || '')) {
     return <>{children}</>
   }
 
-  if (isChecking) {
+  if (isChecking || !hydrated) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">

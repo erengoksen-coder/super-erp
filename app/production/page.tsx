@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Factory, Package, CheckCircle, AlertCircle, FileSpreadsheet, Trash2 } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useI18n } from '@/lib/i18n'
+import { fetchApi } from '@/lib/api/client'
 
 interface ProductionOrder {
   id: string
@@ -53,6 +54,11 @@ export default function ProductionPage() {
   const [deleting, setDeleting] = useState(false)
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
   const [hasInitializedFromQuery, setHasInitializedFromQuery] = useState(false)
+  const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 })
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled'>('all')
+  const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null)
+  const [cancelingCustomerOrderId, setCancelingCustomerOrderId] = useState<string | null>(null)
   const [stockCheckResults, setStockCheckResults] = useState<{
     producible: any[]
     notProducible: any[]
@@ -62,9 +68,9 @@ export default function ProductionPage() {
   const [productionBarcodesMap, setProductionBarcodesMap] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
-    loadOrders()
+    loadOrders(searchTerm || undefined)
     loadCustomerOrders()
-  }, [])
+  }, [searchTerm])
 
   const checkStockForSelectedOrders = useCallback(async () => {
     if (selectedOrderIds.size === 0) {
@@ -76,13 +82,7 @@ export default function ProductionPage() {
     
     try {
       const orderIdsArray = Array.from(selectedOrderIds)
-      const response = await fetch(`/api/orders/check-stock?order_ids=${orderIdsArray.join(',')}`)
-      
-      if (!response.ok) {
-        throw new Error('Stok kontrolü yapılamadı')
-      }
-      
-      const data = await response.json()
+      const data = await fetchApi(`/api/orders/check-stock?order_ids=${orderIdsArray.join(',')}`)
       setStockCheckResults({
         producible: data.producible || [],
         notProducible: data.notProducible || [],
@@ -98,11 +98,10 @@ export default function ProductionPage() {
     checkStockForSelectedOrders()
   }, [selectedOrderIds, checkStockForSelectedOrders])
 
-  async function loadOrders() {
+  async function loadOrders(term?: string) {
     try {
-      const response = await fetch('/api/production')
-      if (!response.ok) throw new Error('Üretim emirleri yüklenemedi')
-      const data = await response.json()
+      const url = term ? `/api/production?search=${encodeURIComponent(term)}` : '/api/production'
+      const data = await fetchApi(url)
       setOrders(data)
     } catch (error) {
       console.error('Üretim emirleri yüklenirken hata:', error)
@@ -114,11 +113,14 @@ export default function ProductionPage() {
 
   async function loadCustomerOrders() {
     try {
-      const response = await fetch('/api/orders')
-      if (!response.ok) throw new Error('Müşteri siparişleri yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi<CustomerOrder[] | { orders?: CustomerOrder[] }>('/api/orders')
+      const ordersList = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { orders?: CustomerOrder[] }).orders)
+          ? (data as { orders?: CustomerOrder[] }).orders || []
+          : []
       // Sadece bekleyen ve production_order_id'si olmayan siparişleri göster
-      const pendingOrders = data.filter((order: CustomerOrder) => 
+      const pendingOrders = ordersList.filter((order: CustomerOrder) => 
         order.status === 'pending' && 
         (!order.production_order_id || String(order.production_order_id).trim() === '' || String(order.production_order_id).trim() === 'null')
       )
@@ -129,11 +131,42 @@ export default function ProductionPage() {
     }
   }
 
+  const searchLower = searchTerm.trim().toLowerCase()
+  const filteredProductionOrders = orders.filter((order) => {
+    const statusMatch = statusFilter === 'all' || order.status === statusFilter
+    if (!statusMatch) return false
+    if (!searchLower) return true
+    const fields = [
+      order.customer_name,
+      order.dealer_name,
+      order.product_name,
+      order.sku,
+      order.order_number,
+      order.customer_order_number,
+      order.configuration,
+    ]
+    return fields.some((value) => value?.toLowerCase().includes(searchLower))
+  })
+
+  const filteredCustomerOrders = customerOrders.filter((order) => {
+    const statusMatch = statusFilter === 'all' || order.status === statusFilter
+    if (!statusMatch) return false
+    if (!searchLower) return true
+    const fields = [
+      order.customer_name,
+      order.dealer_name,
+      order.product_name,
+      order.product_sku,
+      order.order_number,
+      order.configuration,
+      order.notes,
+    ]
+    return fields.some((value) => value?.toLowerCase().includes(searchLower))
+  })
+
   async function loadBarcodes() {
     try {
-      const response = await fetch('/api/barcodes')
-      if (!response.ok) throw new Error('Barkodlar yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi('/api/barcodes')
       
       const map: Record<string, string[]> = {}
       data.forEach((barcode: any) => {
@@ -152,9 +185,7 @@ export default function ProductionPage() {
 
   async function loadProductionBarcodes() {
     try {
-      const response = await fetch('/api/barcodes')
-      if (!response.ok) throw new Error('Barkodlar yüklenemedi')
-      const data = await response.json()
+      const data = await fetchApi('/api/barcodes')
       
       const map: Record<string, string[]> = {}
       data.forEach((barcode: any) => {
@@ -188,6 +219,20 @@ export default function ProductionPage() {
     })
   }
 
+  function handleOrderDoubleClick(orderId: string) {
+    router.push(`/production/new?from_orders=${orderId}`)
+  }
+
+  function handleOrderClick(orderId: string) {
+    const now = Date.now()
+    const last = lastClickRef.current
+    const isDoubleClick = last.id === orderId && now - last.time < 300
+    lastClickRef.current = { id: orderId, time: now }
+    if (isDoubleClick) {
+      handleOrderDoubleClick(orderId)
+    }
+  }
+
   async function createProductionFromOrders() {
     if (selectedOrderIds.size === 0) {
       alert('Lütfen en az bir sipariş seçin')
@@ -196,20 +241,13 @@ export default function ProductionPage() {
 
     setConverting(true)
     try {
-      const response = await fetch('/api/orders/convert-to-production', {
+      const result = await fetchApi('/api/orders/convert-to-production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           order_ids: Array.from(selectedOrderIds)
         })
       })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Üretim emri oluşturulamadı')
-      }
-
-      const result = await response.json()
       alert(result.message || 'Üretim emirleri oluşturuldu')
       setSelectedOrderIds(new Set())
       loadOrders()
@@ -218,6 +256,45 @@ export default function ProductionPage() {
       alert('Hata: ' + error.message)
     } finally {
       setConverting(false)
+    }
+  }
+
+  async function cancelProductionOrder(orderId: string, orderNumber: string) {
+    if (!confirm(`${orderNumber} üretim emrini iptal etmek istediğinize emin misiniz?`)) {
+      return
+    }
+    setCancelingOrderId(orderId)
+    try {
+      await fetchApi(`/api/production/${orderId}/cancel`, { method: 'POST' })
+      await loadOrders(searchTerm || undefined)
+    } catch (error: any) {
+      alert('Hata: ' + (error.message || 'Üretim emri iptal edilemedi'))
+    } finally {
+      setCancelingOrderId(null)
+    }
+  }
+
+  async function cancelCustomerOrder(orderId: string, orderNumber: string) {
+    const reason = window.prompt('İptal nedeni (zorunlu):')?.trim()
+    if (!reason) {
+      alert('İptal nedeni zorunlu.')
+      return
+    }
+    if (!confirm(`${orderNumber} siparişini iptal etmek istediğinize emin misiniz?\nNeden: ${reason}`)) {
+      return
+    }
+    setCancelingCustomerOrderId(orderId)
+    try {
+      await fetchApi('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, status: 'cancelled', cancel_reason: reason })
+      })
+      await loadCustomerOrders()
+    } catch (error: any) {
+      alert('Hata: ' + (error.message || 'Sipariş iptal edilemedi'))
+    } finally {
+      setCancelingCustomerOrderId(null)
     }
   }
 
@@ -277,6 +354,7 @@ export default function ProductionPage() {
     const statusConfig = {
       pending: { label: 'Beklemede', className: 'bg-yellow-900/30 text-yellow-400 border-yellow-700' },
       in_production: { label: 'Üretimde', className: 'bg-blue-900/30 text-blue-400 border-blue-700' },
+      in_progress: { label: 'Üretimde', className: 'bg-blue-900/30 text-blue-400 border-blue-700' },
       completed: { label: 'Tamamlandı', className: 'bg-green-900/30 text-green-400 border-green-700' },
       cancelled: { label: 'İptal Edildi', className: 'bg-red-900/30 text-red-400 border-red-700' }
     }
@@ -329,15 +407,7 @@ export default function ProductionPage() {
           </h1>
           <LogoWithBackground size="sm" />
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href={`/production/new${selectedOrderIds.size > 0 ? `?from_orders=${Array.from(selectedOrderIds).join(',')}` : ''}`}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
-          >
-            <Plus size={20} />
-            <span>{t('production.newOrder')}</span>
-          </Link>
-        </div>
+        <div className="flex flex-wrap gap-2 w-full md:w-auto" />
       </div>
 
       {(() => {
@@ -372,15 +442,50 @@ export default function ProductionPage() {
       ) : (
         <div>
           {/* Bekleyen Siparişler Bölümü */}
-          {customerOrders.length > 0 && (
+          {filteredCustomerOrders.length > 0 && (
             <div className="mb-6">
-              <h2 className="text-xl font-bold text-white mb-4">Bekleyen Siparişler ({customerOrders.length})</h2>
+              <h2 className="text-xl font-bold text-white mb-4">Bekleyen Siparişler ({filteredCustomerOrders.length})</h2>
+              <div className="flex flex-wrap gap-2 w-full mb-4">
+                <div className="relative flex-1 md:flex-none md:w-[520px]">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Sipariş no, bayi, müşteri, ürün ara..."
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">Tümü</option>
+                  <option value="pending">Beklemede</option>
+                  <option value="in_progress">Üretimde</option>
+                  <option value="completed">Tamamlandı</option>
+                  <option value="cancelled">İptal</option>
+                </select>
+              </div>
               <div className="space-y-4">
-                {customerOrders.map((order) => (
+                {filteredCustomerOrders.map((order) => (
                   <div 
                     key={order.id} 
-                    className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30"
+                    className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30 cursor-pointer"
+                    onDoubleClick={() => handleOrderDoubleClick(order.id)}
+                    onDoubleClickCapture={() => handleOrderDoubleClick(order.id)}
+                    onClickCapture={() => handleOrderClick(order.id)}
                   >
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div className="text-white text-sm font-mono">{order.order_number}</div>
+                      <button
+                        onClick={() => handleOrderDoubleClick(order.id)}
+                        className="bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition text-xs"
+                        type="button"
+                      >
+                        Üretime Al
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {/* Sol Sütun */}
                       <div>
@@ -395,10 +500,10 @@ export default function ProductionPage() {
                           />
                         </div>
                       </div>
-                      <div>
-                        <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
-                        <div className="text-white text-sm font-mono">{order.order_number}</div>
-                      </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
+                      <div className="text-white text-sm font-mono">{order.order_number}</div>
+                    </div>
                       <div>
                         <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
                         <div className="text-white text-sm">{order.configuration || '-'}</div>
@@ -417,6 +522,14 @@ export default function ProductionPage() {
                              order.status === 'completed' ? 'Tamamlandı' : 'İptal Edildi'}
                           </span>
                         </div>
+                        <button
+                          onClick={() => cancelCustomerOrder(order.id, order.order_number)}
+                          disabled={cancelingCustomerOrderId === order.id || order.status !== 'pending'}
+                          className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg text-xs bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
+                          type="button"
+                        >
+                          {cancelingCustomerOrderId === order.id ? 'İptal Ediliyor...' : 'İptal Et'}
+                        </button>
                       </div>
 
                       {/* Orta Sol Sütun */}
@@ -492,14 +605,14 @@ export default function ProductionPage() {
 
           {/* Üretim Emirleri Bölümü */}
           <div>
-            <h2 className="text-xl font-bold text-white mb-4">Üretim Emirleri ({orders.length})</h2>
-            {orders.length === 0 ? (
+            <h2 className="text-xl font-bold text-white mb-4">Üretim Emirleri ({filteredProductionOrders.length})</h2>
+            {filteredProductionOrders.length === 0 ? (
               <div className="text-center text-gray-400 py-8">
                 {t('production.noOrders')}
               </div>
             ) : (
               <div className="space-y-4">
-                {orders.map((order) => {
+                {filteredProductionOrders.map((order) => {
                   const prodBarcodes = productionBarcodesMap[order.id] || []
                   return (
                     <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
@@ -516,6 +629,15 @@ export default function ProductionPage() {
                         <div>
                           <div className="text-xs text-gray-400 mb-1">Durum</div>
                           <div>{getStatusBadge(order.status)}</div>
+                          <button
+                            onClick={() => cancelProductionOrder(order.id, order.order_number)}
+                            disabled={cancelingOrderId === order.id || order.status === 'completed' || order.status === 'cancelled'}
+                            className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg text-xs bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
+                            type="button"
+                            title={order.status === 'completed' ? 'Tamamlanan emir iptal edilemez' : order.status === 'cancelled' ? 'Bu emir zaten iptal' : 'Üretim emrini iptal et'}
+                          >
+                            {cancelingOrderId === order.id ? 'İptal Ediliyor...' : 'İptal Et'}
+                          </button>
                         </div>
 
                         {/* Orta Sol Sütun */}

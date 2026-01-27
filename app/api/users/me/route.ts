@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { createHash } from 'crypto'
 
 // GET: Mevcut kullanıcı bilgilerini getir
@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
         u.created_at,
         u.last_login
       FROM users u
-      WHERE u.id = ?
-    `).get(userId) as any
+      WHERE u.id = ? AND u.company_id = ? AND u.branch_id = ?
+    `).get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
 
     if (!user) {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })
@@ -42,8 +42,8 @@ export async function GET(request: NextRequest) {
     const permissions = db.prepare(`
       SELECT page_path, can_view, can_create, can_edit, can_delete
       FROM user_permissions
-      WHERE user_id = ?
-    `).all(userId)
+      WHERE user_id = ? AND company_id = ? AND branch_id = ?
+    `).all(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     return NextResponse.json({
       ...user,
@@ -73,7 +73,8 @@ export async function PATCH(request: NextRequest) {
     const db = getDatabase()
 
     // Kullanıcıyı bul
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any
+    const user = db.prepare('SELECT * FROM users WHERE id = ? AND company_id = ? AND branch_id = ?')
+      .get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
     if (!user) {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })
     }
@@ -97,8 +98,8 @@ export async function PATCH(request: NextRequest) {
       updateParams.push(job_title)
     }
 
-    updateQuery += ' WHERE id = ?'
-    updateParams.push(userId)
+    updateQuery += ' WHERE id = ? AND company_id = ? AND branch_id = ?'
+    updateParams.push(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     db.prepare(updateQuery).run(...updateParams)
 
