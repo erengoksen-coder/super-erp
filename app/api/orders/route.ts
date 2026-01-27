@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
+import { ok, fail } from '@/lib/api/response'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -188,7 +189,7 @@ export async function GET(request: NextRequest) {
         })
       }
       
-      return NextResponse.json(filteredOrders)
+      return ok(filteredOrders)
     }
 
     // Diğer status'ler için normal sorgu
@@ -222,10 +223,10 @@ export async function GET(request: NextRequest) {
     const orders = db.prepare(query).all(...params) as OrderRow[]
     
     // Status pending değilse normal filtreleme
-    return NextResponse.json(orders)
+    return ok(orders)
   } catch (error: any) {
     console.error('Siparişler yüklenirken hata:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
@@ -236,10 +237,10 @@ export async function POST(request: NextRequest) {
     const { orders: manualOrders } = body as { orders?: ManualOrderInput[] }
 
     if (!manualOrders || !Array.isArray(manualOrders) || manualOrders.length === 0) {
-      return NextResponse.json({ 
-        error: 'Sipariş verisi gerekli',
-        details: 'Lütfen sipariş bilgilerini gönderin.'
-      }, { status: 400 })
+      return fail('Sipariş verisi gerekli', {
+        status: 400,
+        details: 'Lütfen sipariş bilgilerini gönderin.',
+      })
     }
 
     const db = getDatabase()
@@ -317,14 +318,15 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    return NextResponse.json({
-      success: true,
-      message: `${insertedOrders.length} sipariş başarıyla oluşturuldu`,
-      orders: insertedOrders
-    })
+    return ok(
+      {
+        orders: insertedOrders,
+      },
+      { message: `${insertedOrders.length} sipariş başarıyla oluşturuldu` }
+    )
   } catch (error: any) {
     console.error('Sipariş oluşturulurken hata:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
@@ -338,17 +340,15 @@ export async function DELETE(request: NextRequest) {
     
     logger.info(`[Orders API - DELETE] ${deleteResult.changes} sipariş silindi`)
     
-    return NextResponse.json({
-      success: true,
-      message: `${deleteResult.changes} sipariş başarıyla silindi`,
-      deleted_count: deleteResult.changes
-    })
+    return ok(
+      {
+        deleted_count: deleteResult.changes,
+      },
+      { message: `${deleteResult.changes} sipariş başarıyla silindi` }
+    )
   } catch (error: any) {
     console.error('Siparişler silinirken hata:', error)
     logger.error(`[Orders API - DELETE] Hata: ${error.message}`, { error })
-    return NextResponse.json({ 
-      error: 'Siparişler silinemedi',
-      details: error.message 
-    }, { status: 500 })
+    return fail('Siparişler silinemedi', { status: 500, details: error.message })
   }
 }
