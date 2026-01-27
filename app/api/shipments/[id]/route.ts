@@ -1,5 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { ok, fail } from '@/lib/api/response'
+
+type ShipmentRow = {
+  id: string
+  customer_id: string
+  shipment_number: string
+  status: string
+  total_amount?: number | null
+  final_amount?: number | null
+  customer_name?: string | null
+  customer_code?: string | null
+  customer_address?: string | null
+  customer_phone?: string | null
+  customer_email?: string | null
+  [key: string]: unknown
+}
+
+type ShipmentItemRow = {
+  id: string
+  shipment_id: string
+  product_id: string
+  quantity: number
+  unit_price: number | null
+  total_price: number | null
+  serial_numbers: string | null
+  product_name?: string
+  product_sku?: string
+  [key: string]: unknown
+}
+
+type ShipmentItemResponse = Omit<ShipmentItemRow, 'serial_numbers'> & {
+  serial_numbers: string[] | null
+}
 
 // GET: Tek sevkiyat detayı
 export async function GET(
@@ -22,10 +55,10 @@ export async function GET(
       FROM shipments s
       JOIN accounts a ON s.customer_id = a.id
       WHERE s.id = ?
-    `).get(shipmentId) as any
+    `).get(shipmentId) as ShipmentRow | undefined
 
     if (!shipment) {
-      return NextResponse.json({ error: 'Sevkiyat bulunamadı' }, { status: 404 })
+      return fail('Sevkiyat bulunamadı', { status: 404 })
     }
 
     const items = db.prepare(`
@@ -37,10 +70,10 @@ export async function GET(
       JOIN products p ON si.product_id = p.id
       WHERE si.shipment_id = ?
       ORDER BY p.sku
-    `).all(shipmentId)
+    `).all(shipmentId) as ShipmentItemRow[]
 
     // Serial numbers'ı parse et
-    const itemsWithParsedSerials = items.map((item: any) => {
+    const itemsWithParsedSerials = items.map((item): ShipmentItemResponse => {
       let parsedSerials = null
       if (item.serial_numbers) {
         try {
@@ -56,12 +89,12 @@ export async function GET(
       }
     })
 
-    return NextResponse.json({
+    return ok({
       ...shipment,
       items: itemsWithParsedSerials,
     })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
@@ -79,15 +112,15 @@ export async function DELETE(
     // Sevkiyat bilgilerini al
     const shipment = db.prepare(`
       SELECT * FROM shipments WHERE id = ?
-    `).get(shipmentId) as any
+    `).get(shipmentId) as ShipmentRow | undefined
 
     if (!shipment) {
-      return NextResponse.json({ error: 'Sevkiyat bulunamadı' }, { status: 404 })
+      return fail('Sevkiyat bulunamadı', { status: 404 })
     }
 
     // Zaten iptal edilmiş mi kontrol et
     if (shipment.status === 'cancelled') {
-      return NextResponse.json({ error: 'Bu sevkiyat zaten iptal edilmiş' }, { status: 400 })
+      return fail('Bu sevkiyat zaten iptal edilmiş', { status: 400 })
     }
 
     // Sevkiyat kalemlerini al
@@ -98,7 +131,7 @@ export async function DELETE(
       FROM shipment_items si
       JOIN products p ON si.product_id = p.id
       WHERE si.shipment_id = ?
-    `).all(shipmentId) as any[]
+    `).all(shipmentId) as ShipmentItemRow[]
 
     db.transaction(() => {
       // Her kalem için işlemleri geri al
@@ -164,11 +197,8 @@ export async function DELETE(
       `).run(shipmentId)
     })()
 
-    return NextResponse.json({
-      success: true,
-      message: 'Sevkiyat başarıyla iptal edildi ve ürünler stoka geri eklendi'
-    })
+    return ok(null, { message: 'Sevkiyat başarıyla iptal edildi ve ürünler stoka geri eklendi' })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }

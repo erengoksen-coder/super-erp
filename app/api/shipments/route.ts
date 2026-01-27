@@ -1,7 +1,80 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateShipmentNumber } from '@/lib/utils/codeGenerator.server'
+import { ok, fail } from '@/lib/api/response'
+
+type ShipmentRow = {
+  id: string
+  customer_id: string
+  status: string
+  shipment_number: string
+  shipment_date: string
+  total_amount?: number | null
+  tax_rate?: number | null
+  tax_amount?: number | null
+  final_amount?: number | null
+  created_at?: string | null
+  customer_name?: string | null
+  customer_code?: string | null
+  item_count?: number | null
+  total_quantity?: number | null
+  [key: string]: unknown
+}
+
+type ShipmentItemRow = {
+  id: string
+  shipment_id: string
+  product_id: string
+  quantity: number
+  unit_price: number | null
+  total_price: number | null
+  serial_numbers: string | null
+  notes: string | null
+  product_name?: string
+  product_sku?: string
+}
+
+type ShipmentInputItem = {
+  product_id: string
+  quantity: number
+  product_name?: string
+  barcodes?: string[]
+  serial_numbers?: string[]
+  notes?: string
+}
+
+type ShipmentCreateInput = {
+  customer_id?: string
+  shipment_date?: string
+  items?: ShipmentInputItem[]
+  notes?: string
+  total_amount?: number
+  tax_rate?: number
+}
+
+type CustomerRow = {
+  id: string
+}
+
+type BomItemRow = {
+  quantity: number
+  fire_percentage: number | null
+  unit_price: number | null
+}
+
+type ProductPriceRow = {
+  selling_price: number | null
+}
+
+type BarcodeRow = {
+  barcode: string
+}
+
+type ProductNameSkuRow = {
+  name: string
+  sku: string
+}
 
 // GET: Tüm sevkiyatları getir
 export async function GET(request: NextRequest) {
@@ -27,7 +100,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN shipment_items si ON s.id = si.shipment_id
       WHERE 1=1
     `
-    const params: any[] = []
+    const params: string[] = []
 
     if (customerId) {
       query += ' AND s.customer_id = ?'
@@ -57,10 +130,10 @@ export async function GET(request: NextRequest) {
 
     query += ' GROUP BY s.id ORDER BY s.shipment_date DESC, s.created_at DESC'
 
-    const shipments = db.prepare(query).all(...params)
+    const shipments = db.prepare(query).all(...params) as ShipmentRow[]
 
     // Her sevkiyat için kalemleri getir
-    const shipmentsWithItems = shipments.map((shipment: any) => {
+    const shipmentsWithItems = shipments.map((shipment) => {
       const items = db.prepare(`
         SELECT 
           si.*,
@@ -70,7 +143,7 @@ export async function GET(request: NextRequest) {
         JOIN products p ON si.product_id = p.id
         WHERE si.shipment_id = ?
         ORDER BY si.created_at
-      `).all(shipment.id)
+      `).all(shipment.id) as ShipmentItemRow[]
 
       return {
         ...shipment,
@@ -78,31 +151,28 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json(shipmentsWithItems)
+    return ok(shipmentsWithItems)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
 // POST: Yeni sevkiyat oluştur
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const body = await request.json() as ShipmentCreateInput
     const { customer_id, shipment_date, items, notes, total_amount, tax_rate } = body
 
     if (!customer_id || !shipment_date || !items || items.length === 0) {
-      return NextResponse.json(
-        { error: 'customer_id, shipment_date ve items (en az 1 kalem) gerekli' },
-        { status: 400 }
-      )
+      return fail('customer_id, shipment_date ve items (en az 1 kalem) gerekli', { status: 400 })
     }
 
     const db = getDatabase()
 
     // Müşteri kontrolü
-    const customer = db.prepare('SELECT * FROM accounts WHERE id = ? AND type = ?').get(customer_id, 'customer') as any
+    const customer = db.prepare('SELECT id FROM accounts WHERE id = ? AND type = ?').get(customer_id, 'customer') as CustomerRow | undefined
     if (!customer) {
-      return NextResponse.json({ error: 'Müşteri bulunamadı' }, { status: 404 })
+      return fail('Müşteri bulunamadı', { status: 404 })
     }
 
     const shipmentId = randomUUID()
@@ -123,7 +193,7 @@ export async function POST(request: NextRequest) {
           FROM bom b
           JOIN materials m ON b.material_id = m.id
           WHERE b.product_id = ?
-        `).all(item.product_id) as any[]
+        `).all(item.product_id) as BomItemRow[]
 
         // Toplam maliyeti hesapla
         let bomCost = 0
@@ -135,7 +205,7 @@ export async function POST(request: NextRequest) {
 
         // Eğer BOM maliyeti yoksa, selling_price kullan
         const unitPrice = bomCost > 0 ? bomCost : (() => {
-          const product = db.prepare('SELECT selling_price FROM products WHERE id = ?').get(item.product_id) as any
+          const product = db.prepare('SELECT selling_price FROM products WHERE id = ?').get(item.product_id) as ProductPriceRow | undefined
           return product?.selling_price || 0
         })()
 
@@ -153,7 +223,7 @@ export async function POST(request: NextRequest) {
 
     db.transaction(() => {
       // Sevkiyat kaydı oluştur
-      const totalQuantity = items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
+      const totalQuantity = items.reduce((sum, item) => sum + (item.quantity || 0), 0)
 
       db.prepare(`
         INSERT INTO shipments 
@@ -199,7 +269,7 @@ export async function POST(request: NextRequest) {
               AND product_id = ?
               AND ready_for_shipment = 1
               AND (shipment_id IS NULL OR shipment_id = '')
-          `).all(...barcodes, item.product_id) as any[]
+          `).all(...barcodes, item.product_id) as BarcodeRow[]
 
           if (existingBarcodes.length !== barcodes.length) {
             const foundBarcodes = existingBarcodes.map(b => b.barcode)
@@ -230,7 +300,7 @@ export async function POST(request: NextRequest) {
         )
 
         // Ürün bilgilerini al
-        const product = db.prepare('SELECT name, sku FROM products WHERE id = ?').get(item.product_id) as any
+        const product = db.prepare('SELECT name, sku FROM products WHERE id = ?').get(item.product_id) as ProductNameSkuRow | undefined
         const productName = product?.name || item.product_name || 'Ürün'
         const productSku = product?.sku || ''
 
@@ -311,7 +381,7 @@ export async function POST(request: NextRequest) {
       FROM shipments s
       JOIN accounts a ON s.customer_id = a.id
       WHERE s.id = ?
-    `).get(shipmentId) as any
+    `).get(shipmentId) as ShipmentRow | undefined
 
     const shipmentItems = db.prepare(`
       SELECT 
@@ -321,14 +391,14 @@ export async function POST(request: NextRequest) {
       FROM shipment_items si
       JOIN products p ON si.product_id = p.id
       WHERE si.shipment_id = ?
-    `).all(shipmentId)
+    `).all(shipmentId) as ShipmentItemRow[]
 
-    return NextResponse.json({
+    return ok({
       ...shipment,
       items: shipmentItems,
-    })
+    }, { status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 

@@ -1,5 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { ok, fail } from '@/lib/api/response'
+
+type ShipmentRow = {
+  id: string
+  customer_id: string
+  total_amount?: number | null
+  final_amount?: number | null
+}
+
+type ShipmentTaxInput = {
+  tax_rate?: number
+}
 
 // PATCH: Sevkiyat KDV oranını güncelle
 export async function PATCH(
@@ -9,22 +21,19 @@ export async function PATCH(
   try {
     const resolvedParams = await Promise.resolve(params)
     const shipmentId = resolvedParams.id
-    const body = await request.json()
+    const body = await request.json() as ShipmentTaxInput
     const { tax_rate } = body
 
     if (tax_rate === undefined || tax_rate < 0 || tax_rate > 100) {
-      return NextResponse.json(
-        { error: 'KDV oranı 0-100 arasında olmalıdır' },
-        { status: 400 }
-      )
+      return fail('KDV oranı 0-100 arasında olmalıdır', { status: 400 })
     }
 
     const db = getDatabase()
 
     // Sevkiyatı bul
-    const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId) as any
+    const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId) as ShipmentRow | undefined
     if (!shipment) {
-      return NextResponse.json({ error: 'Sevkiyat bulunamadı' }, { status: 404 })
+      return fail('Sevkiyat bulunamadı', { status: 404 })
     }
 
     // KDV hesapla
@@ -59,18 +68,19 @@ export async function PATCH(
       }
     })()
 
-    return NextResponse.json({
-      success: true,
-      message: 'KDV başarıyla güncellendi',
-      shipment: {
-        ...shipment,
-        tax_rate: newTaxRate,
-        tax_amount: newTaxAmount,
-        final_amount: newFinalAmount,
+    return ok(
+      {
+        shipment: {
+          ...shipment,
+          tax_rate: newTaxRate,
+          tax_amount: newTaxAmount,
+          final_amount: newFinalAmount,
+        },
       },
-    })
+      { message: 'KDV başarıyla güncellendi' }
+    )
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 

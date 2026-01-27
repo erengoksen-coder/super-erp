@@ -1,5 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { ok, fail } from '@/lib/api/response'
+
+type ShipmentRow = {
+  id: string
+  status: string
+  customer_id: string
+  total_amount?: number | null
+  final_amount?: number | null
+}
+
+type ShipmentItemRow = {
+  id: string
+  product_id: string
+  quantity: number
+  serial_numbers: string | null
+  product_sku?: string | null
+}
+
+type ShipmentStatusInput = {
+  status?: 'pending' | 'in_transit' | 'delivered' | 'cancelled'
+  cancel_reason?: string
+}
 
 // PATCH: Sevkiyat durumunu güncelle
 export async function PATCH(
@@ -9,30 +31,24 @@ export async function PATCH(
   try {
     const resolvedParams = await Promise.resolve(params)
     const shipmentId = resolvedParams.id
-    const body = await request.json()
+    const body = await request.json() as ShipmentStatusInput
     const { status, cancel_reason } = body
 
     if (!status || !['pending', 'in_transit', 'delivered', 'cancelled'].includes(status)) {
-      return NextResponse.json(
-        { error: 'Geçersiz durum. Geçerli durumlar: pending, in_transit, delivered, cancelled' },
-        { status: 400 }
-      )
+      return fail('Geçersiz durum. Geçerli durumlar: pending, in_transit, delivered, cancelled', { status: 400 })
     }
 
     // İptal ediliyorsa iptal nedeni zorunlu
     if (status === 'cancelled' && (!cancel_reason || !cancel_reason.trim())) {
-      return NextResponse.json(
-        { error: 'İptal nedeni zorunludur' },
-        { status: 400 }
-      )
+      return fail('İptal nedeni zorunludur', { status: 400 })
     }
 
     const db = getDatabase()
 
     // Sevkiyatı bul
-    const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId) as any
+    const shipment = db.prepare('SELECT * FROM shipments WHERE id = ?').get(shipmentId) as ShipmentRow | undefined
     if (!shipment) {
-      return NextResponse.json({ error: 'Sevkiyat bulunamadı' }, { status: 404 })
+      return fail('Sevkiyat bulunamadı', { status: 404 })
     }
 
     const oldStatus = shipment.status
@@ -56,7 +72,7 @@ export async function PATCH(
           FROM shipment_items si
           JOIN products p ON si.product_id = p.id
           WHERE si.shipment_id = ?
-        `).all(shipmentId) as any[]
+        `).all(shipmentId) as ShipmentItemRow[]
 
         for (const item of shipmentItems) {
           // Ürün stokunu artır
@@ -125,7 +141,7 @@ export async function PATCH(
           SELECT si.*
           FROM shipment_items si
           WHERE si.shipment_id = ?
-        `).all(shipmentId) as any[]
+        `).all(shipmentId) as ShipmentItemRow[]
 
         for (const item of shipmentItems) {
           // Ürün stokunu azalt
@@ -215,16 +231,17 @@ export async function PATCH(
       }
     })()
 
-    return NextResponse.json({
-      success: true,
-      message: 'Sevkiyat durumu güncellendi',
-      shipment: {
-        ...shipment,
-        status: newStatus,
+    return ok(
+      {
+        shipment: {
+          ...shipment,
+          status: newStatus,
+        },
       },
-    })
+      { message: 'Sevkiyat durumu güncellendi' }
+    )
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return fail(error.message, { status: 500 })
   }
 }
 
