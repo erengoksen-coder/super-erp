@@ -4,11 +4,12 @@ import { getDatabase } from '@/lib/database/db'
 // GET: Üretim emrine ait barkodları getir
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const db = getDatabase()
-    const productionOrderId = params.id
+    const { id } = await params
+    const productionOrderId = id
 
     const barcodes = db.prepare(`
       SELECT 
@@ -30,7 +31,7 @@ export async function GET(
 // POST: Barkodu sevk edilebilir olarak işaretle/kaldır
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const body = await request.json()

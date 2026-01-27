@@ -62,7 +62,7 @@ export async function GET() {
       FROM production_orders
       WHERE status != 'completed' AND status != 'cancelled'
       GROUP BY current_station
-    `).all()
+    `).all() as any[]
 
     const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat']
     const stationNames: Record<string, string> = {

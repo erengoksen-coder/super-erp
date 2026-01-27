@@ -904,13 +904,20 @@ function initializeDatabase() {
     console.warn('Varsayılan etiket ayarları eklenirken hata:', e.message)
   }
 
-  // Varsayılan admin kullanıcı oluştur (şifre: admin123)
+  // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const { createHash } = require('crypto')
-  const adminPasswordHash = createHash('sha256').update('admin123').digest('hex')
+  const adminPasswordHash = createHash('sha256').update('admin1234').digest('hex')
   try {
     db.prepare(`
       INSERT OR IGNORE INTO users (id, username, email, password_hash, full_name, role, is_approved, job_title)
       VALUES ('admin-001', 'admin', 'admin@livasofa.com', ?, 'Sistem Yöneticisi', 'admin', 1, 'Yönetici')
+    `).run(adminPasswordHash)
+
+    // Var olan admin şifresini güncelle
+    db.prepare(`
+      UPDATE users
+      SET password_hash = ?
+      WHERE username = 'admin'
     `).run(adminPasswordHash)
   } catch (e) {
     // Admin zaten varsa hata verme

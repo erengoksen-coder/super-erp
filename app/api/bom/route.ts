@@ -50,10 +50,10 @@ export async function GET(request: NextRequest) {
         JOIN products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
         ORDER BY p.sku, m.name
-      `).all()
+      `).all() as any[]
 
       // Ürün bazlı grupla
-      const groupedByProduct = allBom.reduce((acc: any, item: any) => {
+      const groupedByProduct = allBom.reduce<Record<string, any>>((acc, item: any) => {
         const key = item.product_id
         if (!acc[key]) {
           acc[key] = {

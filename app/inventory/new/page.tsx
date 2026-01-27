@@ -71,7 +71,6 @@ export default function NewInventoryPage() {
           </form>
         </div>
       </div>
-    </div>
   )
 }
 

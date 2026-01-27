@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { generateBarcode, generateSerialNumber } from '@/lib/utils/barcodeGenerator'
 
 // GET: İstasyona göre üretim emirlerini getir
 export async function GET(request: NextRequest) {
@@ -272,8 +273,7 @@ export async function PATCH(request: NextRequest) {
     const nextStation = stationOrder[nextIndex]
     const now = new Date().toISOString()
 
-    // Barkod generator'ı önceden import et
-    const { generateBarcode, generateSerialNumber } = await import('@/lib/utils/barcodeGenerator')
+    // Barkod generator'ı üstte statik import edildi
 
     db.transaction(() => {
       // İstasyon geçişi

@@ -4,13 +4,14 @@ import { getDatabase } from '@/lib/database/db'
 // GET: Yevmiye kaydı detayı
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const db = getDatabase()
+    const { id } = await params
 
     // Yevmiye kaydı
-    const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(params.id) as any
+    const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as any
     if (!entry) {
       return NextResponse.json({ error: 'Yevmiye kaydı bulunamadı' }, { status: 404 })
     }
@@ -26,7 +27,7 @@ export async function GET(
       JOIN chart_of_accounts coa ON jel.account_id = coa.id
       WHERE jel.journal_entry_id = ?
       ORDER BY jel.debit DESC, jel.credit DESC
-    `).all(params.id)
+    `).all(id)
 
     return NextResponse.json({
       entry,
