@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 
 // GET: Tüm ürünleri getir
 export async function GET() {
@@ -29,9 +30,7 @@ export async function GET() {
     })
     
     return NextResponse.json(productsWithRealStock, {
-      headers: {
-        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
-      },
+      headers: CACHE_HEADERS_SHORT,
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

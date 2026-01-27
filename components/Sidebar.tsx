@@ -17,6 +17,8 @@ import {
   Truck,
   Shield,
   FileSpreadsheet,
+  BarChart3,
+  Bell,
   Languages
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
@@ -59,6 +61,16 @@ const menuItems = [
     name: 'Siparişler',
     href: '/orders',
     icon: FileSpreadsheet,
+  },
+  {
+    name: 'Raporlar',
+    href: '/reports',
+    icon: BarChart3,
+  },
+  {
+    name: 'Bildirimler',
+    href: '/notifications',
+    icon: Bell,
   },
   {
     name: 'Cari Hesaplar',

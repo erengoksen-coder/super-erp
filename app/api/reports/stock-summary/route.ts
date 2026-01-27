@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { ok, fail } from '@/lib/api/response'
+import { handleApi } from '@/lib/api/handler'
 import { getDatabase } from '@/lib/database/db'
+import { CACHE_HEADERS_STATS } from '@/lib/api/cache'
 
 type MaterialRow = {
   id: string
@@ -19,7 +21,7 @@ type ProductRow = {
 }
 
 export async function GET() {
-  try {
+  return handleApi(async () => {
     const db = getDatabase()
     const materials = db.prepare(`
       SELECT id, code, name, unit, stock_amount, min_stock_level
@@ -40,7 +42,7 @@ export async function GET() {
       (item) => (item.stock_amount ?? 0) < (item.min_stock_level ?? 0)
     ).length
 
-    return NextResponse.json(
+    return ok(
       {
         summary: {
           materials_total: materials.length,
@@ -51,13 +53,7 @@ export async function GET() {
         materials,
         products,
       },
-      {
-        headers: {
-          'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
-        },
-      }
+      { headers: CACHE_HEADERS_STATS }
     )
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  }, { status: 500 })
 }

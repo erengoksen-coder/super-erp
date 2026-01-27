@@ -52,3 +52,31 @@ self.addEventListener('fetch', (event) => {
     )
   }
 })
+
+self.addEventListener('push', (event) => {
+  const data = event.data?.json?.() || {}
+  const title = data.title || 'Super ERP'
+  const options = {
+    body: data.body || 'Yeni bildirim',
+    icon: '/logo.png',
+    data: {
+      url: data.url || '/',
+    },
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const targetUrl = event.notification.data?.url || '/'
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
+      const existing = clientsArr.find((client) => client.url.includes(targetUrl))
+      if (existing) {
+        return existing.focus()
+      }
+      return self.clients.openWindow(targetUrl)
+    })
+  )
+})

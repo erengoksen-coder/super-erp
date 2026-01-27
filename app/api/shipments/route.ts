@@ -3,6 +3,7 @@ import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateShipmentNumber } from '@/lib/utils/codeGenerator.server'
 import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 
 type ShipmentRow = {
   id: string
@@ -151,11 +152,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return ok(shipmentsWithItems, {
-      headers: {
-        'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
-      },
-    })
+    return ok(shipmentsWithItems, { headers: CACHE_HEADERS_LIST })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

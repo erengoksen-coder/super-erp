@@ -57,6 +57,18 @@ function initializeDatabase() {
       FOREIGN KEY (approved_by) REFERENCES users(id)
     )
   `)
+
+  // Push Subscriptions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
   
   // Position kolonu ekle (eğer yoksa)
   try {

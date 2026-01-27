@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { accountsRepo } from '@/lib/repositories/accounts'
 
 type AccountInput = {
@@ -19,11 +20,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') // 'customer' veya 'supplier'
 
     const accounts = accountsRepo.getAll(type)
-    return ok(accounts, {
-      headers: {
-        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
-      },
-    })
+    return ok(accounts, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

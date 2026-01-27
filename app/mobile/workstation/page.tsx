@@ -127,12 +127,6 @@ export default function WorkstationPage() {
   const router = useRouter()
   const [stats, setStats] = useState<StationInfo[]>([])
 
-  useEffect(() => {
-    loadStats()
-    const interval = setInterval(loadStats, 5000) // Her 5 saniyede bir güncelle
-    return () => clearInterval(interval)
-  }, [])
-
   async function loadStats() {
     try {
       const response = await fetch('/api/production/station')
@@ -144,6 +138,12 @@ export default function WorkstationPage() {
       console.error('Stats yüklenemedi:', error)
     }
   }
+
+  useEffect(() => {
+    loadStats()
+    const interval = setInterval(loadStats, 5000) // Her 5 saniyede bir güncelle
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-900 p-4">

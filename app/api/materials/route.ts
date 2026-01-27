@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { materialsRepo } from '@/lib/repositories/materials'
 
 type MaterialInput = {
@@ -17,11 +18,7 @@ type MaterialInput = {
 export async function GET() {
   try {
     const materials = materialsRepo.getAll()
-    return ok(materials, {
-      headers: {
-        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
-      },
-    })
+    return ok(materials, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

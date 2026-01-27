@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 
 type MaterialStockRow = {
   stock_amount: number | null
@@ -121,11 +122,7 @@ export async function GET() {
         stationStats: formattedStationStats,
         bottleneck: bottleneck.count > 0 ? bottleneck : null,
       },
-      {
-        headers: {
-          'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
-        },
-      }
+      { headers: CACHE_HEADERS_SHORT }
     )
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

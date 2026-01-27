@@ -25,8 +25,8 @@ const translations: Record<Language, Translations> = {
 // Çeviri dosyalarını yükle
 async function loadTranslations(lang: Language): Promise<Translations> {
   try {
-    const module = await import(`@/locales/${lang}.json`)
-    return module.default || module
+    const imported = await import(`@/locales/${lang}.json`)
+    return imported.default || imported
   } catch (error) {
     console.warn(`Çeviri dosyası yüklenemedi: locales/${lang}.json`, error)
     return {}

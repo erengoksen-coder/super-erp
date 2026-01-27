@@ -10,7 +10,9 @@
     "dev:local": "next dev",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "prepare": "husky install"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
@@ -32,6 +34,7 @@
     "recharts": "^2.12.7",
     "selfsigned": "^2.1.1",
     "swr": "^2.3.8",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
@@ -44,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

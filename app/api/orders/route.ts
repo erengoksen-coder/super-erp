@@ -3,6 +3,7 @@ import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -189,11 +190,7 @@ export async function GET(request: NextRequest) {
         })
       }
       
-      return ok(filteredOrders, {
-        headers: {
-          'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
-        },
-      })
+      return ok(filteredOrders, { headers: CACHE_HEADERS_LIST })
     }
 
     // Diğer status'ler için normal sorgu
@@ -227,11 +224,7 @@ export async function GET(request: NextRequest) {
     const orders = db.prepare(query).all(...params) as OrderRow[]
     
     // Status pending değilse normal filtreleme
-    return ok(orders, {
-      headers: {
-        'Cache-Control': 'private, max-age=10, stale-while-revalidate=20',
-      },
-    })
+    return ok(orders, { headers: CACHE_HEADERS_LIST })
   } catch (error: any) {
     console.error('Siparişler yüklenirken hata:', error)
     return fail(error.message, { status: 500 })
