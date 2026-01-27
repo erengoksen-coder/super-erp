@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { useApi } from '@/lib/api/client'
 
 interface Order {
   id: string
@@ -37,7 +38,6 @@ interface Account {
 export default function OrdersPage() {
   const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
   const [converting, setConverting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
@@ -67,10 +67,24 @@ export default function OrdersPage() {
     notes: '' // AÇIKLAMA
   })
 
+  const { data: ordersData, isLoading, mutate } = useApi<Order[]>('/api/orders')
+
   useEffect(() => {
-    loadOrders()
     loadAccounts()
   }, [])
+
+  useEffect(() => {
+    const list = ordersData ?? []
+    const sorted = [...list].sort((a, b) => {
+      const dateA = a.order_date || a.created_at || ''
+      const dateB = b.order_date || b.created_at || ''
+      if (!dateA && !dateB) return 0
+      if (!dateA) return 1
+      if (!dateB) return -1
+      return new Date(dateA).getTime() - new Date(dateB).getTime()
+    })
+    setOrders(sorted)
+  }, [ordersData])
 
   async function loadAccounts() {
     try {
@@ -219,33 +233,9 @@ export default function OrdersPage() {
         unit: '',
         notes: ''
       })
-      loadOrders()
+      await mutate()
     } catch (error: any) {
       alert('Hata: ' + error.message)
-    }
-  }
-
-  async function loadOrders() {
-    setLoading(true)
-    try {
-      const response = await fetch('/api/orders')
-      if (!response.ok) throw new Error('Siparişler yüklenemedi')
-      const data = await response.json()
-      // Sipariş tarihine göre sırala (en eski yukarıda)
-      const sorted = [...data].sort((a, b) => {
-        const dateA = a.order_date || a.created_at || ''
-        const dateB = b.order_date || b.created_at || ''
-        if (!dateA && !dateB) return 0
-        if (!dateA) return 1
-        if (!dateB) return -1
-        return new Date(dateA).getTime() - new Date(dateB).getTime()
-      })
-      setOrders(sorted)
-    } catch (error) {
-      console.error('Siparişler yüklenirken hata:', error)
-      setOrders([])
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -300,7 +290,7 @@ export default function OrdersPage() {
             alert(`✅ ${result.message || `${result.inserted_count || 0} sipariş başarıyla yüklendi`}`)
           }
           
-          loadOrders()
+          await mutate()
           
           // File input'u temizle
           if (fileInputRef.current) {
@@ -521,7 +511,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Siparişler Tablosu */}
-      {loading ? (
+      {isLoading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="text-gray-400 mt-4">Yükleniyor...</p>

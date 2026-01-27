@@ -19,7 +19,11 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') // 'customer' veya 'supplier'
 
     const accounts = accountsRepo.getAll(type)
-    return ok(accounts)
+    return ok(accounts, {
+      headers: {
+        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+      },
+    })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

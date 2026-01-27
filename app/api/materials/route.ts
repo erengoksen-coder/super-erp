@@ -17,7 +17,11 @@ type MaterialInput = {
 export async function GET() {
   try {
     const materials = materialsRepo.getAll()
-    return ok(materials)
+    return ok(materials, {
+      headers: {
+        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+      },
+    })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

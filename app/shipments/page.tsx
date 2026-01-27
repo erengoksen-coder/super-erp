@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { useApi } from '@/lib/api/client'
 
 interface Shipment {
   id: string
@@ -44,7 +45,6 @@ export default function ShipmentsPage() {
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([])
   const [readyProducts, setReadyProducts] = useState<any[]>([])
   const [selectedReadyCustomerId, setSelectedReadyCustomerId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterCustomer, setFilterCustomer] = useState<string>('all')
   const [filterPeriod, setFilterPeriod] = useState<string>('all') // all, daily, weekly, monthly
@@ -54,106 +54,105 @@ export default function ShipmentsPage() {
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
-    loadShipments()
     loadCustomers()
-  }, [filterStatus, filterCustomer, filterPeriod, filterCompleted, selectedReadyCustomerId])
+  }, [])
 
-  async function loadShipments() {
-    setLoading(true)
-    try {
-      // Eğer "Sevk Edilebilir" filtresi seçildiyse, ready items yükle
-      if (filterStatus === 'ready') {
-        const response = await fetch('/api/shipments/ready-items')
-        if (!response.ok) throw new Error('Sevk edilebilir ürünler yüklenemedi')
-        const data = await response.json()
-        
-        // API'den gelen items array'ini kullan
-        const items = data.items || []
-        
-        // Müşterilere göre grupla (sadece cari bilgileri ve sayı)
-        const grouped: Record<string, { customer_id: string; customer_name: string; customer_code: string; count: number }> = {}
-        items.forEach((item: any) => {
-          const customerId = item.customer_id || 'no-customer'
-          const customerName = item.customer_name || 'Müşteri Seçilmemiş'
-          const customerCode = item.customer_code || '-'
-          
-          if (!grouped[customerId]) {
-            grouped[customerId] = {
-              customer_id: customerId,
-              customer_name: customerName,
-              customer_code: customerCode,
-              count: 0,
-            }
-          }
-          grouped[customerId].count++
-        })
-        
-        // Müşterileri isme göre sırala
-        const sortedCustomers = Object.values(grouped).sort((a, b) => {
-          if (a.customer_name === 'Müşteri Seçilmemiş') return 1
-          if (b.customer_name === 'Müşteri Seçilmemiş') return -1
-          return a.customer_name.localeCompare(b.customer_name, 'tr')
-        })
-        
-        setReadyItems(sortedCustomers)
-        setShipments([])
-        
-        // Eğer bir cari seçildiyse, o cariye ait ürünleri yükle
-        if (selectedReadyCustomerId) {
-          loadReadyProducts(selectedReadyCustomerId)
-        } else {
-          setReadyProducts([])
-        }
-      } else {
-        // Normal sevkiyat listesi
-        let url = '/api/shipments'
-        const params = new URLSearchParams()
-        
-        // Durum filtresi - Yapılan İşlem filtresi seçiliyse onu kullan, değilse Durum filtresini kullan
-        if (filterCompleted !== 'all') {
-          params.append('status', filterCompleted)
-        } else if (filterStatus !== 'all') {
-          params.append('status', filterStatus)
-        }
-        
-        if (filterCustomer !== 'all') params.append('customer_id', filterCustomer)
-        
-        // Tarih filtresi ekle
-        if (filterPeriod !== 'all') {
-          const now = new Date()
-          let startDate: Date
-          
-          if (filterPeriod === 'daily') {
-            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-          } else if (filterPeriod === 'weekly') {
-            const dayOfWeek = now.getDay()
-            const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1) // Pazartesi
-            startDate = new Date(now.getFullYear(), now.getMonth(), diff)
-          } else if (filterPeriod === 'monthly') {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-          } else {
-            startDate = new Date(0) // Tümü
-          }
-          
-          params.append('start_date', startDate.toISOString().split('T')[0])
-          params.append('end_date', now.toISOString().split('T')[0])
-        }
-        
-        if (params.toString()) url += '?' + params.toString()
+  const shipmentsKey = useMemo(() => {
+    if (filterStatus === 'ready') return null
+    let url = '/api/shipments'
+    const params = new URLSearchParams()
 
-        const response = await fetch(url)
-        if (!response.ok) throw new Error('Sevkiyatlar yüklenemedi')
-        const data = await response.json()
-        setShipments(data)
-        setReadyItems([])
-      }
-    } catch (error) {
-      console.error('Error loading shipments:', error)
-      alert('Sevkiyatlar yüklenirken hata oluştu')
-    } finally {
-      setLoading(false)
+    if (filterCompleted !== 'all') {
+      params.append('status', filterCompleted)
+    } else if (filterStatus !== 'all') {
+      params.append('status', filterStatus)
     }
-  }
+
+    if (filterCustomer !== 'all') params.append('customer_id', filterCustomer)
+
+    if (filterPeriod !== 'all') {
+      const now = new Date()
+      let startDate: Date
+
+      if (filterPeriod === 'daily') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      } else if (filterPeriod === 'weekly') {
+        const dayOfWeek = now.getDay()
+        const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
+        startDate = new Date(now.getFullYear(), now.getMonth(), diff)
+      } else if (filterPeriod === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+      } else {
+        startDate = new Date(0)
+      }
+
+      params.append('start_date', startDate.toISOString().split('T')[0])
+      params.append('end_date', now.toISOString().split('T')[0])
+    }
+
+    if (params.toString()) url += '?' + params.toString()
+    return url
+  }, [filterStatus, filterCompleted, filterCustomer, filterPeriod])
+
+  const readyItemsKey = useMemo(() => {
+    return filterStatus === 'ready' ? '/api/shipments/ready-items' : null
+  }, [filterStatus])
+
+  const readyProductsKey = useMemo(() => {
+    if (filterStatus !== 'ready' || !selectedReadyCustomerId) return null
+    return `/api/shipments/ready-items?customer_id=${selectedReadyCustomerId}`
+  }, [filterStatus, selectedReadyCustomerId])
+
+  const { data: shipmentsData, isLoading: shipmentsLoading } = useApi<Shipment[]>(shipmentsKey)
+  const { data: readyItemsData, isLoading: readyItemsLoading } = useApi<{ items: any[] }>(readyItemsKey)
+  const { data: readyProductsData, isLoading: readyProductsLoading } = useApi<{ items: any[] }>(readyProductsKey)
+
+  const isLoading = shipmentsLoading || readyItemsLoading || readyProductsLoading
+
+  useEffect(() => {
+    if (filterStatus === 'ready') {
+      const items = readyItemsData?.items || []
+      const grouped: Record<string, { customer_id: string; customer_name: string; customer_code: string; count: number }> = {}
+      items.forEach((item: any) => {
+        const customerId = item.customer_id || 'no-customer'
+        const customerName = item.customer_name || 'Müşteri Seçilmemiş'
+        const customerCode = item.customer_code || '-'
+
+        if (!grouped[customerId]) {
+          grouped[customerId] = {
+            customer_id: customerId,
+            customer_name: customerName,
+            customer_code: customerCode,
+            count: 0,
+          }
+        }
+        grouped[customerId].count++
+      })
+
+      const sortedCustomers = Object.values(grouped).sort((a, b) => {
+        if (a.customer_name === 'Müşteri Seçilmemiş') return 1
+        if (b.customer_name === 'Müşteri Seçilmemiş') return -1
+        return a.customer_name.localeCompare(b.customer_name, 'tr')
+      })
+
+      setReadyItems(sortedCustomers)
+      setShipments([])
+      if (!selectedReadyCustomerId) {
+        setReadyProducts([])
+      }
+    } else {
+      setShipments(shipmentsData ?? [])
+      setReadyItems([])
+      setReadyProducts([])
+    }
+  }, [filterStatus, readyItemsData, shipmentsData, selectedReadyCustomerId])
+
+  useEffect(() => {
+    if (filterStatus === 'ready' && selectedReadyCustomerId) {
+      setReadyProducts(readyProductsData?.items || [])
+    }
+  }, [filterStatus, selectedReadyCustomerId, readyProductsData])
+
 
   async function loadCustomers() {
     try {
@@ -167,20 +166,6 @@ export default function ShipmentsPage() {
     }
   }
 
-  async function loadReadyProducts(customerId: string) {
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/shipments/ready-items?customer_id=${customerId}`)
-      if (!response.ok) throw new Error('Sevk edilebilir ürünler yüklenemedi')
-      const data = await response.json()
-      setReadyProducts(data.items || [])
-    } catch (error: any) {
-      console.error('Error loading ready products:', error)
-      setReadyProducts([])
-    } finally {
-      setLoading(false)
-    }
-  }
 
   function handleReadyCustomerClick(customerId: string) {
     // Direkt yeni sevkiyat sayfasına yönlendir
@@ -512,7 +497,7 @@ export default function ShipmentsPage() {
       </div>
 
       {/* Sevkiyat Listesi */}
-      {loading ? (
+      {isLoading ? (
         <div className="text-center py-12">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <p className="mt-2 text-gray-400">Yükleniyor...</p>

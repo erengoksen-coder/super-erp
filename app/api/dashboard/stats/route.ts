@@ -112,14 +112,21 @@ export async function GET() {
       formattedStationStats[0] || { station: '', station_name: '', count: 0, total_quantity: 0 }
     )
 
-    return NextResponse.json({
-      totalStockValue,
-      pendingProduction: pendingProduction?.count || 0,
-      criticalStock: criticalStock?.count || 0,
-      productionTrend: trendData,
-      stationStats: formattedStationStats,
-      bottleneck: bottleneck.count > 0 ? bottleneck : null,
-    })
+    return NextResponse.json(
+      {
+        totalStockValue,
+        pendingProduction: pendingProduction?.count || 0,
+        criticalStock: criticalStock?.count || 0,
+        productionTrend: trendData,
+        stationStats: formattedStationStats,
+        bottleneck: bottleneck.count > 0 ? bottleneck : null,
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+        },
+      }
+    )
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

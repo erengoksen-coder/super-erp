@@ -28,7 +28,11 @@ export async function GET() {
       }
     })
     
-    return NextResponse.json(productsWithRealStock)
+    return NextResponse.json(productsWithRealStock, {
+      headers: {
+        'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+      },
+    })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
