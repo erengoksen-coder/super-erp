@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Stok girişi yap
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id) as any
+    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(product_id) as any
     
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })

@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   BarChart3,
   Bell,
+  Wallet,
   Languages
 } from 'lucide-react'
 import { useState } from 'react'
@@ -58,6 +59,16 @@ const menuItems = [
     icon: Calendar,
   },
   {
+    name: 'İş Emirleri',
+    href: '/production/work-orders',
+    icon: Factory,
+  },
+  {
+    name: 'MRP (Malzeme Planlama)',
+    href: '/production/mrp',
+    icon: Factory,
+  },
+  {
     name: 'Siparişler',
     href: '/orders',
     icon: FileSpreadsheet,
@@ -65,6 +76,11 @@ const menuItems = [
   {
     name: 'Raporlar',
     href: '/reports',
+    icon: BarChart3,
+  },
+  {
+    name: 'Fire Analizi',
+    href: '/reports/fire',
     icon: BarChart3,
   },
   {
@@ -76,6 +92,11 @@ const menuItems = [
     name: 'Cari Hesaplar',
     href: '/accounts',
     icon: Users,
+  },
+  {
+    name: 'Ödemeler',
+    href: '/payments',
+    icon: Wallet,
   },
   {
     name: 'Barkod Yönetimi',

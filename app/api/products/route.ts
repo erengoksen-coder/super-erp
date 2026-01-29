@@ -9,7 +9,7 @@ import { handleApi } from '@/lib/api/handler'
 export async function GET() {
   return handleApi(async () => {
     const db = getDatabase()
-    const products = db.prepare('SELECT * FROM products ORDER BY sku').all() as any[]
+    const products = db.prepare('SELECT * FROM products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
     
     // Her ürün için gerçek stok miktarını hesapla (sadece tamamlanmış üretim emirlerindeki ürünler)
     const productsWithRealStock = products.map(product => {

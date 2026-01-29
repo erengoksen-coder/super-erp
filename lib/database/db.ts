@@ -12,6 +12,9 @@ export const DEFAULT_COMPANY_ID = 'company_default'
 export const DEFAULT_BRANCH_ID = 'branch_default'
 const DEFAULT_COMPANY_NAME = 'DefaultCompany'
 const DEFAULT_BRANCH_NAME = 'Merkez'
+export const DEFAULT_WAREHOUSE_ID = 'warehouse_default'
+const DEFAULT_WAREHOUSE_NAME = 'Ana Depo'
+const DEFAULT_WAREHOUSE_CODE = 'DEP-001'
 
 // Veritabanı dosyası proje klasöründe saklanır
 const dbPath = join(process.cwd(), 'data', 'erp.db')
@@ -76,6 +79,31 @@ function initializeDatabase() {
     )
   } catch {}
 
+  // Warehouses (Depolar)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // Varsayılan depo
+  try {
+    db.prepare('INSERT OR IGNORE INTO warehouses (id, code, name, company_id, branch_id) VALUES (?, ?, ?, ?, ?)').run(
+      DEFAULT_WAREHOUSE_ID,
+      DEFAULT_WAREHOUSE_CODE,
+      DEFAULT_WAREHOUSE_NAME,
+      DEFAULT_COMPANY_ID,
+      DEFAULT_BRANCH_ID
+    )
+  } catch {}
+
   // Users (Kullanıcılar)
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -94,6 +122,7 @@ function initializeDatabase() {
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       last_login TEXT,
       FOREIGN KEY (approved_by) REFERENCES users(id)
     )
@@ -120,6 +149,9 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec(`ALTER TABLE users ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
     db.exec(`
@@ -172,6 +204,49 @@ function initializeDatabase() {
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
+  } catch {}
+
+  // Audit Logs
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      table_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      record_id TEXT,
+      user_id TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      before_data TEXT,
+      after_data TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_table_record ON audit_logs(table_name, record_id)')
+  } catch {}
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)')
+  } catch {}
+
+  // Unit Conversions (Birim çevrimleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS unit_conversions (
+      id TEXT PRIMARY KEY,
+      material_id TEXT,
+      from_unit TEXT NOT NULL,
+      to_unit TEXT NOT NULL,
+      factor REAL NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(material_id, from_unit, to_unit)
+    )
+  `)
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_unit_conversions_material ON unit_conversions(material_id)')
+  } catch {}
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_unit_conversions_units ON unit_conversions(from_unit, to_unit)')
   } catch {}
 
   // Roles (RBAC)
@@ -329,7 +404,23 @@ function initializeDatabase() {
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (supplier_id) REFERENCES accounts(id)
+    )
+  `)
+
+  // Material Stocks (Depo bazlı stok)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS material_stocks (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL,
+      warehouse_id TEXT NOT NULL,
+      quantity REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(material_id, warehouse_id),
+      FOREIGN KEY (material_id) REFERENCES materials(id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
     )
   `)
 
@@ -348,6 +439,9 @@ function initializeDatabase() {
     db.exec(`ALTER TABLE materials ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
   } catch {}
   try {
+    db.exec('ALTER TABLE materials ADD COLUMN deleted_at TEXT')
+  } catch {}
+  try {
     db.exec(`
       UPDATE materials
       SET company_id = '${DEFAULT_COMPANY_ID}'
@@ -360,6 +454,26 @@ function initializeDatabase() {
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
+  } catch {}
+
+  // İlk kurulumda depo stoklarını mevcut stoklardan oluştur
+  try {
+    const existingCount = db.prepare('SELECT COUNT(*) as count FROM material_stocks').get() as { count?: number }
+    if (!existingCount?.count) {
+      const materials = db.prepare('SELECT id, stock_amount FROM materials').all() as Array<{ id: string; stock_amount: number | null }>
+      const insertStock = db.prepare(`
+        INSERT OR IGNORE INTO material_stocks (id, material_id, warehouse_id, quantity)
+        VALUES (?, ?, ?, ?)
+      `)
+      for (const material of materials) {
+        insertStock.run(
+          `ms_${material.id}_${DEFAULT_WAREHOUSE_ID}`,
+          material.id,
+          DEFAULT_WAREHOUSE_ID,
+          material.stock_amount || 0
+        )
+      }
+    }
   } catch {}
   try {
     db.exec('ALTER TABLE materials ADD COLUMN category TEXT')
@@ -398,7 +512,8 @@ function initializeDatabase() {
       company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
     )
   `)
   
@@ -426,6 +541,9 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec(`ALTER TABLE products ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
     db.exec(`
@@ -507,6 +625,7 @@ function initializeDatabase() {
       id TEXT PRIMARY KEY,
       product_id TEXT NOT NULL,
       material_id TEXT NOT NULL,
+      parent_id TEXT,
       quantity_required REAL NOT NULL,
       fire_percentage REAL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -516,6 +635,8 @@ function initializeDatabase() {
       UNIQUE(product_id, material_id)
     )
   `)
+  try { db.exec('ALTER TABLE bom ADD COLUMN parent_id TEXT') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_parent_id ON bom(parent_id)') } catch {}
 
   // Production Orders (Üretim Emirleri)
   db.exec(`
@@ -541,9 +662,57 @@ function initializeDatabase() {
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (product_id) REFERENCES products(id)
     )
   `)
+
+  // Work Orders (Is Emirleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_orders (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      work_order_number TEXT UNIQUE NOT NULL,
+      status TEXT DEFAULT 'open',
+      planned_start_date TEXT,
+      planned_end_date TEXT,
+      notes TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(production_order_id),
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+    )
+  `)
+
+  // Work Order Operations (Operasyon Takibi)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_order_operations (
+      id TEXT PRIMARY KEY,
+      work_order_id TEXT NOT NULL,
+      station TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      sequence INTEGER DEFAULT 0,
+      started_at TEXT,
+      completed_at TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (work_order_id) REFERENCES work_orders(id) ON DELETE CASCADE,
+      UNIQUE(work_order_id, station)
+    )
+  `)
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_start_date TEXT') } catch {}
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_end_date TEXT') } catch {}
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN notes TEXT') } catch {}
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN status TEXT DEFAULT "open"') } catch {}
+  try { db.exec(`ALTER TABLE work_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch {}
+  try { db.exec(`ALTER TABLE work_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch {}
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN deleted_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN sequence INTEGER DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN notes TEXT') } catch {}
   
   // İstasyon kolonları ekle
   try { db.exec('ALTER TABLE production_orders ADD COLUMN current_station TEXT DEFAULT "iskelet"') } catch {}
@@ -562,6 +731,7 @@ function initializeDatabase() {
   try { db.exec('ALTER TABLE production_orders ADD COLUMN stock_deducted INTEGER DEFAULT 0') } catch {}
   try { db.exec(`ALTER TABLE production_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch {}
   try { db.exec(`ALTER TABLE production_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch {}
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN deleted_at TEXT') } catch {}
   try {
     db.exec(`
       UPDATE production_orders
@@ -598,7 +768,11 @@ function initializeDatabase() {
       notes TEXT,
       company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      warehouse_id TEXT,
+      from_warehouse_id TEXT,
+      to_warehouse_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (material_id) REFERENCES materials(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
       CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
@@ -624,6 +798,18 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec(`ALTER TABLE stock_movements ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec('ALTER TABLE stock_movements ADD COLUMN warehouse_id TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE stock_movements ADD COLUMN from_warehouse_id TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE stock_movements ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
     db.exec(`
@@ -670,7 +856,11 @@ function initializeDatabase() {
           notes TEXT,
           company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
           branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+          warehouse_id TEXT,
+          from_warehouse_id TEXT,
+          to_warehouse_id TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          deleted_at TEXT,
           FOREIGN KEY (material_id) REFERENCES materials(id),
           FOREIGN KEY (product_id) REFERENCES products(id),
           CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
@@ -680,8 +870,8 @@ function initializeDatabase() {
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
-        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, warehouse_id, from_warehouse_id, to_warehouse_id, created_at, deleted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const row of oldData as any[]) {
@@ -698,7 +888,8 @@ function initializeDatabase() {
           row.notes || null,
           row.company_id || DEFAULT_COMPANY_ID,
           row.branch_id || DEFAULT_BRANCH_ID,
-          row.created_at || new Date().toISOString()
+          row.created_at || new Date().toISOString(),
+          row.deleted_at || null
         )
       }
       
@@ -749,7 +940,11 @@ function initializeDatabase() {
           notes TEXT,
           company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
           branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+          warehouse_id TEXT,
+          from_warehouse_id TEXT,
+          to_warehouse_id TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          deleted_at TEXT,
           FOREIGN KEY (material_id) REFERENCES materials(id),
           FOREIGN KEY (product_id) REFERENCES products(id),
           CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
@@ -759,8 +954,8 @@ function initializeDatabase() {
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
-        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, warehouse_id, from_warehouse_id, to_warehouse_id, created_at, deleted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const row of oldData) {
@@ -777,7 +972,11 @@ function initializeDatabase() {
           row.notes,
           row.company_id || DEFAULT_COMPANY_ID,
           row.branch_id || DEFAULT_BRANCH_ID,
-          row.created_at
+          row.warehouse_id || null,
+          row.from_warehouse_id || null,
+          row.to_warehouse_id || null,
+          row.created_at,
+          row.deleted_at || null
         )
       }
       
@@ -832,6 +1031,7 @@ function initializeDatabase() {
       excel_row_number INTEGER,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (product_id) REFERENCES products(id),
       FOREIGN KEY (production_order_id) REFERENCES production_orders(id)
     )
@@ -858,6 +1058,9 @@ function initializeDatabase() {
   // Orders tablosuna cancel_reason kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE orders ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
     db.exec(`
@@ -887,6 +1090,7 @@ function initializeDatabase() {
       supplier_name TEXT,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (material_id) REFERENCES materials(id)
     )
   `)
@@ -908,6 +1112,9 @@ function initializeDatabase() {
       console.warn('received_quantity kolonu eklenirken hata:', e.message)
     }
   }
+  try {
+    db.exec('ALTER TABLE purchase_requests ADD COLUMN deleted_at TEXT')
+  } catch {}
 
   // Product Serial Numbers (Ürün Barkodları)
   db.exec(`
@@ -999,10 +1206,12 @@ function initializeDatabase() {
       email TEXT,
       address TEXT,
       balance REAL DEFAULT 0,
+      risk_limit REAL DEFAULT 0,
       company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       created_by TEXT,
       updated_by TEXT
     )
@@ -1031,6 +1240,12 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec(`ALTER TABLE accounts ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
+  } catch {}
+  try {
+    db.exec('ALTER TABLE accounts ADD COLUMN risk_limit REAL DEFAULT 0')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE accounts ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
     db.exec(`
@@ -1070,10 +1285,12 @@ function initializeDatabase() {
         email TEXT,
         address TEXT,
         balance REAL DEFAULT 0,
+        risk_limit REAL DEFAULT 0,
         company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
         branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TEXT,
         created_by TEXT,
         updated_by TEXT
       )
@@ -1082,8 +1299,8 @@ function initializeDatabase() {
     // Verileri geri yükle
     if (existingAccounts.length > 0) {
       const insert = db.prepare(`
-        INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, balance, company_id, branch_id, created_at, updated_at, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, balance, risk_limit, company_id, branch_id, created_at, updated_at, deleted_at, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
       for (const account of existingAccounts) {
@@ -1097,10 +1314,12 @@ function initializeDatabase() {
           account.email,
           account.address,
           account.balance,
+          account.risk_limit || 0,
           account.company_id || DEFAULT_COMPANY_ID,
           account.branch_id || DEFAULT_BRANCH_ID,
           account.created_at,
           account.updated_at,
+          account.deleted_at || null,
           account.created_by,
           account.updated_by
         )
@@ -1190,6 +1409,7 @@ function initializeDatabase() {
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (customer_id) REFERENCES accounts(id)
     )
   `)
@@ -1210,6 +1430,15 @@ function initializeDatabase() {
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN cancel_reason TEXT')
   } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN deleted_at TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN invoice_id TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN invoice_number TEXT')
+  } catch {}
 
   // Shipment Items (Sevkiyat Kalemleri)
   db.exec(`
@@ -1223,6 +1452,7 @@ function initializeDatabase() {
       serial_numbers TEXT,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
       FOREIGN KEY (product_id) REFERENCES products(id)
     )
@@ -1235,6 +1465,212 @@ function initializeDatabase() {
   try {
     db.exec('ALTER TABLE shipment_items ADD COLUMN total_price REAL DEFAULT 0')
   } catch {}
+  try {
+    db.exec('ALTER TABLE shipment_items ADD COLUMN deleted_at TEXT')
+  } catch {}
+
+  // Invoices (Faturalar)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id TEXT PRIMARY KEY,
+      invoice_number TEXT UNIQUE NOT NULL,
+      shipment_id TEXT,
+      customer_id TEXT NOT NULL,
+      invoice_date TEXT NOT NULL,
+      type TEXT DEFAULT 'sale',
+      status TEXT DEFAULT 'issued',
+      total_amount REAL DEFAULT 0,
+      tax_rate REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      final_amount REAL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (shipment_id) REFERENCES shipments(id),
+      FOREIGN KEY (customer_id) REFERENCES accounts(id)
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id TEXT PRIMARY KEY,
+      invoice_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      unit_price REAL DEFAULT 0,
+      total_price REAL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `)
+
+  // Sales Orders (Satış Siparişleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sales_orders (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL,
+      order_number TEXT UNIQUE NOT NULL,
+      order_date TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      total_amount REAL DEFAULT 0,
+      tax_rate REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      final_amount REAL DEFAULT 0,
+      payment_terms_days INTEGER DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (customer_id) REFERENCES accounts(id)
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sales_order_items (
+      id TEXT PRIMARY KEY,
+      sales_order_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      unit_price REAL DEFAULT 0,
+      total_price REAL DEFAULT 0,
+      production_order_id TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id)
+    )
+  `)
+
+  // Purchase Orders (Satın Alma Siparişleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id TEXT PRIMARY KEY,
+      supplier_id TEXT NOT NULL,
+      order_number TEXT UNIQUE NOT NULL,
+      order_date TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      total_amount REAL DEFAULT 0,
+      tax_rate REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      final_amount REAL DEFAULT 0,
+      payment_terms_days INTEGER DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (supplier_id) REFERENCES accounts(id)
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_order_items (
+      id TEXT PRIMARY KEY,
+      purchase_order_id TEXT NOT NULL,
+      material_id TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      unit_price REAL DEFAULT 0,
+      total_price REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+
+  // Cash Boxes (Kasa)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cash_boxes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      currency TEXT DEFAULT 'TRY',
+      balance REAL DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // Banks (Banka)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS banks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      iban TEXT,
+      account_no TEXT,
+      currency TEXT DEFAULT 'TRY',
+      balance REAL DEFAULT 0,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // Payments (Tahsilat / Ödeme)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      invoice_id TEXT,
+      amount REAL NOT NULL,
+      payment_date TEXT NOT NULL,
+      method TEXT,
+      type TEXT NOT NULL, -- 'receipt' or 'payment'
+      cash_box_id TEXT,
+      bank_id TEXT,
+      reference_type TEXT,
+      reference_id TEXT,
+      notes TEXT,
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (account_id) REFERENCES accounts(id),
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id),
+      FOREIGN KEY (cash_box_id) REFERENCES cash_boxes(id),
+      FOREIGN KEY (bank_id) REFERENCES banks(id)
+    )
+  `)
+
+  // E-Invoice Integrations (Entegratör ayarları ve log)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS e_invoice_integrations (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      is_active INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS e_invoice_logs (
+      id TEXT PRIMARY KEY,
+      invoice_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      request_payload TEXT,
+      response_payload TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+    )
+  `)
 
   // Account Transactions (Cari Hesap İşlemleri)
   db.exec(`
@@ -1248,6 +1684,33 @@ function initializeDatabase() {
       description TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (account_id) REFERENCES accounts(id)
+    )
+  `)
+
+  // Stock Counts (Stok Sayımı)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_counts (
+      id TEXT PRIMARY KEY,
+      warehouse_id TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_count_items (
+      id TEXT PRIMARY KEY,
+      count_id TEXT NOT NULL,
+      material_id TEXT NOT NULL,
+      expected_qty REAL DEFAULT 0,
+      counted_qty REAL DEFAULT 0,
+      difference REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (count_id) REFERENCES stock_counts(id) ON DELETE CASCADE,
+      FOREIGN KEY (material_id) REFERENCES materials(id)
     )
   `)
 
@@ -1312,6 +1775,21 @@ function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
       CREATE INDEX IF NOT EXISTS idx_orders_production_order_id ON orders(production_order_id);
       CREATE INDEX IF NOT EXISTS idx_orders_order_date ON orders(order_date);
+      CREATE INDEX IF NOT EXISTS idx_sales_orders_customer_id ON sales_orders(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_sales_orders_order_date ON sales_orders(order_date);
+      CREATE INDEX IF NOT EXISTS idx_sales_orders_status ON sales_orders(status);
+      CREATE INDEX IF NOT EXISTS idx_sales_order_items_sales_order_id ON sales_order_items(sales_order_id);
+      CREATE INDEX IF NOT EXISTS idx_sales_order_items_product_id ON sales_order_items(product_id);
+      CREATE INDEX IF NOT EXISTS idx_sales_order_items_production_order_id ON sales_order_items(production_order_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier_id ON purchase_orders(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_order_date ON purchase_orders(order_date);
+      CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status);
+      CREATE INDEX IF NOT EXISTS idx_purchase_order_items_purchase_order_id ON purchase_order_items(purchase_order_id);
+      CREATE INDEX IF NOT EXISTS idx_purchase_order_items_material_id ON purchase_order_items(material_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_account_id ON payments(account_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_payment_date ON payments(payment_date);
+      CREATE INDEX IF NOT EXISTS idx_payments_type ON payments(type);
       CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status);
       CREATE INDEX IF NOT EXISTS idx_shipments_customer_id ON shipments(customer_id);
       CREATE INDEX IF NOT EXISTS idx_shipments_shipment_date ON shipments(shipment_date);

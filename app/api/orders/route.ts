@@ -4,6 +4,7 @@ import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
+import { logAudit } from '@/lib/audit'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -66,6 +67,10 @@ type OrderStatusRow = {
   status: string
   production_order_id: string | null
   order_number: string
+}
+
+function getActorId(request: NextRequest) {
+  return request.headers.get('x-user-id') || null
 }
 
 // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
@@ -143,6 +148,7 @@ export async function GET(request: NextRequest) {
           AND (o.production_order_id IS NULL OR o.production_order_id = '')
           AND o.company_id = ?
           AND o.branch_id = ?
+          AND o.deleted_at IS NULL
         ORDER BY COALESCE(o.order_date, o.created_at) ASC
       `
       const orders = db.prepare(query).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as OrderRow[]
@@ -218,6 +224,7 @@ export async function GET(request: NextRequest) {
 
     query += ' AND o.company_id = ? AND o.branch_id = ?'
     params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    query += ' AND o.deleted_at IS NULL'
 
     if (status) {
       query += ' AND o.status = ?'
@@ -258,6 +265,8 @@ export async function POST(request: NextRequest) {
 
     const db = getDatabase()
     const insertedOrders: InsertedOrder[] = []
+
+    const actorId = getActorId(request)
 
     // Manuel sipariş oluşturma
     for (const order of manualOrders) {
@@ -331,6 +340,19 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         product_id: productId
       })
+
+      logAudit(db, {
+        tableName: 'orders',
+        action: 'create',
+        recordId: orderId,
+        userId: actorId,
+        after: {
+          id: orderId,
+          order_number: orderNumber,
+          status: 'pending',
+          product_id: productId,
+        },
+      })
     }
     
     return ok(
@@ -366,7 +388,7 @@ export async function PATCH(request: NextRequest) {
 
     const db = getDatabase()
     const current = db
-      .prepare('SELECT id, status, production_order_id, order_number FROM orders WHERE id = ?')
+      .prepare('SELECT id, status, production_order_id, order_number FROM orders WHERE id = ? AND deleted_at IS NULL')
       .get(orderId) as OrderStatusRow | undefined
 
     if (!current) {
@@ -391,6 +413,21 @@ export async function PATCH(request: NextRequest) {
       changes: update.changes,
     })
 
+    logAudit(db, {
+      tableName: 'orders',
+      action: 'update',
+      recordId: orderId,
+      userId: getActorId(request),
+      before: {
+        status: current.status,
+        cancel_reason: null,
+      },
+      after: {
+        status,
+        cancel_reason: cancelReason,
+      },
+    })
+
     return ok(
       { id: orderId, status },
       { message: 'Sipariş iptal edildi' }
@@ -407,7 +444,7 @@ export async function DELETE(request: NextRequest) {
     const db = getDatabase()
     
     // Tüm siparişleri sil
-    const deleteResult = db.prepare('DELETE FROM orders').run()
+    const deleteResult = db.prepare('UPDATE orders SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
     
     logger.info(`[Orders API - DELETE] ${deleteResult.changes} sipariş silindi`)
     

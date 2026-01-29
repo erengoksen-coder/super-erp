@@ -9,6 +9,8 @@ type ShipmentRow = {
   status: string
   total_amount?: number | null
   final_amount?: number | null
+  invoice_id?: string | null
+  invoice_number?: string | null
   customer_name?: string | null
   customer_code?: string | null
   customer_address?: string | null
@@ -54,7 +56,7 @@ export async function GET(
         a.email as customer_email
       FROM shipments s
       JOIN accounts a ON s.customer_id = a.id
-      WHERE s.id = ?
+      WHERE s.id = ? AND s.deleted_at IS NULL
     `).get(shipmentId) as ShipmentRow | undefined
 
     if (!shipment) {
@@ -68,7 +70,7 @@ export async function GET(
         p.sku as product_sku
       FROM shipment_items si
       JOIN products p ON si.product_id = p.id
-      WHERE si.shipment_id = ?
+      WHERE si.shipment_id = ? AND si.deleted_at IS NULL
       ORDER BY p.sku
     `).all(shipmentId) as ShipmentItemRow[]
 
@@ -111,7 +113,7 @@ export async function DELETE(
 
     // Sevkiyat bilgilerini al
     const shipment = db.prepare(`
-      SELECT * FROM shipments WHERE id = ?
+      SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL
     `).get(shipmentId) as ShipmentRow | undefined
 
     if (!shipment) {
@@ -130,7 +132,7 @@ export async function DELETE(
         p.name as product_name
       FROM shipment_items si
       JOIN products p ON si.product_id = p.id
-      WHERE si.shipment_id = ?
+      WHERE si.shipment_id = ? AND si.deleted_at IS NULL
     `).all(shipmentId) as ShipmentItemRow[]
 
     db.transaction(() => {

@@ -5,6 +5,7 @@ export type AccountRow = {
   code: string
   name: string
   type: string
+  risk_limit?: number | null
   created_by?: string | null
   updated_by?: string | null
   created_by_name?: string | null
@@ -22,6 +23,7 @@ export type AccountInsert = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  risk_limit?: number | null
   created_by?: string | null
 }
 
@@ -32,6 +34,7 @@ export type AccountUpdate = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  risk_limit?: number | null
   updated_by?: string | null
 }
 
@@ -55,8 +58,10 @@ export const accountsRepo = {
     `
     const params: string[] = []
     if (type) {
-      query += ' WHERE a.type = ?'
+      query += ' WHERE a.deleted_at IS NULL AND a.type = ?'
       params.push(type)
+    } else {
+      query += ' WHERE a.deleted_at IS NULL'
     }
     query += ' ORDER BY a.code ASC'
     return db.prepare(query).all(...params) as AccountRow[]
@@ -74,7 +79,7 @@ export const accountsRepo = {
       FROM accounts a
       LEFT JOIN users creator ON a.created_by = creator.id
       LEFT JOIN users updater ON a.updated_by = updater.id
-      WHERE a.id = ?
+      WHERE a.id = ? AND a.deleted_at IS NULL
     `).get(id) as AccountRow | undefined
   },
 
@@ -82,7 +87,7 @@ export const accountsRepo = {
     const db = getDatabase()
     const row = db.prepare(`
       SELECT code FROM accounts 
-      WHERE type = ? 
+      WHERE type = ? AND deleted_at IS NULL
       ORDER BY code DESC 
       LIMIT 1
     `).get(type) as { code: string } | undefined
@@ -92,8 +97,8 @@ export const accountsRepo = {
   insert(account: AccountInsert) {
     const db = getDatabase()
     db.prepare(`
-      INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, created_by, updated_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, risk_limit, created_by, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       account.id,
       account.code,
@@ -103,6 +108,7 @@ export const accountsRepo = {
       account.phone || null,
       account.email || null,
       account.address || null,
+      account.risk_limit ?? null,
       account.created_by || null,
       account.created_by || null
     )
@@ -113,8 +119,8 @@ export const accountsRepo = {
     const db = getDatabase()
     db.prepare(`
       UPDATE accounts 
-      SET name = ?, type = ?, tax_number = ?, phone = ?, email = ?, address = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      SET name = ?, type = ?, tax_number = ?, phone = ?, email = ?, address = ?, risk_limit = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NULL
     `).run(
       update.name,
       update.type,
@@ -122,6 +128,7 @@ export const accountsRepo = {
       update.phone || null,
       update.email || null,
       update.address || null,
+      update.risk_limit ?? null,
       update.updated_by || null,
       id
     )
@@ -129,7 +136,8 @@ export const accountsRepo = {
 
   delete(id: string) {
     const db = getDatabase()
-    db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    db.prepare('UPDATE accounts SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
+      .run(id)
   },
 
   getUsageCounts(id: string, name: string) {

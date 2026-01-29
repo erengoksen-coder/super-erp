@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { createHash } from 'crypto'
 import { randomUUID } from 'crypto'
+import { logAudit } from '@/lib/audit'
 
 function normalizeRoleName(role: unknown): string {
   const raw = String(role || '').trim().toLowerCase()
@@ -14,6 +15,10 @@ function getRoleId(roleName: string): string {
   if (roleName === 'admin') return 'role_admin'
   if (roleName === 'user') return 'role_user'
   return `role_${roleName.replace(/[^a-z0-9_]+/g, '_')}`
+}
+
+function getActorId(request: NextRequest) {
+  return request.headers.get('x-user-id') || null
 }
 
 // GET: Tüm kullanıcıları getir (sadece admin)
@@ -39,6 +44,7 @@ export async function GET(request: NextRequest) {
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
       WHERE u.company_id = ? AND u.branch_id = ?
+        AND u.deleted_at IS NULL
       ORDER BY u.created_at DESC
     `).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
@@ -150,6 +156,19 @@ export async function POST(request: NextRequest) {
         }
       }
     })()
+
+    logAudit(db, {
+      tableName: 'users',
+      action: 'create',
+      recordId: userId,
+      userId: getActorId(request),
+      after: {
+        id: userId,
+        username,
+        role: normalizeRoleName(role),
+        is_approved: is_approved ? 1 : 0,
+      },
+    })
 
     return NextResponse.json({
       success: true,

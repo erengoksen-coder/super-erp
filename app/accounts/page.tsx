@@ -18,6 +18,7 @@ interface Account {
   email?: string
   address?: string
   balance: number
+  risk_limit?: number | null
   created_at: string
   updated_at?: string
   created_by?: string
@@ -40,7 +41,8 @@ export default function AccountsPage() {
     tax_number: '',
     phone: '',
     email: '',
-    address: ''
+    address: '',
+    risk_limit: ''
   })
 
   const accountsUrl = useMemo(() => (
@@ -82,7 +84,8 @@ export default function AccountsPage() {
       tax_number: account.tax_number || '',
       phone: account.phone || '',
       email: account.email || '',
-      address: account.address || ''
+      address: account.address || '',
+      risk_limit: account.risk_limit ? String(account.risk_limit) : ''
     })
     setShowEditModal(true)
   }
@@ -96,6 +99,7 @@ export default function AccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...editForm,
+          risk_limit: editForm.risk_limit.trim() === '' ? null : Number(editForm.risk_limit),
           updated_by: userId
         })
       })
@@ -393,6 +397,19 @@ export default function AccountsPage() {
                   type="email"
                   value={editForm.email}
                   onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Risk Limiti (₺)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editForm.risk_limit}
+                  onChange={(e) => setEditForm({ ...editForm, risk_limit: e.target.value })}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 />
               </div>

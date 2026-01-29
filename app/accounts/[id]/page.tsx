@@ -15,6 +15,7 @@ interface Account {
   email?: string
   address?: string
   balance: number
+  risk_limit?: number | null
 }
 
 interface Shipment {
@@ -57,6 +58,7 @@ interface AccountTransaction {
   unit_price?: number
   total_price?: number
   shipment_number?: string
+  running_balance?: number
 }
 
 export default function AccountDetailPage() {
@@ -256,6 +258,15 @@ export default function AccountDetailPage() {
                 })} ₺
               </div>
             </div>
+            <div>
+              <div className="text-gray-400 mb-1">Risk Limiti:</div>
+              <div className="text-lg font-bold text-yellow-400">
+                {(account.risk_limit || 0).toLocaleString('tr-TR', { 
+                  minimumFractionDigits: 2, 
+                  maximumFractionDigits: 2 
+                })} ₺
+              </div>
+            </div>
           </div>
         </div>
 
@@ -282,6 +293,7 @@ export default function AccountDetailPage() {
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Birim Fiyat (BOM)</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Tutar</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Tip</th>
+                    <th className="text-right py-2 px-3 text-xs text-gray-400">Bakiye</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -338,6 +350,16 @@ export default function AccountDetailPage() {
                         }`}>
                           {transaction.transaction_type === 'debit' ? 'Borç' : 'Alacak'}
                         </span>
+                      </td>
+                      <td className="py-2 px-3 text-xs text-gray-300 text-right">
+                        {transaction.running_balance !== undefined ? (
+                          transaction.running_balance.toLocaleString('tr-TR', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })
+                        ) : (
+                          '-'
+                        )} ₺
                       </td>
                     </tr>
                   ))}

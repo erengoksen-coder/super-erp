@@ -18,6 +18,7 @@ export default function NewAccountPage() {
     phone: '',
     email: '',
     address: '',
+    risk_limit: '',
   })
 
   async function handleSubmit(e: React.FormEvent) {
@@ -25,11 +26,13 @@ export default function NewAccountPage() {
     setLoading(true)
 
     try {
+      const riskLimitValue = formData.risk_limit.trim() === '' ? null : Number(formData.risk_limit)
       await fetchApi('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
+          risk_limit: Number.isFinite(riskLimitValue as number) ? riskLimitValue : null,
           created_by: userId
         }),
       })
@@ -80,6 +83,21 @@ export default function NewAccountPage() {
             <option value="customer">Müşteri</option>
             <option value="supplier">Tedarikçi</option>
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Risk Limiti (₺)
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.risk_limit}
+            onChange={(e) => setFormData({ ...formData, risk_limit: e.target.value })}
+            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Örn: 100000"
+          />
         </div>
 
         <div>

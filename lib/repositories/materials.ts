@@ -25,12 +25,12 @@ export type MaterialInsert = {
 export const materialsRepo = {
   getAll(): MaterialRow[] {
     const db = getDatabase()
-    return db.prepare('SELECT * FROM materials ORDER BY name').all() as MaterialRow[]
+    return db.prepare('SELECT * FROM materials WHERE deleted_at IS NULL ORDER BY name').all() as MaterialRow[]
   },
 
   getById(id: string): MaterialRow | undefined {
     const db = getDatabase()
-    return db.prepare('SELECT * FROM materials WHERE id = ?').get(id) as MaterialRow | undefined
+    return db.prepare('SELECT * FROM materials WHERE id = ? AND deleted_at IS NULL').get(id) as MaterialRow | undefined
   },
 
   insert(material: MaterialInsert) {

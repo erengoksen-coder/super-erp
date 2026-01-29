@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       FROM purchase_requests pr
       JOIN materials m ON pr.material_id = m.id
       LEFT JOIN accounts s ON m.supplier_id = s.id
-      WHERE 1=1
+      WHERE pr.deleted_at IS NULL
     `
     const params: any[] = []
 
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Hammadde bilgisini al
-    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(material_id) as any
+    const material = db.prepare('SELECT * FROM materials WHERE id = ? AND deleted_at IS NULL').get(material_id) as any
     if (!material) {
       return NextResponse.json({ error: 'Hammadde bulunamadı' }, { status: 404 })
     }
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     // Unique kontrolü - eğer varsa sequence artır
     let attempts = 0
     while (attempts < 100) {
-      const existing = db.prepare('SELECT id FROM purchase_requests WHERE request_number = ?').get(requestNumber) as any
+      const existing = db.prepare('SELECT id FROM purchase_requests WHERE request_number = ? AND deleted_at IS NULL').get(requestNumber) as any
       if (!existing) {
         break
       }
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
       `).run(id, requestNumber, material_id, requested_quantity, price, totalAmount, supplier_name || null, notes || null)
 
-      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(id)
+      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(id)
 
       return NextResponse.json({
         success: true,

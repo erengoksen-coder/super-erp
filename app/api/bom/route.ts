@@ -8,6 +8,7 @@ type BomItemRow = {
   material_id: string
   quantity: number
   fire_percentage: number | null
+  parent_id?: string | null
   material_name: string
   material_code: string | null
   material_unit: string
@@ -36,11 +37,14 @@ type BomExistingRow = {
   id: string
 }
 
+type BomTreeNode = BomItemRow & { children: BomTreeNode[] }
+
 // GET: Tüm BOM kayıtlarını getir veya belirli bir ürün için
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
+    const asTree = searchParams.get('tree') === '1'
 
     const db = getDatabase()
 
@@ -63,7 +67,25 @@ export async function GET(request: NextRequest) {
         ORDER BY m.name
       `).all(productId)
 
-      return NextResponse.json(bomItems)
+      if (!asTree) {
+        return NextResponse.json(bomItems)
+      }
+
+      const byId = new Map<string, BomTreeNode>()
+      const roots: BomTreeNode[] = []
+      for (const item of bomItems as BomItemRow[]) {
+        byId.set(item.id, { ...item, children: [] })
+      }
+      for (const item of bomItems as BomItemRow[]) {
+        const node = byId.get(item.id)
+        if (!node) continue
+        if (item.parent_id && byId.has(item.parent_id)) {
+          byId.get(item.parent_id)?.children.push(node)
+        } else {
+          roots.push(node)
+        }
+      }
+      return NextResponse.json(roots)
     } else {
       // Tüm BOM kayıtlarını ürün bazlı grupla
       const allBom = db.prepare(`
@@ -71,6 +93,7 @@ export async function GET(request: NextRequest) {
           b.id,
           b.product_id,
           b.material_id,
+          b.parent_id,
           b.quantity_required as quantity,
           b.fire_percentage,
           m.name as material_name,
@@ -112,7 +135,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { product_id, material_id, quantity, fire_percentage } = body
+    const { product_id, material_id, quantity, fire_percentage, parent_id } = body
 
     if (!product_id || !material_id || quantity === undefined || quantity <= 0) {
       return NextResponse.json(
@@ -137,8 +160,8 @@ export async function POST(request: NextRequest) {
     // Aynı ürün-malzeme kombinasyonu var mı kontrol et
     const existing = db.prepare(`
       SELECT id FROM bom 
-      WHERE product_id = ? AND material_id = ?
-    `).get(product_id, material_id) as BomExistingRow | undefined
+      WHERE product_id = ? AND material_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+    `).get(product_id, material_id, parent_id || null, parent_id || null) as BomExistingRow | undefined
 
     if (existing) {
       // Mevcut kaydı güncelle
@@ -160,9 +183,9 @@ export async function POST(request: NextRequest) {
       const bomId = randomUUID()
       db.prepare(`
         INSERT INTO bom 
-        (id, product_id, material_id, quantity_required, fire_percentage)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(bomId, product_id, material_id, quantity, fire_percentage || 0)
+        (id, product_id, material_id, parent_id, quantity_required, fire_percentage)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(bomId, product_id, material_id, parent_id || null, quantity, fire_percentage || 0)
 
       return NextResponse.json({
         success: true,
@@ -186,7 +209,22 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = getDatabase()
-    db.prepare('DELETE FROM bom WHERE id = ?').run(bomId)
+    const toDelete: string[] = []
+    const queue: string[] = [bomId]
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()
+      if (!currentId) continue
+      toDelete.push(currentId)
+      const children = db.prepare('SELECT id FROM bom WHERE parent_id = ?').all(currentId) as Array<{ id: string }>
+      for (const child of children) {
+        queue.push(child.id)
+      }
+    }
+
+    for (const id of toDelete.reverse()) {
+      db.prepare('DELETE FROM bom WHERE id = ?').run(id)
+    }
 
     return NextResponse.json({ success: true, message: 'BOM kaydı silindi' })
   } catch (error: any) {

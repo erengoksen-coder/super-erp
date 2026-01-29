@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { createHash } from 'crypto'
 import { randomUUID } from 'crypto'
+import { logAudit } from '@/lib/audit'
 
 function normalizeRoleName(role: unknown): string {
   const raw = String(role || '').trim().toLowerCase()
@@ -14,6 +15,10 @@ function getRoleId(roleName: string): string {
   if (roleName === 'admin') return 'role_admin'
   if (roleName === 'user') return 'role_user'
   return `role_${roleName.replace(/[^a-z0-9_]+/g, '_')}`
+}
+
+function getActorId(request: NextRequest) {
+  return request.headers.get('x-user-id') || null
 }
 
 // GET: Tek kullanıcı detayı
@@ -44,6 +49,7 @@ export async function GET(
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
       WHERE u.id = ? AND u.company_id = ? AND u.branch_id = ?
+        AND u.deleted_at IS NULL
     `).get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
 
     if (!user) {
@@ -80,7 +86,7 @@ export async function PATCH(
     const db = getDatabase()
 
     // Kullanıcıyı bul
-    const user = db.prepare('SELECT * FROM users WHERE id = ? AND company_id = ? AND branch_id = ?')
+    const user = db.prepare('SELECT * FROM users WHERE id = ? AND company_id = ? AND branch_id = ? AND deleted_at IS NULL')
       .get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
     if (!user) {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })
@@ -183,6 +189,30 @@ export async function PATCH(
       }
     })()
 
+    const updatedUser = db.prepare(`
+      SELECT id, username, role, email, is_approved
+      FROM users
+      WHERE id = ? AND company_id = ? AND branch_id = ?
+        AND deleted_at IS NULL
+    `).get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
+
+    logAudit(db, {
+      tableName: 'users',
+      action: 'update',
+      recordId: userId,
+      userId: getActorId(request),
+      before: {
+        role: user.role,
+        email: user.email,
+        is_approved: user.is_approved,
+      },
+      after: {
+        role: updatedUser?.role,
+        email: updatedUser?.email,
+        is_approved: updatedUser?.is_approved,
+      },
+    })
+
     return NextResponse.json({
       success: true,
       message: 'Kullanıcı başarıyla güncellendi',
@@ -203,7 +233,7 @@ export async function DELETE(
     const db = getDatabase()
 
     // Admin kullanıcıyı silme
-    const user = db.prepare('SELECT role FROM users WHERE id = ? AND company_id = ? AND branch_id = ?')
+    const user = db.prepare('SELECT role, username, email, is_approved FROM users WHERE id = ? AND company_id = ? AND branch_id = ? AND deleted_at IS NULL')
       .get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
     if (user && user.role === 'admin') {
       return NextResponse.json(
@@ -212,8 +242,21 @@ export async function DELETE(
       )
     }
 
-    db.prepare('DELETE FROM users WHERE id = ? AND company_id = ? AND branch_id = ?')
+    db.prepare('UPDATE users SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ? AND branch_id = ?')
       .run(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+
+    logAudit(db, {
+      tableName: 'users',
+      action: 'delete',
+      recordId: userId,
+      userId: getActorId(request),
+      before: {
+        username: user?.username,
+        role: user?.role,
+        email: user?.email,
+        is_approved: user?.is_approved,
+      },
+    })
 
     return NextResponse.json({
       success: true,

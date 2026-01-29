@@ -15,6 +15,8 @@ type ShipmentRow = {
   tax_rate?: number | null
   tax_amount?: number | null
   final_amount?: number | null
+  invoice_id?: string | null
+  invoice_number?: string | null
   created_at?: string | null
   customer_name?: string | null
   customer_code?: string | null
@@ -99,7 +101,7 @@ export async function GET(request: NextRequest) {
       FROM shipments s
       JOIN accounts a ON s.customer_id = a.id
       LEFT JOIN shipment_items si ON s.id = si.shipment_id
-      WHERE 1=1
+      WHERE s.deleted_at IS NULL
     `
     const params: string[] = []
 
@@ -142,7 +144,7 @@ export async function GET(request: NextRequest) {
           p.sku as product_sku
         FROM shipment_items si
         JOIN products p ON si.product_id = p.id
-        WHERE si.shipment_id = ?
+        WHERE si.shipment_id = ? AND si.deleted_at IS NULL
         ORDER BY si.created_at
       `).all(shipment.id) as ShipmentItemRow[]
 
@@ -171,7 +173,8 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Müşteri kontrolü
-    const customer = db.prepare('SELECT id FROM accounts WHERE id = ? AND type = ?').get(customer_id, 'customer') as CustomerRow | undefined
+    const customer = db.prepare('SELECT id, balance, risk_limit FROM accounts WHERE id = ? AND type = ? AND deleted_at IS NULL')
+      .get(customer_id, 'customer') as (CustomerRow & { balance?: number | null; risk_limit?: number | null }) | undefined
     if (!customer) {
       return fail('Müşteri bulunamadı', { status: 404 })
     }
@@ -221,6 +224,12 @@ export async function POST(request: NextRequest) {
     const finalTaxRate = tax_rate || 0
     const taxAmount = (finalTotalAmount * finalTaxRate) / 100
     const finalAmount = finalTotalAmount + taxAmount
+
+    const currentBalance = customer.balance || 0
+    const riskLimit = customer.risk_limit || 0
+    if (riskLimit > 0 && currentBalance + finalAmount > riskLimit) {
+      return fail(`Risk limiti aşılıyor. Limit: ${riskLimit}, Mevcut: ${currentBalance}, Yeni: ${currentBalance + finalAmount}`, { status: 400 })
+    }
 
     db.transaction(() => {
       // Sevkiyat kaydı oluştur

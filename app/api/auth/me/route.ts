@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const user = db.prepare(`
       SELECT id, username, email, full_name, role, job_title, is_approved
       FROM users
-      WHERE id = ? AND is_approved = 1
+      WHERE id = ? AND is_approved = 1 AND deleted_at IS NULL
     `).get(userId) as any
 
     if (!user) {

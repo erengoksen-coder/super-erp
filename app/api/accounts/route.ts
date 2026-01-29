@@ -10,6 +10,7 @@ type AccountInput = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  risk_limit?: number | null
   created_by?: string | null
 }
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as AccountInput
-    const { name, type = 'customer', tax_number, phone, email, address, created_by } = body
+    const { name, type = 'customer', tax_number, phone, email, address, risk_limit, created_by } = body
 
     if (!name) {
       return NextResponse.json(
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
       phone,
       email,
       address,
+      risk_limit: risk_limit ?? null,
       created_by,
     })
 

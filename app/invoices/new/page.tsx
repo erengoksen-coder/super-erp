@@ -35,6 +35,9 @@ export default function NewInvoicePage() {
         <p className="text-gray-400 mt-1">Yeni fatura oluşturun</p>
       </div>
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-6">
+          <div className="mb-4 rounded-lg border border-yellow-700 bg-yellow-900/20 px-4 py-3 text-sm text-yellow-200">
+            Satış faturaları sevkiyatlardan oluşturulur. Bu ekran yalnızca bilgi amaçlıdır.
+          </div>
           <form className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -81,7 +84,8 @@ export default function NewInvoicePage() {
               </Link>
               <button
                 type="button"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg cursor-not-allowed opacity-70"
+                disabled
               >
                 Kaydet
               </button>

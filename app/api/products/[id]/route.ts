@@ -9,7 +9,7 @@ export async function GET(
   try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(resolvedParams.id) as any
+    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
 
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
@@ -34,7 +34,7 @@ export async function PATCH(
     const db = getDatabase()
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(resolvedParams.id) as any
+    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -78,7 +78,7 @@ export async function PATCH(
       updateParams.push(cost_price)
     }
 
-    updateQuery += ' WHERE id = ?'
+    updateQuery += ' WHERE id = ? AND deleted_at IS NULL'
     updateParams.push(resolvedParams.id)
 
     db.prepare(updateQuery).run(...updateParams)
@@ -102,7 +102,7 @@ export async function DELETE(
     const db = getDatabase()
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(resolvedParams.id) as any
+    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -127,7 +127,8 @@ export async function DELETE(
     }
 
     // Ürünü sil
-    db.prepare('DELETE FROM products WHERE id = ?').run(resolvedParams.id)
+    db.prepare('UPDATE products SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
+      .run(resolvedParams.id)
 
     return NextResponse.json({
       success: true,

@@ -1,3 +1,6 @@
+process.env.NEXT_DISABLE_TURBO = '1'
+process.env.NEXT_DISABLE_TURBOPACK = '1'
+
 const { createServer: createHttpsServer } = require('https')
 const { createServer: createHttpServer } = require('http')
 const { parse } = require('url')

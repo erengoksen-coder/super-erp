@@ -18,6 +18,8 @@ interface Shipment {
   status: string
   total_quantity: number
   item_count: number
+  invoice_id?: string | null
+  invoice_number?: string | null
   items?: Array<{
     id: string
     product_name: string
@@ -52,6 +54,7 @@ export default function ShipmentsPage() {
   const [showDetailedView, setShowDetailedView] = useState<boolean>(false) // Detaylı görünüm (müşteri ve ürün bazlı)
   const [customers, setCustomers] = useState<any[]>([])
   const [exporting, setExporting] = useState(false)
+  const [creatingInvoiceId, setCreatingInvoiceId] = useState<string | null>(null)
 
   useEffect(() => {
     loadCustomers()
@@ -103,7 +106,7 @@ export default function ShipmentsPage() {
     return `/api/shipments/ready-items?customer_id=${selectedReadyCustomerId}`
   }, [filterStatus, selectedReadyCustomerId])
 
-  const { data: shipmentsData, isLoading: shipmentsLoading } = useApi<Shipment[]>(shipmentsKey)
+  const { data: shipmentsData, isLoading: shipmentsLoading, mutate: mutateShipments } = useApi<Shipment[]>(shipmentsKey)
   const { data: readyItemsData, isLoading: readyItemsLoading } = useApi<{ items: any[] }>(readyItemsKey)
   const { data: readyProductsData, isLoading: readyProductsLoading } = useApi<{ items: any[] }>(readyProductsKey)
 
@@ -345,6 +348,27 @@ export default function ShipmentsPage() {
       alert('PDF oluşturulurken hata oluştu: ' + error.message)
     } finally {
       setExporting(false)
+    }
+  }
+
+  async function createInvoice(shipmentId: string) {
+    setCreatingInvoiceId(shipmentId)
+    try {
+      const result = await fetchApi('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shipment_id: shipmentId })
+      })
+      if (result?.invoice?.id) {
+        router.push(`/invoices/${result.invoice.id}`)
+      } else {
+        await mutateShipments()
+        alert('Fatura oluşturuldu')
+      }
+    } catch (error: any) {
+      alert('Hata: ' + error.message)
+    } finally {
+      setCreatingInvoiceId(null)
     }
   }
 
@@ -755,6 +779,7 @@ export default function ShipmentsPage() {
                   <TableHead className="h-8 px-4 py-2 text-xs">Adet</TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">Kalem</TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">Durum</TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs">Fatura</TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">İşlemler</TableHead>
                 </TableRow>
               </TableHeader>
@@ -783,6 +808,18 @@ export default function ShipmentsPage() {
                       {getStatusBadge(shipment.status)}
                     </TableCell>
                     <TableCell className="px-4 py-2">
+                      {shipment.invoice_id ? (
+                        <Link
+                          href={`/invoices/${shipment.invoice_id}`}
+                          className="text-blue-400 hover:text-blue-300 text-xs"
+                        >
+                          {shipment.invoice_number || 'Fatura'}
+                        </Link>
+                      ) : (
+                        <span className="text-gray-500 text-xs">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-2">
                       <div className="flex items-center space-x-2">
                         <Link
                           href={`/shipments/${shipment.id}`}
@@ -791,6 +828,16 @@ export default function ShipmentsPage() {
                           <Printer className="w-3 h-3 mr-1" />
                           Fiş
                         </Link>
+                        {!shipment.invoice_id && (
+                          <button
+                            onClick={() => createInvoice(shipment.id)}
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-60"
+                            type="button"
+                            disabled={creatingInvoiceId === shipment.id}
+                          >
+                            {creatingInvoiceId === shipment.id ? 'Oluşturuluyor...' : 'Fatura'}
+                          </button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

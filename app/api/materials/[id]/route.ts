@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { materialsRepo } from '@/lib/repositories/materials'
@@ -92,15 +92,16 @@ export async function PATCH(
           
           db.prepare(`
             INSERT INTO stock_movements 
-            (id, material_id, movement_type, quantity, reference_type, notes, user_id, created_at)
-            VALUES (?, ?, ?, ?, 'adjustment', ?, ?, CURRENT_TIMESTAMP)
+            (id, material_id, movement_type, quantity, reference_type, notes, user_id, warehouse_id, created_at)
+            VALUES (?, ?, ?, ?, 'adjustment', ?, ?, ?, CURRENT_TIMESTAMP)
           `).run(
             movementId,
             resolvedParams.id,
             difference > 0 ? 'in' : 'out',
             Math.abs(difference),
             `Manuel stok düzeltmesi: ${oldStockAmount} → ${newStockAmount}`,
-            user_id || null
+            user_id || null,
+            DEFAULT_WAREHOUSE_ID
           )
         } catch (movementError: unknown) {
           // Eğer stock_movements tablosu yoksa veya hata varsa, sadece logla
@@ -139,7 +140,7 @@ export async function PATCH(
       updateParams.push(unit_price)
     }
 
-    updateQuery += ' WHERE id = ?'
+    updateQuery += ' WHERE id = ? AND deleted_at IS NULL'
     updateParams.push(resolvedParams.id)
 
     db.prepare(updateQuery).run(...updateParams)
@@ -185,8 +186,9 @@ export async function DELETE(
       })
     }
 
-    // Malzemeyi sil
-    db.prepare('DELETE FROM materials WHERE id = ?').run(resolvedParams.id)
+    // Malzemeyi pasife al
+    db.prepare('UPDATE materials SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
+      .run(resolvedParams.id)
 
     return ok(null, { message: 'Malzeme başarıyla silindi' })
   } catch (error: any) {

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
+import { logAudit } from '@/lib/audit'
+
+function getActorId(request: NextRequest) {
+  return request.headers.get('x-user-id') || null
+}
 
 // POST: Üretim emrini iptal et ve malzemeleri stoka geri ekle
 export async function POST(
@@ -14,7 +19,7 @@ export async function POST(
 
     // Üretim emri bilgilerini al
     const order = db.prepare(`
-      SELECT * FROM production_orders WHERE id = ?
+      SELECT * FROM production_orders WHERE id = ? AND deleted_at IS NULL
     `).get(orderId) as any
 
     if (!order) {
@@ -69,14 +74,16 @@ export async function POST(
         const movementId = randomUUID()
         db.prepare(`
           INSERT INTO stock_movements 
-          (id, material_id, movement_type, quantity, reference_type, reference_id, notes)
-          VALUES (?, ?, 'in', ?, 'production_order_cancel', ?, ?)
+          (id, material_id, movement_type, quantity, reference_type, reference_id, notes, warehouse_id, to_warehouse_id)
+          VALUES (?, ?, 'in', ?, 'production_order_cancel', ?, ?, ?, ?)
         `).run(
           movementId,
           bomItem.material_id,
           totalRequired,
           orderId,
-          `Üretim emri iptali: ${order.order_number} - ${bomItem.material_name} (Fire: ${firePercentage}%) - Geri eklenen: ${totalRequired} ${bomItem.unit}`
+          `Üretim emri iptali: ${order.order_number} - ${bomItem.material_name} (Fire: ${firePercentage}%) - Geri eklenen: ${totalRequired} ${bomItem.unit}`,
+          DEFAULT_WAREHOUSE_ID,
+          DEFAULT_WAREHOUSE_ID
         )
       }
 
@@ -108,6 +115,15 @@ export async function POST(
         WHERE id = ?
       `).run(orderId)
     })()
+
+    logAudit(db, {
+      tableName: 'production_orders',
+      action: 'update',
+      recordId: orderId,
+      userId: getActorId(request),
+      before: { status: order.status },
+      after: { status: 'cancelled' },
+    })
 
     return NextResponse.json({
       success: true,

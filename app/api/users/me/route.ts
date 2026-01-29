@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
         u.last_login
       FROM users u
       WHERE u.id = ? AND u.company_id = ? AND u.branch_id = ?
+        AND u.deleted_at IS NULL
     `).get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
 
     if (!user) {
@@ -73,7 +74,7 @@ export async function PATCH(request: NextRequest) {
     const db = getDatabase()
 
     // Kullanıcıyı bul
-    const user = db.prepare('SELECT * FROM users WHERE id = ? AND company_id = ? AND branch_id = ?')
+    const user = db.prepare('SELECT * FROM users WHERE id = ? AND company_id = ? AND branch_id = ? AND deleted_at IS NULL')
       .get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
     if (!user) {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })

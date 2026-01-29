@@ -14,7 +14,7 @@ export async function PATCH(
     const db = getDatabase()
 
     // Talebi bul
-    const request_record = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(resolvedParams.id) as any
+    const request_record = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
     if (!request_record) {
       return NextResponse.json({ error: 'Satın alma talebi bulunamadı' }, { status: 404 })
     }
@@ -71,12 +71,12 @@ export async function PATCH(
       updateParams.push(totalAmount)
     }
 
-    updateQuery += ' WHERE id = ?'
+    updateQuery += ' WHERE id = ? AND deleted_at IS NULL'
     updateParams.push(resolvedParams.id)
 
     db.prepare(updateQuery).run(...updateParams)
 
-    const updated = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(resolvedParams.id)
+    const updated = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id)
 
     return NextResponse.json({
       success: true,
@@ -98,13 +98,14 @@ export async function DELETE(
     const db = getDatabase()
 
     // Talebi bul
-    const request_record = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(resolvedParams.id) as any
+    const request_record = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
     if (!request_record) {
       return NextResponse.json({ error: 'Satın alma talebi bulunamadı' }, { status: 404 })
     }
 
-    // Talebi sil
-    db.prepare('DELETE FROM purchase_requests WHERE id = ?').run(resolvedParams.id)
+    // Talebi pasife al
+    db.prepare('UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
+      .run(resolvedParams.id)
 
     return NextResponse.json({
       success: true,

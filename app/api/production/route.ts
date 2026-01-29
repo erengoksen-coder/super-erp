@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { calculateProductionCost, calculateProfit } from '@/lib/utils/costCalculator'
+import { logAudit } from '@/lib/audit'
+
+function getActorId(request: NextRequest) {
+  return request.headers.get('x-user-id') || null
+}
 
 // GET: Tüm üretim emirlerini getir
 export async function GET(request: NextRequest) {
@@ -49,6 +54,7 @@ export async function GET(request: NextRequest) {
     const params: any[] = []
     query += ' AND po.company_id = ? AND po.branch_id = ?'
     params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    query += ' AND po.deleted_at IS NULL'
     
     // Müşteri ismi arama filtresi
     if (customerName && customerName.trim()) {
@@ -127,6 +133,7 @@ export async function POST(request: NextRequest) {
       })
     }
     
+    const actorId = getActorId(request)
     const transaction = db.transaction(() => {
       // 1. Stok kontrolü ve maliyet hesaplama
       const bom = db.prepare(`
@@ -189,10 +196,24 @@ export async function POST(request: NextRequest) {
         DEFAULT_BRANCH_ID
       )
 
+      logAudit(db, {
+        tableName: 'production_orders',
+        action: 'create',
+        recordId: orderId,
+        userId: actorId,
+        after: {
+          id: orderId,
+          order_number,
+          product_id,
+          quantity,
+          status: 'in_progress',
+        },
+      })
+
       // 4. Stok hareketlerini oluştur ve stokları düş
       const insertMovement = db.prepare(`
-        INSERT INTO stock_movements (id, material_id, movement_type, quantity, reference_type, reference_id, notes, company_id, branch_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO stock_movements (id, material_id, movement_type, quantity, reference_type, reference_id, notes, company_id, branch_id, warehouse_id, from_warehouse_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       // Stok güncelleme sorgusu
@@ -225,7 +246,9 @@ export async function POST(request: NextRequest) {
           orderId, // reference_id
           `Üretim emri: ${order_number} - ${item.material_name} (Fire: ${firePercentage}%)`, // notes
           DEFAULT_COMPANY_ID,
-          DEFAULT_BRANCH_ID
+          DEFAULT_BRANCH_ID,
+          DEFAULT_WAREHOUSE_ID,
+          DEFAULT_WAREHOUSE_ID
         )
         
         // Fiili harcanan kaydı oluştur

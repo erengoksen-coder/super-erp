@@ -16,6 +16,8 @@ type AccountTransactionRow = {
   product_name?: string | null
   product_sku?: string | null
   shipment_number?: string | null
+  created_at?: string
+  running_balance?: number
 }
 
 // GET: Cari hesap işlemlerini getir
@@ -43,10 +45,20 @@ export async function GET(
       LEFT JOIN shipments s ON si.shipment_id = s.id
       LEFT JOIN products p ON si.product_id = p.id
       WHERE at.account_id = ?
-      ORDER BY at.created_at DESC
+      ORDER BY at.created_at ASC
     `).all(accountId) as AccountTransactionRow[]
 
-    return ok(transactions)
+    let running = 0
+    const withRunning = transactions.map((transaction) => {
+      if (transaction.transaction_type === 'debit') {
+        running += transaction.amount
+      } else if (transaction.transaction_type === 'credit') {
+        running -= transaction.amount
+      }
+      return { ...transaction, running_balance: running }
+    }).reverse()
+
+    return ok(withRunning)
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

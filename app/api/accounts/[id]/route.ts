@@ -14,6 +14,7 @@ type AccountUpdateInput = {
   phone?: string | null
   email?: string | null
   address?: string | null
+  risk_limit?: number | null
   updated_by?: string | null
 }
 
@@ -47,7 +48,7 @@ export async function PUT(
     const resolvedParams = await Promise.resolve(params)
     const accountId = resolvedParams.id
     const body = await request.json() as AccountUpdateInput
-    const { name, type, tax_number, phone, email, address, updated_by } = body
+    const { name, type, tax_number, phone, email, address, risk_limit, updated_by } = body
 
     // Cari hesabın var olup olmadığını kontrol et
     const existingAccount = accountsRepo.getById(accountId) as AccountIdRow | undefined
@@ -67,6 +68,7 @@ export async function PUT(
       phone,
       email,
       address,
+      risk_limit: risk_limit ?? null,
       updated_by,
     })
 
