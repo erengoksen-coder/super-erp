@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
-import { signAccessToken, accessTokenTtlSeconds } from '@/lib/auth/jwt'
+import { createToken, accessTokenTtlSeconds } from '@/lib/auth/jwt'
 import {
   generateRefreshToken,
   getRefreshTokenFromRequest,
@@ -9,6 +9,7 @@ import {
   refreshTokenTtlDays,
   setAuthCookies,
 } from '@/lib/auth/session'
+import { loadUserPermissions } from '@/lib/auth/permissions'
 
 type SessionRow = {
   id: string
@@ -60,10 +61,12 @@ export async function POST(request: NextRequest) {
       return fail('Kullanıcı bulunamadı veya onaylanmamış', { status: 401 })
     }
 
-    const accessToken = await signAccessToken({
+    const permissions = loadUserPermissions(db, user.id)
+    const accessToken = await createToken({
       userId: user.id,
       role: user.role,
       username: user.username,
+      permissions,
     })
     const newRefreshToken = generateRefreshToken()
     const refreshTtlSeconds = refreshTokenTtlDays * 24 * 60 * 60
@@ -86,6 +89,7 @@ export async function POST(request: NextRequest) {
         full_name: user.full_name,
         role: user.role,
         job_title: user.job_title,
+        permissions,
       },
     })
     setAuthCookies(response, accessToken, newRefreshToken, accessTokenTtlSeconds, refreshTtlSeconds)

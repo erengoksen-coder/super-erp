@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3'
 import { verifyAccessToken } from '@/lib/auth/jwt'
 
 const ACCESS_COOKIE = 'access_token'
+const AUTH_COOKIE = 'auth-token'
 const REFRESH_COOKIE = 'refresh_token'
 
 export const refreshTokenTtlDays = 7
@@ -19,7 +20,7 @@ export function hashToken(token: string) {
 export function getAccessTokenFromRequest(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-  return bearer || request.cookies.get(ACCESS_COOKIE)?.value || null
+  return bearer || request.cookies.get(AUTH_COOKIE)?.value || request.cookies.get(ACCESS_COOKIE)?.value || null
 }
 
 export function getRefreshTokenFromRequest(request: NextRequest) {
@@ -44,6 +45,13 @@ export function setAuthCookies(
   accessMaxAgeSeconds: number,
   refreshMaxAgeSeconds: number
 ) {
+  response.cookies.set(AUTH_COOKIE, accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: accessMaxAgeSeconds,
+  })
   response.cookies.set(ACCESS_COOKIE, accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -61,6 +69,13 @@ export function setAuthCookies(
 }
 
 export function clearAuthCookies(response: NextResponse) {
+  response.cookies.set(AUTH_COOKIE, '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  })
   response.cookies.set(ACCESS_COOKIE, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

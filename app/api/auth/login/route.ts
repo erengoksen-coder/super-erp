@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword, isLegacySha256Hash, verifyPassword } from '@/lib/auth/password'
 import { ok, fail } from '@/lib/api/response'
-import { signAccessToken, accessTokenTtlSeconds } from '@/lib/auth/jwt'
+import { createToken, accessTokenTtlSeconds } from '@/lib/auth/jwt'
 import {
   createUserSession,
   generateRefreshToken,
@@ -13,6 +13,7 @@ import {
   refreshTokenTtlDays,
   setAuthCookies,
 } from '@/lib/auth/session'
+import { loadUserPermissions } from '@/lib/auth/permissions'
 
 type UserRow = {
   id: string
@@ -98,10 +99,12 @@ export async function POST(request: NextRequest) {
       WHERE id = ?
     `).run(user.id)
 
-    const accessToken = await signAccessToken({
+    const permissions = loadUserPermissions(db, user.id)
+    const accessToken = await createToken({
       userId: user.id,
       role: user.role,
       username: user.username,
+      permissions,
     })
     const refreshToken = generateRefreshToken()
     const sessionId = randomUUID()
@@ -125,6 +128,7 @@ export async function POST(request: NextRequest) {
         full_name: user.full_name,
         role: user.role,
         job_title: user.job_title,
+        permissions,
       },
     })
     setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)

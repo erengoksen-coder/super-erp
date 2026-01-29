@@ -134,12 +134,209 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
 const app = next({ dev })
 const handle = app.getRequestHandler()
 
+const publicPagePaths = new Set(['/auth/login', '/auth/register'])
+const publicApiPrefixes = ['/api/auth/login', '/api/auth/refresh', '/api/auth/logout']
+const adminPagePrefixes = ['/users']
+const adminApiPrefixes = ['/api/users', '/api/admin']
+const apiPermissionMap = new Map([
+  ['/api/materials', '/inventory/materials'],
+  ['/api/products', '/inventory/products'],
+  ['/api/inventory', '/inventory'],
+  ['/api/orders', '/orders'],
+  ['/api/production', '/production'],
+  ['/api/work-orders', '/production/work-orders'],
+  ['/api/shipments', '/shipments'],
+  ['/api/accounts', '/accounts'],
+  ['/api/payments', '/payments'],
+  ['/api/barcodes', '/barcodes'],
+  ['/api/purchase', '/purchase-requests'],
+  ['/api/finance', '/finance'],
+  ['/api/accounting', '/finance'],
+  ['/api/bom', '/bom'],
+  ['/api/units', '/units/conversions'],
+  ['/api/notifications', '/notifications'],
+  ['/api/operations', '/production/operations'],
+  ['/api/work-centers', '/production/work-centers'],
+  ['/api/personnel', '/production/personnel'],
+  ['/api/reports', '/reports/costs'],
+  ['/api/production/costs', '/reports/costs'],
+])
+
+function parseCookies(cookieHeader) {
+  const cookies = {}
+  if (!cookieHeader) return cookies
+  const parts = cookieHeader.split(';')
+  for (const part of parts) {
+    const [rawKey, ...rawValue] = part.split('=')
+    const key = rawKey ? rawKey.trim() : ''
+    if (!key) continue
+    cookies[key] = decodeURIComponent(rawValue.join('=').trim())
+  }
+  return cookies
+}
+
+function isPublicPath(pathname) {
+  if (publicPagePaths.has(pathname)) return true
+  if (publicApiPrefixes.some((prefix) => pathname.startsWith(prefix))) return true
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/icons/') ||
+    pathname.startsWith('/images/') ||
+    pathname === '/favicon.ico' ||
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/sw.js'
+  ) {
+    return true
+  }
+  return false
+}
+
+function normalizeRole(role) {
+  const raw = String(role || '').trim().toLowerCase()
+  if (raw === 'admin' || raw === 'yönetici' || raw === 'yonetici') return 'admin'
+  return raw
+}
+
+function mapApiPathToPermission(pathname) {
+  let match = null
+  for (const [prefix, permissionPath] of apiPermissionMap.entries()) {
+    if (pathname.startsWith(prefix)) {
+      if (!match || prefix.length > match.prefix.length) {
+        match = { prefix, permission: permissionPath }
+      }
+    }
+  }
+  return match ? match.permission : null
+}
+
+function canAccessPath(permissions, pathname, action) {
+  if (!Array.isArray(permissions) || !permissions.length) return false
+  const matched = permissions
+    .filter((perm) => {
+      if (perm.page_path === '/') {
+        return pathname === '/'
+      }
+      return pathname === perm.page_path || pathname.startsWith(`${perm.page_path}/`)
+    })
+    .sort((a, b) => b.page_path.length - a.page_path.length)[0]
+  if (!matched) return false
+  switch (action) {
+    case 'create':
+      return (matched.can_create ?? 0) > 0
+    case 'edit':
+      return (matched.can_edit ?? 0) > 0
+    case 'delete':
+      return (matched.can_delete ?? 0) > 0
+    default:
+      return (matched.can_view ?? 0) > 0
+  }
+}
+
+function getActionFromMethod(method) {
+  const normalized = String(method || 'GET').toUpperCase()
+  if (normalized === 'GET' || normalized === 'HEAD' || normalized === 'OPTIONS') return 'view'
+  if (normalized === 'POST') return 'create'
+  if (normalized === 'PUT' || normalized === 'PATCH') return 'edit'
+  if (normalized === 'DELETE') return 'delete'
+  return 'view'
+}
+
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET ortam değişkeni gerekli')
+    }
+    return new TextEncoder().encode('fallback-secret-degistir')
+  }
+  return new TextEncoder().encode(secret)
+}
+
+async function authorizeRequest(req, res) {
+  const url = new URL(req.url || '/', 'http://localhost')
+  const pathname = url.pathname
+
+  if (isPublicPath(pathname)) {
+    return true
+  }
+
+  const cookies = parseCookies(req.headers.cookie || '')
+  const token = cookies['auth-token'] || cookies.access_token
+  if (!token) {
+    if (pathname.startsWith('/api')) {
+      res.statusCode = 401
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Yetkisiz' }))
+      return false
+    }
+    res.statusCode = 302
+    res.setHeader('Location', `/auth/login?redirect=${encodeURIComponent(pathname)}`)
+    res.end()
+    return false
+  }
+
+  const { jwtVerify } = await import('jose')
+  let payload
+  try {
+    const verified = await jwtVerify(token, getJwtSecret())
+    payload = verified.payload
+  } catch {
+    if (pathname.startsWith('/api')) {
+      res.statusCode = 401
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Yetkisiz' }))
+      return false
+    }
+    res.statusCode = 302
+    res.setHeader('Location', '/auth/login')
+    res.end()
+    return false
+  }
+
+  const role = normalizeRole(payload?.role)
+  const permissions = Array.isArray(payload?.permissions) ? payload.permissions : []
+
+  if (
+    adminPagePrefixes.some((prefix) => pathname.startsWith(prefix)) ||
+    adminApiPrefixes.some((prefix) => pathname.startsWith(prefix))
+  ) {
+    if (role !== 'admin') {
+      res.statusCode = 403
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Yetkisiz' }))
+      return false
+    }
+  }
+
+  if (role !== 'admin') {
+    const action = getActionFromMethod(req.method)
+    if (pathname.startsWith('/api')) {
+      const permissionPath = mapApiPathToPermission(pathname)
+      if (!permissionPath || !canAccessPath(permissions, permissionPath, action)) {
+        res.statusCode = 403
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: 'Yetkisiz' }))
+        return false
+      }
+    } else if (!canAccessPath(permissions, pathname, 'view')) {
+      res.statusCode = 302
+      res.setHeader('Location', '/')
+      res.end()
+      return false
+    }
+  }
+
+  return true
+}
+
 app.prepare().then(() => {
   // HTTPS sunucu (kamera için)
   const httpsServer = createHttpsServer(
     httpsOptions,
     async (req, res) => {
       try {
+        const allowed = await authorizeRequest(req, res)
+        if (!allowed) return
         const parsedUrl = parse(req.url, true)
         await handle(req, res, parsedUrl)
       } catch (err) {
@@ -154,6 +351,8 @@ app.prepare().then(() => {
   const httpServer = createHttpServer(
     async (req, res) => {
       try {
+        const allowed = await authorizeRequest(req, res)
+        if (!allowed) return
         const parsedUrl = parse(req.url, true)
         await handle(req, res, parsedUrl)
       } catch (err) {
