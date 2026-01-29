@@ -19,6 +19,18 @@ interface DashboardStats {
   }>
 }
 
+type CriticalMaterial = {
+  id: string
+  code?: string | null
+  name: string
+  unit: string
+  stock_amount: number
+  min_stock_level: number
+  suggested_quantity?: number
+  shortage?: number
+  supplier_name?: string | null
+}
+
 // Satın Alma Talepleri Bildirim Bileşeni
 function PurchaseRequestsNotification() {
   const [requests, setRequests] = useState<any[]>([])
@@ -137,6 +149,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [planning, setPlanning] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [criticalList, setCriticalList] = useState<CriticalMaterial[]>([])
+  const [criticalLoading, setCriticalLoading] = useState(false)
+  const [showCriticalList, setShowCriticalList] = useState(false)
   const user = useAuthStore((state) => state.user)
   const userRole = user?.role ?? null
 
@@ -167,6 +182,18 @@ export default function DashboardPage() {
       console.error('Error loading stats:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadCriticalStock() {
+    setCriticalLoading(true)
+    try {
+      const data = await fetchApi('/api/purchase/critical-stock')
+      setCriticalList(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error loading critical stock:', error)
+    } finally {
+      setCriticalLoading(false)
     }
   }
 
@@ -390,13 +417,17 @@ export default function DashboardPage() {
               <Package className="w-4 h-4 inline mr-2" />
               Stok Yönetimi
             </Link>
-            <Link
-              href="/inventory/materials"
+            <button
+              onClick={() => {
+                setShowCriticalList(true)
+                loadCriticalStock()
+              }}
               className="block w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-center font-medium"
+              type="button"
             >
               <AlertTriangle className="w-4 h-4 inline mr-2" />
               Kritik Stoklar
-            </Link>
+            </button>
             <Link
               href="/barcodes"
               className="block w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-center font-medium"
@@ -468,6 +499,71 @@ export default function DashboardPage() {
           Her istasyonda bekleyen koltuk sayısı. Yüksek değerler darboğazı gösterir.
         </p>
       </div>
+
+      {showCriticalList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-4xl rounded-lg border border-gray-800 bg-gray-900 p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <span>Kritik Stok Listesi</span>
+              </h3>
+              <button
+                onClick={() => setShowCriticalList(false)}
+                className="text-gray-400 hover:text-white"
+                type="button"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {criticalLoading ? (
+              <div className="py-10 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-gray-400">Yükleniyor...</p>
+              </div>
+            ) : criticalList.length === 0 ? (
+              <p className="text-gray-400">Kritik stok bulunamadı.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800 text-gray-400">
+                      <th className="text-left py-2 px-3">Kod</th>
+                      <th className="text-left py-2 px-3">Malzeme</th>
+                      <th className="text-right py-2 px-3">Mevcut</th>
+                      <th className="text-right py-2 px-3">Min</th>
+                      <th className="text-right py-2 px-3">Eksik</th>
+                      <th className="text-right py-2 px-3">Öneri</th>
+                      <th className="text-left py-2 px-3">Tedarikçi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {criticalList.map((item) => (
+                      <tr key={item.id} className="border-b border-gray-800 text-gray-200">
+                        <td className="py-2 px-3 text-gray-300">{item.code || '-'}</td>
+                        <td className="py-2 px-3">{item.name}</td>
+                        <td className="py-2 px-3 text-right">
+                          {item.stock_amount?.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} {item.unit}
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          {item.min_stock_level?.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} {item.unit}
+                        </td>
+                        <td className="py-2 px-3 text-right text-red-400">
+                          {(item.shortage ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} {item.unit}
+                        </td>
+                        <td className="py-2 px-3 text-right text-yellow-300">
+                          {(item.suggested_quantity ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} {item.unit}
+                        </td>
+                        <td className="py-2 px-3 text-gray-400">{item.supplier_name || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Üretim Planlama - Sadece Admin ve Yönetici için */}
       {(userRole === 'admin' || userRole === 'manager') && planning && (
