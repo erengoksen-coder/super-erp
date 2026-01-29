@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { materialsRepo } from '@/lib/repositories/materials'
@@ -77,9 +78,7 @@ export async function PATCH(
       const oldStockAmount = material.stock_amount || 0
       const newStockAmount = stock_amount
       const difference = newStockAmount - oldStockAmount
-      
-      updateQuery += ', stock_amount = ?'
-      updateParams.push(stock_amount)
+      applyMaterialStockChange(db, resolvedParams.id, difference, 0, { allowNegative: true })
       
       // Eğer stok miktarı değiştiyse, stock_movements tablosuna bir "adjustment" hareketi ekle
       if (difference !== 0) {
@@ -138,6 +137,13 @@ export async function PATCH(
     if (unit_price !== undefined) {
       updateQuery += ', unit_price = ?'
       updateParams.push(unit_price)
+      if (unit_price > 0) {
+        const priceId = randomUUID()
+        db.prepare(`
+          INSERT INTO material_prices (id, material_id, price, price_type, source_type, source_id)
+          VALUES (?, ?, ?, 'purchase', 'material_update', ?)
+        `).run(priceId, resolvedParams.id, unit_price, resolvedParams.id)
+      }
     }
 
     updateQuery += ' WHERE id = ? AND deleted_at IS NULL'

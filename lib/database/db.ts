@@ -128,6 +128,24 @@ function initializeDatabase() {
     )
   `)
 
+  // User Sessions (Refresh Token Yönetimi)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      refresh_token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      last_used_at TEXT,
+      user_agent TEXT,
+      ip_address TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `)
+
   // Push Subscriptions
   db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -239,6 +257,7 @@ function initializeDatabase() {
       factor REAL NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       UNIQUE(material_id, from_unit, to_unit)
     )
   `)
@@ -247,6 +266,9 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_unit_conversions_units ON unit_conversions(from_unit, to_unit)')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE unit_conversions ADD COLUMN deleted_at TEXT')
   } catch {}
 
   // Roles (RBAC)
@@ -396,6 +418,7 @@ function initializeDatabase() {
       category TEXT,
       unit TEXT NOT NULL,
       stock_amount REAL DEFAULT 0,
+      reserved_quantity REAL DEFAULT 0,
       min_stock_level REAL DEFAULT 0,
       purchase_price REAL DEFAULT 0,
       supplier_id TEXT,
@@ -404,10 +427,13 @@ function initializeDatabase() {
       branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      version INTEGER DEFAULT 0,
       deleted_at TEXT,
       FOREIGN KEY (supplier_id) REFERENCES accounts(id)
     )
   `)
+  try { db.exec('ALTER TABLE materials ADD COLUMN reserved_quantity REAL DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE materials ADD COLUMN version INTEGER DEFAULT 0') } catch {}
 
   // Material Stocks (Depo bazlı stok)
   db.exec(`
@@ -423,6 +449,77 @@ function initializeDatabase() {
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
     )
   `)
+
+  // Material Prices (Tarihsel fiyatlar)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS material_prices (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL,
+      price REAL NOT NULL,
+      price_type TEXT DEFAULT 'purchase',
+      source_type TEXT,
+      source_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_material ON material_prices(material_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_created_at ON material_prices(created_at)') } catch {}
+
+  // Production Costs (Üretim maliyetleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_costs (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      material_cost REAL DEFAULT 0,
+      labor_cost REAL DEFAULT 0,
+      overhead_cost REAL DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_production_costs_order ON production_costs(production_order_id)') } catch {}
+
+  // Stock Alerts (Kritik stok uyarıları)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_alerts (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL,
+      level TEXT DEFAULT 'critical',
+      message TEXT,
+      status TEXT DEFAULT 'open',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT,
+      deleted_at TEXT,
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_material ON stock_alerts(material_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_status ON stock_alerts(status)') } catch {}
+  // Material Reservations (Rezervasyonlar)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS material_reservations (
+      id TEXT PRIMARY KEY,
+      material_id TEXT NOT NULL,
+      customer_id TEXT,
+      reference_type TEXT,
+      reference_id TEXT,
+      quantity REAL NOT NULL,
+      status TEXT DEFAULT 'active',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (material_id) REFERENCES materials(id),
+      FOREIGN KEY (customer_id) REFERENCES accounts(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_material ON material_reservations(material_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_customer ON material_reservations(customer_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservations(status)') } catch {}
 
   // Materials tablosuna purchase_price kolonu ekle (eğer yoksa)
   try {
@@ -609,34 +706,220 @@ function initializeDatabase() {
       material_id TEXT NOT NULL,
       planned_quantity REAL NOT NULL,
       actual_quantity REAL,
+      actual_usage REAL,
       fire_quantity REAL,
       variance REAL,
       variance_percentage REAL,
+      scrap_reason TEXT,
       recorded_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE,
       FOREIGN KEY (material_id) REFERENCES materials(id),
       UNIQUE(production_order_id, material_id)
     )
   `)
+  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN actual_usage REAL') } catch {}
+  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN scrap_reason TEXT') } catch {}
+
+  // Operasyonlar
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS operations (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      standard_duration_minutes INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // İstasyonlar / Work Centers
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_centers (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE,
+      name TEXT NOT NULL,
+      location TEXT,
+      capacity INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // Personel
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS personnel (
+      id TEXT PRIMARY KEY,
+      full_name TEXT NOT NULL,
+      role TEXT,
+      phone TEXT,
+      email TEXT,
+      hourly_rate REAL DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  // Üretim emri operasyonları
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_order_operations (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      work_center_id TEXT,
+      personnel_id TEXT,
+      planned_start TEXT,
+      planned_end TEXT,
+      actual_start TEXT,
+      actual_end TEXT,
+      planned_duration_minutes INTEGER DEFAULT 0,
+      actual_duration_minutes INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'planned',
+      delay_reason TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (operation_id) REFERENCES operations(id),
+      FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
+      FOREIGN KEY (personnel_id) REFERENCES personnel(id),
+      UNIQUE(production_order_id, operation_id)
+    )
+  `)
+
+  // BOM Versiyonları
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bom_versions (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      version_no INTEGER NOT NULL,
+      effective_date TEXT NOT NULL,
+      revision_reason TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(product_id, version_no),
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `)
 
   // BOM (Ürün Reçetesi)
+  try {
+    const bomColumns = db.prepare('PRAGMA table_info(bom)').all() as Array<{ name: string }>
+    const hasVersion = bomColumns.some((col) => col.name === 'version_id')
+    if (!hasVersion) {
+      const existingBom = db.prepare('SELECT * FROM bom').all() as any[]
+      db.exec('DROP TABLE IF EXISTS bom_backup')
+      db.exec('CREATE TABLE bom_backup AS SELECT * FROM bom')
+      db.exec('DROP TABLE bom')
+
+      db.exec(`
+        CREATE TABLE bom (
+          id TEXT PRIMARY KEY,
+          version_id TEXT,
+          product_id TEXT NOT NULL,
+          material_id TEXT NOT NULL,
+          parent_id TEXT,
+          quantity_required REAL NOT NULL,
+          unit TEXT,
+          fire_percentage REAL DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          deleted_at TEXT,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+          FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
+        )
+      `)
+
+      if (existingBom.length > 0) {
+        const insertBom = db.prepare(`
+          INSERT INTO bom
+          (id, product_id, material_id, parent_id, quantity_required, unit, fire_percentage, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of existingBom) {
+          insertBom.run(
+            row.id,
+            row.product_id,
+            row.material_id,
+            row.parent_id || null,
+            row.quantity_required,
+            row.unit || null,
+            row.fire_percentage ?? 0,
+            row.created_at || new Date().toISOString(),
+            row.updated_at || new Date().toISOString()
+          )
+        }
+      }
+      db.exec('DROP TABLE IF EXISTS bom_backup')
+    }
+  } catch {}
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS bom (
       id TEXT PRIMARY KEY,
+      version_id TEXT,
       product_id TEXT NOT NULL,
       material_id TEXT NOT NULL,
       parent_id TEXT,
       quantity_required REAL NOT NULL,
+      unit TEXT,
       fire_percentage REAL DEFAULT 0,
+      waste_percentage REAL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-      FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE,
-      UNIQUE(product_id, material_id)
+      FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
     )
   `)
+  try { db.exec('ALTER TABLE bom ADD COLUMN version_id TEXT') } catch {}
   try { db.exec('ALTER TABLE bom ADD COLUMN parent_id TEXT') } catch {}
+  try { db.exec('ALTER TABLE bom ADD COLUMN deleted_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE bom ADD COLUMN unit TEXT') } catch {}
+  try { db.exec('ALTER TABLE bom ADD COLUMN waste_percentage REAL DEFAULT 0') } catch {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_parent_id ON bom(parent_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_version_id ON bom(version_id)') } catch {}
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_bom_version_item ON bom(version_id, product_id, material_id, parent_id)') } catch {}
+  try {
+    db.exec(`
+      UPDATE bom
+      SET unit = (SELECT unit FROM materials WHERE materials.id = bom.material_id)
+      WHERE unit IS NULL OR unit = ''
+    `)
+  } catch {}
+
+  // BOM versiyonlarını seed et (mevcut BOM'lar için)
+  try {
+    const productsWithBom = db.prepare('SELECT DISTINCT product_id FROM bom').all() as Array<{ product_id: string }>
+    const insertVersion = db.prepare(`
+      INSERT OR IGNORE INTO bom_versions
+      (id, product_id, version_no, effective_date, revision_reason, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `)
+    const updateBomVersion = db.prepare(`
+      UPDATE bom
+      SET version_id = ?
+      WHERE product_id = ? AND (version_id IS NULL OR TRIM(version_id) = '')
+    `)
+    const today = new Date().toISOString().split('T')[0]
+    for (const row of productsWithBom) {
+      const existingVersion = db.prepare(`
+        SELECT id FROM bom_versions
+        WHERE product_id = ? AND version_no = 1
+      `).get(row.product_id) as { id: string } | undefined
+      const versionId = existingVersion?.id || `bomv_${row.product_id}_v1`
+      insertVersion.run(versionId, row.product_id, 1, today, 'İlk versiyon')
+      updateBomVersion.run(versionId, row.product_id)
+    }
+  } catch {}
 
   // Production Orders (Üretim Emirleri)
   db.exec(`
@@ -1339,12 +1622,88 @@ function initializeDatabase() {
       id TEXT PRIMARY KEY,
       code TEXT UNIQUE NOT NULL,
       name TEXT NOT NULL,
-      type TEXT NOT NULL,
+      account_type TEXT,
+      type TEXT,
+      balance REAL DEFAULT 0,
       parent_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (parent_id) REFERENCES chart_of_accounts(id)
     )
   `)
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN account_type TEXT') } catch {}
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN type TEXT') } catch {}
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN balance REAL DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN updated_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN deleted_at TEXT') } catch {}
+  try {
+    db.exec(`
+      UPDATE chart_of_accounts
+      SET account_type = type
+      WHERE (account_type IS NULL OR TRIM(account_type) = '')
+        AND type IS NOT NULL AND TRIM(type) != ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE chart_of_accounts
+      SET type = account_type
+      WHERE (type IS NULL OR TRIM(type) = '')
+        AND account_type IS NOT NULL AND TRIM(account_type) != ''
+    `)
+  } catch {}
+  try {
+    db.exec(`
+      UPDATE chart_of_accounts
+      SET balance = 0
+      WHERE balance IS NULL
+    `)
+  } catch {}
+
+  // Temel hesap planını seed et
+  try {
+    const seedAccounts = [
+      { code: '100', name: 'Dönen Varlıklar', account_type: 'asset', parent_code: null },
+      { code: '150', name: 'Stoklar', account_type: 'asset', parent_code: '100' },
+      { code: '120', name: 'Alacaklar', account_type: 'asset', parent_code: '100' },
+      { code: '191', name: 'KDV', account_type: 'asset', parent_code: '100' },
+      { code: '200', name: 'Kısa Vadeli Yükümlülükler', account_type: 'liability', parent_code: null },
+      { code: '320', name: 'Satıcılar', account_type: 'liability', parent_code: '200' },
+      { code: '500', name: 'Özkaynaklar', account_type: 'equity', parent_code: null },
+      { code: '590', name: 'Dönem Net Karı', account_type: 'equity', parent_code: '500' },
+      { code: '600', name: 'Satış Gelirleri', account_type: 'revenue', parent_code: null },
+      { code: '620', name: 'Satılan Malın Maliyeti', account_type: 'expense', parent_code: null },
+      { code: '720', name: 'Üretim Giderleri', account_type: 'expense', parent_code: null },
+      { code: '730', name: 'Genel Yönetim Giderleri', account_type: 'expense', parent_code: null },
+    ]
+    const insertSeed = db.prepare(`
+      INSERT OR IGNORE INTO chart_of_accounts
+      (id, code, name, account_type, type, balance, parent_id)
+      VALUES (?, ?, ?, ?, ?, ?, (SELECT id FROM chart_of_accounts WHERE code = ?))
+    `)
+    for (const account of seedAccounts) {
+      insertSeed.run(
+        `coa_${account.code}`,
+        account.code,
+        account.name,
+        account.account_type,
+        account.account_type,
+        0,
+        account.parent_code
+      )
+    }
+    const updateParent = db.prepare(`
+      UPDATE chart_of_accounts
+      SET parent_id = (SELECT id FROM chart_of_accounts WHERE code = ?)
+      WHERE code = ? AND (parent_id IS NULL OR TRIM(parent_id) = '')
+    `)
+    for (const account of seedAccounts) {
+      if (account.parent_code) {
+        updateParent.run(account.parent_code, account.code)
+      }
+    }
+  } catch {}
 
   // Journal Entries (Yevmiye Kayıtları)
   db.exec(`
@@ -1383,15 +1742,25 @@ function initializeDatabase() {
       account_id TEXT NOT NULL,
       entry_date TEXT NOT NULL,
       journal_entry_id TEXT,
+      journal_entry_line_id TEXT,
       debit REAL DEFAULT 0,
       credit REAL DEFAULT 0,
       balance REAL DEFAULT 0,
       description TEXT,
+      reference_type TEXT,
+      reference_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
       FOREIGN KEY (account_id) REFERENCES chart_of_accounts(id),
       FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id)
     )
   `)
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN journal_entry_line_id TEXT') } catch {}
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_type TEXT') } catch {}
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_id TEXT') } catch {}
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN updated_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN deleted_at TEXT') } catch {}
 
   // Shipments (Sevkiyatlar)
   db.exec(`

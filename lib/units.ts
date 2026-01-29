@@ -22,6 +22,7 @@ export function resolveUnitFactor(
     FROM unit_conversions
     WHERE from_unit = ? AND to_unit = ?
       AND (material_id = ? OR material_id IS NULL)
+      AND deleted_at IS NULL
     ORDER BY CASE WHEN material_id IS NULL THEN 1 ELSE 0 END
     LIMIT 1
   `).get(from, to, materialId) as ConversionRow | undefined
@@ -35,6 +36,7 @@ export function resolveUnitFactor(
     FROM unit_conversions
     WHERE from_unit = ? AND to_unit = ?
       AND (material_id = ? OR material_id IS NULL)
+      AND deleted_at IS NULL
     ORDER BY CASE WHEN material_id IS NULL THEN 1 ELSE 0 END
     LIMIT 1
   `).get(to, from, materialId) as ConversionRow | undefined

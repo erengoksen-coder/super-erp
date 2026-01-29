@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
+import { getAuthUserId } from '@/lib/auth/session'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -69,8 +70,8 @@ type OrderStatusRow = {
   order_number: string
 }
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
@@ -130,7 +131,10 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status')
+    let status = searchParams.get('status')
+    if (status === 'shipped') {
+      status = 'completed'
+    }
 
     // Pending status için özel sorgu - production_order_id olmayanları getir
     if (status === 'pending') {
@@ -266,7 +270,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
     const insertedOrders: InsertedOrder[] = []
 
-    const actorId = getActorId(request)
+    const actorId = await getActorId(request)
 
     // Manuel sipariş oluşturma
     for (const order of manualOrders) {
@@ -417,7 +421,7 @@ export async function PATCH(request: NextRequest) {
       tableName: 'orders',
       action: 'update',
       recordId: orderId,
-      userId: getActorId(request),
+      userId: await getActorId(request),
       before: {
         status: current.status,
         cancel_reason: null,

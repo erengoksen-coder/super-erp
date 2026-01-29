@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
 import { calculateProductionCost, calculateProfit } from '@/lib/utils/costCalculator'
 import { logAudit } from '@/lib/audit'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
+import { getAuthUserId } from '@/lib/auth/session'
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 // GET: Tüm üretim emirlerini getir
@@ -133,30 +136,38 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    const actorId = getActorId(request)
+    const actorId = await getActorId(request)
     const transaction = db.transaction(() => {
       // 1. Stok kontrolü ve maliyet hesaplama
       const bom = db.prepare(`
         SELECT 
           b.material_id,
           b.quantity_required,
+          b.unit as unit,
           COALESCE(b.fire_percentage, 0) as fire_percentage,
           m.name as material_name,
           m.stock_amount,
-          m.unit,
+          m.unit as material_unit,
+          m.reserved_quantity,
           COALESCE(m.purchase_price, 0) as purchase_price
         FROM bom b
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
-        WHERE b.product_id = ?
+        WHERE b.product_id = ? AND b.deleted_at IS NULL
       `).all(product_id)
 
       // Stok yeterliliğini kontrol et (fire dahil)
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + (firePercentage / 100))
-        const required = quantityWithFire * quantity
-        if (item.stock_amount < required) {
-          throw new Error(`Stok yetersiz: ${item.material_name} (Gereken: ${required.toFixed(2)} ${item.unit} [Fire dahil], Mevcut: ${item.stock_amount} ${item.unit})`)
+        const fromUnit = (item.unit || item.material_unit || '').toString()
+        const toUnit = (item.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        const required = convertedQuantity * quantity
+        const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
+        if (available < required) {
+          throw new Error(`Stok yetersiz: ${item.material_name} (Gereken: ${required.toFixed(2)} ${item.material_unit} [Fire dahil], Mevcut: ${item.stock_amount} ${item.material_unit})`)
         }
       }
 
@@ -165,7 +176,11 @@ export async function POST(request: NextRequest) {
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + firePercentage / 100)
-        totalMaterialCost += quantityWithFire * item.purchase_price * quantity
+        const fromUnit = (item.unit || item.material_unit || '').toString()
+        const toUnit = (item.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        totalMaterialCost += convertedQuantity * item.purchase_price * quantity
       }
       
       const laborCostPerUnit = product.labor_cost || 0
@@ -196,6 +211,19 @@ export async function POST(request: NextRequest) {
         DEFAULT_BRANCH_ID
       )
 
+      db.prepare(`
+        INSERT INTO production_costs
+        (id, production_order_id, material_cost, labor_cost, overhead_cost, total_cost)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(),
+        orderId,
+        totalMaterialCost,
+        totalLaborCost,
+        0,
+        totalCost
+      )
+
       logAudit(db, {
         tableName: 'production_orders',
         action: 'create',
@@ -217,9 +245,6 @@ export async function POST(request: NextRequest) {
       `)
 
       // Stok güncelleme sorgusu
-      const updateStock = db.prepare(`
-        UPDATE materials SET stock_amount = stock_amount - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
-      `)
 
       // Fiili harcanan kayıtlarını oluştur (başlangıçta planlanan miktar)
       const insertActualConsumption = db.prepare(`
@@ -231,10 +256,14 @@ export async function POST(request: NextRequest) {
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + firePercentage / 100)
-        const totalRequired = quantityWithFire * quantity
+        const fromUnit = (item.unit || item.material_unit || '').toString()
+        const toUnit = (item.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        const totalRequired = convertedQuantity * quantity
         
         // Stoku düş (ÖNEMLİ: movement_type 'out' olduğu için stok düşmeli)
-        updateStock.run(totalRequired, item.material_id)
+        applyMaterialStockChange(db, item.material_id, -totalRequired)
         
         const movementId = randomUUID()
         insertMovement.run(

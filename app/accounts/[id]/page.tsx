@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
@@ -71,6 +71,14 @@ export default function AccountDetailPage() {
   const [editingShipmentId, setEditingShipmentId] = useState<string | null>(null)
   const [taxRate, setTaxRate] = useState<string>('')
   const [expandedShipments, setExpandedShipments] = useState<Set<string>>(new Set())
+  const [printStartDate, setPrintStartDate] = useState<string>('')
+  const [printEndDate, setPrintEndDate] = useState<string>('')
+  const [showStartPicker, setShowStartPicker] = useState(false)
+  const [showEndPicker, setShowEndPicker] = useState(false)
+  const [startPickerMonth, setStartPickerMonth] = useState(new Date().getMonth())
+  const [startPickerYear, setStartPickerYear] = useState(new Date().getFullYear())
+  const [endPickerMonth, setEndPickerMonth] = useState(new Date().getMonth())
+  const [endPickerYear, setEndPickerYear] = useState(new Date().getFullYear())
 
   useEffect(() => {
     const id = params?.id as string
@@ -121,6 +129,55 @@ export default function AccountDetailPage() {
     }
     setExpandedShipments(newExpanded)
   }
+
+  function toDateOnly(value?: string) {
+    if (!value) return ''
+    return value.split('T')[0]
+  }
+
+  function parseDateParts(value?: string) {
+    if (!value) return null
+    const [y, m, d] = value.split('-').map(Number)
+    if (!y || !m || !d) return null
+    return { y, m, d }
+  }
+
+  function formatDisplayDate(value?: string) {
+    const parts = parseDateParts(value)
+    if (!parts) return ''
+    return `${String(parts.d).padStart(2, '0')}.${String(parts.m).padStart(2, '0')}.${parts.y}`
+  }
+
+  function getDaysInMonth(year: number, month: number) {
+    return new Date(year, month + 1, 0).getDate()
+  }
+
+  function getFirstDayIndex(year: number, month: number) {
+    const day = new Date(year, month, 1).getDay()
+    return (day + 6) % 7
+  }
+
+  const monthsTr = [
+    'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+  ]
+  const weekdaysTr = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz']
+
+  function inRange(dateValue?: string) {
+    const dateOnly = toDateOnly(dateValue)
+    if (!dateOnly) return false
+    if (printStartDate && dateOnly < printStartDate) return false
+    if (printEndDate && dateOnly > printEndDate) return false
+    return true
+  }
+
+  const filteredTransactions = printStartDate || printEndDate
+    ? transactions.filter((transaction) => inRange(transaction.created_at))
+    : transactions
+
+  const filteredShipments = printStartDate || printEndDate
+    ? shipments.filter((shipment) => inRange(shipment.shipment_date))
+    : shipments
 
   function startEditTax(shipment: Shipment) {
     setEditingShipmentId(shipment.id)
@@ -195,9 +252,9 @@ export default function AccountDetailPage() {
 
   return (
     <div className="p-3 sm:p-4 md:p-6 lg:p-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto print-area">
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex items-center justify-between no-print">
           <button
             onClick={() => router.push('/accounts')}
             className="text-blue-400 hover:text-blue-300 inline-flex items-center space-x-2"
@@ -247,15 +304,26 @@ export default function AccountDetailPage() {
             )}
             <div>
               <div className="text-gray-400 mb-1">Bakiye:</div>
-              <div className={`text-lg font-bold ${
-                account.balance > 0 ? 'text-green-400' : 
-                account.balance < 0 ? 'text-red-400' : 
+              <div className={`text-lg font-bold flex items-center space-x-2 ${
+                account.balance > 0 ? 'text-green-400' :
+                account.balance < 0 ? 'text-red-400' :
                 'text-gray-400'
               }`}>
-                {account.balance.toLocaleString('tr-TR', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })} ₺
+                <span>
+                  {account.balance.toLocaleString('tr-TR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })} ₺
+                </span>
+                {account.balance !== 0 && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                    account.balance > 0
+                      ? 'bg-green-900/30 text-green-300'
+                      : 'bg-red-900/30 text-red-300'
+                  }`}>
+                    {account.balance > 0 ? 'A' : 'B'}
+                  </span>
+                )}
               </div>
             </div>
             <div>
@@ -270,6 +338,227 @@ export default function AccountDetailPage() {
           </div>
         </div>
 
+        {/* Döküman Aralığı */}
+        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6 no-print">
+          <h2 className="text-lg md:text-xl font-bold text-white mb-4">
+            Döküman Aralığı
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Başlangıç</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const selected = parseDateParts(printStartDate)
+                    if (selected) {
+                      setStartPickerMonth(selected.m - 1)
+                      setStartPickerYear(selected.y)
+                    }
+                    setShowStartPicker((prev) => !prev)
+                    setShowEndPicker(false)
+                  }}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded text-left"
+                >
+                  {formatDisplayDate(printStartDate) || 'Tarih seçin'}
+                </button>
+                {showStartPicker && (
+                  <div className="absolute z-20 mt-2 w-64 bg-gray-900 border border-gray-700 rounded-lg p-3 shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (startPickerMonth === 0) {
+                            setStartPickerMonth(11)
+                            setStartPickerYear(startPickerYear - 1)
+                          } else {
+                            setStartPickerMonth(startPickerMonth - 1)
+                          }
+                        }}
+                        className="px-2 py-1 text-gray-300 hover:text-white"
+                      >
+                        ‹
+                      </button>
+                      <div className="text-sm text-white font-semibold">
+                        {monthsTr[startPickerMonth]} {startPickerYear}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (startPickerMonth === 11) {
+                            setStartPickerMonth(0)
+                            setStartPickerYear(startPickerYear + 1)
+                          } else {
+                            setStartPickerMonth(startPickerMonth + 1)
+                          }
+                        }}
+                        className="px-2 py-1 text-gray-300 hover:text-white"
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-xs text-gray-400 mb-1">
+                      {weekdaysTr.map((day) => (
+                        <div key={day} className="text-center">{day}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-sm">
+                      {Array.from({ length: getFirstDayIndex(startPickerYear, startPickerMonth) }).map((_, idx) => (
+                        <div key={`s-empty-${idx}`} />
+                      ))}
+                      {Array.from({ length: getDaysInMonth(startPickerYear, startPickerMonth) }).map((_, idx) => {
+                        const day = idx + 1
+                        const value = `${startPickerYear}-${String(startPickerMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                        const isSelected = value === printStartDate
+                        return (
+                          <button
+                            key={`s-day-${day}`}
+                            type="button"
+                            onClick={() => {
+                              setPrintStartDate(value)
+                              setShowStartPicker(false)
+                            }}
+                            className={`px-2 py-1 rounded text-center ${
+                              isSelected ? 'bg-blue-600 text-white' : 'text-gray-200 hover:bg-gray-800'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Bitiş</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const selected = parseDateParts(printEndDate)
+                    if (selected) {
+                      setEndPickerMonth(selected.m - 1)
+                      setEndPickerYear(selected.y)
+                    }
+                    setShowEndPicker((prev) => !prev)
+                    setShowStartPicker(false)
+                  }}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded text-left"
+                >
+                  {formatDisplayDate(printEndDate) || 'Tarih seçin'}
+                </button>
+                {showEndPicker && (
+                  <div className="absolute z-20 mt-2 w-64 bg-gray-900 border border-gray-700 rounded-lg p-3 shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (endPickerMonth === 0) {
+                            setEndPickerMonth(11)
+                            setEndPickerYear(endPickerYear - 1)
+                          } else {
+                            setEndPickerMonth(endPickerMonth - 1)
+                          }
+                        }}
+                        className="px-2 py-1 text-gray-300 hover:text-white"
+                      >
+                        ‹
+                      </button>
+                      <div className="text-sm text-white font-semibold">
+                        {monthsTr[endPickerMonth]} {endPickerYear}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (endPickerMonth === 11) {
+                            setEndPickerMonth(0)
+                            setEndPickerYear(endPickerYear + 1)
+                          } else {
+                            setEndPickerMonth(endPickerMonth + 1)
+                          }
+                        }}
+                        className="px-2 py-1 text-gray-300 hover:text-white"
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-xs text-gray-400 mb-1">
+                      {weekdaysTr.map((day) => (
+                        <div key={day} className="text-center">{day}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-sm">
+                      {Array.from({ length: getFirstDayIndex(endPickerYear, endPickerMonth) }).map((_, idx) => (
+                        <div key={`e-empty-${idx}`} />
+                      ))}
+                      {Array.from({ length: getDaysInMonth(endPickerYear, endPickerMonth) }).map((_, idx) => {
+                        const day = idx + 1
+                        const value = `${endPickerYear}-${String(endPickerMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                        const isSelected = value === printEndDate
+                        return (
+                          <button
+                            key={`e-day-${day}`}
+                            type="button"
+                            onClick={() => {
+                              setPrintEndDate(value)
+                              setShowEndPicker(false)
+                            }}
+                            className={`px-2 py-1 rounded text-center ${
+                              isSelected ? 'bg-blue-600 text-white' : 'text-gray-200 hover:bg-gray-800'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  if (!printStartDate && !printEndDate) return
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                Filtrele
+              </button>
+              <button
+                onClick={() => {
+                  setPrintStartDate('')
+                  setPrintEndDate('')
+                }}
+                className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition"
+              >
+                Temizle
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {(printStartDate || printEndDate) && (
+          <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="text-sm text-gray-300">
+                Döküman Aralığı:{' '}
+                <span className="text-white font-semibold">
+                  {printStartDate || 'Başlangıç Yok'} - {printEndDate || 'Bitiş Yok'}
+                </span>
+              </div>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                Yazdır
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Cari Hesap İşlemleri */}
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6">
           <h2 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center space-x-2">
@@ -277,7 +566,7 @@ export default function AccountDetailPage() {
             <span>Cari Hesap İşlemleri</span>
           </h2>
 
-          {transactions.length === 0 ? (
+          {filteredTransactions.length === 0 ? (
             <div className="text-center py-8 text-gray-400">
               Bu cari hesaba ait işlem bulunmamaktadır.
             </div>
@@ -297,13 +586,21 @@ export default function AccountDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((transaction) => (
+                  {filteredTransactions.map((transaction) => (
                     <tr key={transaction.id} className="border-b border-gray-800 hover:bg-gray-800">
                       <td className="py-2 px-3 text-xs text-gray-300">
                         {new Date(transaction.created_at).toLocaleDateString('tr-TR')}
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300">
-                        {transaction.description || '-'}
+                        <div className="flex items-center space-x-2">
+                          <span>{transaction.description || '-'}</span>
+                          {(transaction.reference_type === 'shipment_return' ||
+                            (transaction.description || '').toLowerCase().includes('sevkiyat iptali')) && (
+                            <span className="px-2 py-0.5 rounded bg-red-900/30 text-red-400 text-[10px] font-semibold">
+                              İPTAL
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300">
                         {transaction.product_name ? (
@@ -376,7 +673,7 @@ export default function AccountDetailPage() {
             <span>Sevk Fişleri</span>
           </h2>
 
-          {shipments.length === 0 ? (
+          {filteredShipments.length === 0 ? (
             <div className="text-center py-8 text-gray-400">
               Bu müşteriye ait sevkiyat bulunmamaktadır.
             </div>
@@ -392,13 +689,14 @@ export default function AccountDetailPage() {
                     <th className="text-right py-2 px-3 text-xs text-gray-400">KDV %</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">KDV Tutarı</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Genel Toplam</th>
+                    <th className="text-center py-2 px-3 text-xs text-gray-400">Durum</th>
                     <th className="text-center py-2 px-3 text-xs text-gray-400">İşlem</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {shipments.map((shipment) => (
-                    <>
-                      <tr key={shipment.id} className="border-b border-gray-800 hover:bg-gray-800">
+                  {filteredShipments.map((shipment) => (
+                    <Fragment key={shipment.id}>
+                      <tr className="border-b border-gray-800 hover:bg-gray-800">
                         <td className="py-2 px-3 text-xs">
                           <button
                             onClick={() => toggleShipment(shipment.id)}
@@ -459,6 +757,25 @@ export default function AccountDetailPage() {
                             minimumFractionDigits: 2, 
                             maximumFractionDigits: 2 
                           }) || '0,00'} ₺
+                        </td>
+                        <td className="py-2 px-3 text-xs text-center">
+                          <span className={`px-2 py-1 rounded text-[10px] font-semibold ${
+                            shipment.status === 'cancelled'
+                              ? 'bg-red-900/30 text-red-400'
+                              : shipment.status === 'delivered' || shipment.status === 'shipped'
+                              ? 'bg-green-900/30 text-green-400'
+                              : shipment.status === 'in_transit'
+                              ? 'bg-blue-900/30 text-blue-400'
+                              : 'bg-yellow-900/30 text-yellow-300'
+                          }`}>
+                            {shipment.status === 'cancelled'
+                              ? 'İptal'
+                              : shipment.status === 'delivered' || shipment.status === 'shipped'
+                              ? 'Sevk Edildi'
+                              : shipment.status === 'in_transit'
+                              ? 'Yolda'
+                              : 'Beklemede'}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           {editingShipmentId === shipment.id ? (
@@ -534,7 +851,7 @@ export default function AccountDetailPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -542,6 +859,20 @@ export default function AccountDetailPage() {
           )}
         </div>
       </div>
+
+      <style jsx global>{`
+        @media print {
+          body {
+            background: white;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-area {
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

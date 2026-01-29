@@ -6,6 +6,7 @@ import AuthGuard from '@/components/AuthGuard'
 import { I18nProvider } from '@/lib/i18n'
 import SWRProvider from '@/components/SWRProvider'
 import ServiceWorker from '@/components/ServiceWorker'
+import GlobalBarcodeListener from '@/components/GlobalBarcodeListener'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -30,6 +31,7 @@ export default function RootLayout({
           <SWRProvider>
             <AuthGuard>
               <ServiceWorker />
+              <GlobalBarcodeListener />
               <Sidebar />
               <main className="lg:ml-64 min-h-screen pt-16 lg:pt-0">
                 <div className="p-3 sm:p-4 md:p-6 lg:p-8">

@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const setAuth = useAuthStore((state) => state.setAuth)
+  const setHydrated = useAuthStore((state) => state.setHydrated)
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -26,9 +27,14 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       })
 
-      if (data.token) {
-        setAuth(data.token, data.user)
+      const user = (data as any)?.user ?? (data as any)?.data?.user
+
+      if (!user) {
+        throw new Error('Giriş başarısız: kullanıcı bilgisi alınamadı')
       }
+
+      setAuth(user)
+      setHydrated(true)
 
       router.push('/')
     } catch (error: any) {

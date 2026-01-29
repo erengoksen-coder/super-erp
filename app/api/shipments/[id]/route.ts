@@ -91,8 +91,27 @@ export async function GET(
       }
     })
 
+    const endCustomerRows = db.prepare(`
+      SELECT DISTINCT o.customer_name
+      FROM product_serial_numbers psn
+      LEFT JOIN production_orders po ON psn.production_order_id = po.id
+      LEFT JOIN orders o ON o.production_order_id = po.id
+      WHERE psn.shipment_id = ?
+        AND o.customer_name IS NOT NULL
+        AND o.customer_name != ''
+    `).all(shipmentId) as Array<{ customer_name?: string | null }>
+
+    const endCustomerNames = endCustomerRows
+      .map((row) => (row.customer_name || '').trim())
+      .filter((name) => name.length > 0)
+
+    const endCustomerName = endCustomerNames.length > 0
+      ? Array.from(new Set(endCustomerNames)).join(', ')
+      : null
+
     return ok({
       ...shipment,
+      end_customer_name: endCustomerName,
       items: itemsWithParsedSerials,
     })
   } catch (error: any) {

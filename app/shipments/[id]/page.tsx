@@ -13,6 +13,7 @@ interface Shipment {
   customer_phone: string
   customer_email: string
   shipment_date: string
+  created_at?: string
   status: string
   total_quantity: number
   total_amount?: number
@@ -20,6 +21,7 @@ interface Shipment {
   tax_amount?: number
   final_amount?: number
   notes: string
+  end_customer_name?: string | null
   items: Array<{
     id: string
     product_name: string
@@ -52,7 +54,8 @@ export default function ShipmentDetailPage() {
       const response = await fetch(`/api/shipments/${id}`)
       if (!response.ok) throw new Error('Sevkiyat yüklenemedi')
       const data = await response.json()
-      setShipment(data)
+      const payload = (data && typeof data === 'object' && 'data' in data) ? (data as { data: Shipment }).data : data
+      setShipment(payload as Shipment)
     } catch (error) {
       console.error('Error loading shipment:', error)
       alert('Sevkiyat yüklenirken hata oluştu')
@@ -92,7 +95,8 @@ export default function ShipmentDetailPage() {
 
   function startEditStatus() {
     setEditingStatus(true)
-    setSelectedStatus(shipment?.status || 'pending')
+    const currentStatus = shipment?.status === 'delivered' ? 'shipped' : shipment?.status
+    setSelectedStatus(currentStatus || 'pending')
   }
 
   function cancelEditStatus() {
@@ -222,11 +226,41 @@ export default function ShipmentDetailPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Tarih:</span>
                   <span className="font-semibold text-gray-900">
-                    {new Date(shipment.shipment_date).toLocaleDateString('tr-TR', {
-                      day: '2-digit',
-                      month: 'long',
-                      year: 'numeric'
-                    })}
+                    {(() => {
+                      const rawDate = shipment.shipment_date || ''
+                      const hasTime = rawDate.includes('T') || rawDate.includes(':')
+                      let datePart: Date | null = null
+                      if (rawDate) {
+                        if (hasTime) {
+                          datePart = new Date(rawDate)
+                        } else {
+                          const [y, m, d] = rawDate.split('-').map(Number)
+                          if (y && m && d) {
+                            datePart = new Date(y, m - 1, d, 0, 0, 0)
+                          }
+                        }
+                      }
+                      const timeSource = hasTime
+                        ? datePart
+                        : (shipment.created_at ? new Date(shipment.created_at) : datePart)
+                      const dateLabel = datePart
+                        ? datePart.toLocaleDateString('tr-TR', {
+                            day: '2-digit',
+                            month: 'long',
+                            year: 'numeric',
+                            timeZone: 'Europe/Istanbul',
+                          })
+                        : ''
+                      const timeLabel = timeSource
+                        ? timeSource.toLocaleTimeString('tr-TR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                            timeZone: 'Europe/Istanbul',
+                          })
+                        : ''
+                      return `${dateLabel} ${timeLabel}`.trim()
+                    })()}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -242,7 +276,7 @@ export default function ShipmentDetailPage() {
                         >
                           <option value="pending" className="text-gray-900 font-semibold">Beklemede</option>
                           <option value="in_transit" className="text-blue-900 font-semibold">Yolda</option>
-                          <option value="delivered" className="text-green-900 font-semibold">Sevk Edildi</option>
+                          <option value="shipped" className="text-green-900 font-semibold">Sevk Edildi</option>
                           <option value="cancelled" className="text-red-900 font-semibold">Sevk İptal Edildi</option>
                         </select>
                         <button
@@ -282,12 +316,12 @@ export default function ShipmentDetailPage() {
                   ) : (
                     <div className="flex items-center space-x-2">
                       <span className={`font-bold text-base px-3 py-2 rounded ${
-                        shipment.status === 'delivered' ? 'bg-green-500 text-white' :
+                        shipment.status === 'delivered' || shipment.status === 'shipped' ? 'bg-green-500 text-white' :
                         shipment.status === 'in_transit' ? 'bg-blue-500 text-white' :
                         shipment.status === 'cancelled' ? 'bg-red-600 text-white' :
                         'bg-yellow-500 text-white'
                       }`}>
-                        {shipment.status === 'delivered' ? 'Sevk Edildi' :
+                        {shipment.status === 'delivered' || shipment.status === 'shipped' ? 'Sevk Edildi' :
                          shipment.status === 'in_transit' ? 'Yolda' :
                          shipment.status === 'cancelled' ? 'Sevk İptal Edildi' :
                          'Beklemede'}
@@ -313,7 +347,9 @@ export default function ShipmentDetailPage() {
               <div className="space-y-2 text-sm">
                 <div>
                   <span className="text-gray-600">Müşteri:</span>
-                  <span className="font-semibold text-gray-900 ml-2">{shipment.customer_name}</span>
+                  <span className="font-semibold text-gray-900 ml-2">
+                    {shipment.customer_name}
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-600">Kod:</span>
@@ -348,7 +384,7 @@ export default function ShipmentDetailPage() {
               <span>Sevkiyat Kalemleri</span>
             </h2>
             <div className="space-y-4">
-              {shipment.items.map((item, index) => (
+              {(shipment.items ?? []).map((item, index) => (
                 <div key={item.id} className="border border-gray-300 rounded-lg p-4 bg-gray-50">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                     <div>
@@ -386,11 +422,22 @@ export default function ShipmentDetailPage() {
                   {item.notes && (
                     <div className="mt-3 pt-3 border-t border-gray-300">
                       <div className="text-xs text-gray-600 mb-1">Notlar:</div>
-                      <div className="text-xs text-gray-900">{item.notes}</div>
+                      <div className="text-xs text-gray-900">
+                        {item.notes}
+                        {shipment.end_customer_name ? ` (Müşteri: ${shipment.end_customer_name})` : ''}
+                      </div>
                     </div>
                   )}
                 </div>
               ))}
+              {shipment.notes && (
+                <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                  <div className="text-xs text-gray-600 mb-1">Notlar:</div>
+                  <div className="text-xs text-gray-900">
+                    {shipment.notes}
+                  </div>
+                </div>
+              )}
               <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
                 <div className="text-sm font-semibold text-gray-900 text-right">
                   TOPLAM ADET: {shipment.total_quantity} adet
@@ -398,14 +445,6 @@ export default function ShipmentDetailPage() {
               </div>
             </div>
           </div>
-
-          {/* Notlar */}
-          {shipment.notes && (
-            <div className="mb-8">
-              <h3 className="text-sm font-semibold text-gray-900 mb-2">Notlar:</h3>
-              <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-200">{shipment.notes}</p>
-            </div>
-          )}
 
           {/* Alt Bilgi */}
           <div className="mt-8 pt-4 border-t-2 border-gray-300 text-center text-xs text-gray-500">
@@ -418,6 +457,10 @@ export default function ShipmentDetailPage() {
       {/* Yazdırma Stilleri */}
       <style jsx global>{`
         @media print {
+          @page {
+            size: A5;
+            margin: 10mm;
+          }
           body {
             background: white;
           }

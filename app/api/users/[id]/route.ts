@@ -3,6 +3,7 @@ import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/databa
 import { createHash } from 'crypto'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
+import { getAuthUserId } from '@/lib/auth/session'
 
 function normalizeRoleName(role: unknown): string {
   const raw = String(role || '').trim().toLowerCase()
@@ -17,8 +18,8 @@ function getRoleId(roleName: string): string {
   return `role_${roleName.replace(/[^a-z0-9_]+/g, '_')}`
 }
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 // GET: Tek kullanıcı detayı
@@ -200,7 +201,7 @@ export async function PATCH(
       tableName: 'users',
       action: 'update',
       recordId: userId,
-      userId: getActorId(request),
+      userId: await getActorId(request),
       before: {
         role: user.role,
         email: user.email,
@@ -249,7 +250,7 @@ export async function DELETE(
       tableName: 'users',
       action: 'delete',
       recordId: userId,
-      userId: getActorId(request),
+      userId: await getActorId(request),
       before: {
         username: user?.username,
         role: user?.role,

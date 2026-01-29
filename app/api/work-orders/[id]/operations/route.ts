@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { logAudit } from '@/lib/audit'
+import { getAuthUserId } from '@/lib/auth/session'
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
@@ -44,7 +45,7 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
       WHERE id = ?
     `).run(status, startedAt, completedAt, notes || null, operation.id)
 
-    const actorId = getActorId(request)
+    const actorId = await getActorId(request)
     logAudit(db, {
       tableName: 'work_order_operations',
       action: 'update',

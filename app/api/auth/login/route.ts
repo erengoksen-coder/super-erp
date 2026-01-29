@@ -5,6 +5,14 @@ import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword, isLegacySha256Hash, verifyPassword } from '@/lib/auth/password'
 import { ok, fail } from '@/lib/api/response'
+import { signAccessToken, accessTokenTtlSeconds } from '@/lib/auth/jwt'
+import {
+  createUserSession,
+  generateRefreshToken,
+  hashToken,
+  refreshTokenTtlDays,
+  setAuthCookies,
+} from '@/lib/auth/session'
 
 type UserRow = {
   id: string
@@ -90,11 +98,26 @@ export async function POST(request: NextRequest) {
       WHERE id = ?
     `).run(user.id)
 
-    // Basit token oluştur (gerçek uygulamada JWT kullanılmalı)
-    const token = randomUUID()
+    const accessToken = await signAccessToken({
+      userId: user.id,
+      role: user.role,
+      username: user.username,
+    })
+    const refreshToken = generateRefreshToken()
+    const sessionId = randomUUID()
+    const refreshTtlSeconds = refreshTokenTtlDays * 24 * 60 * 60
+    const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000).toISOString()
 
-    return ok({
-      token,
+    createUserSession(db, {
+      id: sessionId,
+      userId: user.id,
+      refreshTokenHash: hashToken(refreshToken),
+      expiresAt,
+      userAgent: request.headers.get('user-agent'),
+      ipAddress: request.headers.get('x-forwarded-for'),
+    })
+
+    const response = ok({
       user: {
         id: user.id,
         username: user.username,
@@ -104,6 +127,8 @@ export async function POST(request: NextRequest) {
         job_title: user.job_title,
       },
     })
+    setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)
+    return response
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }

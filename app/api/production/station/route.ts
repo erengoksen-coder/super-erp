@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 
 /**
  * İstasyon Geçiş API
@@ -120,33 +122,39 @@ export async function POST(request: NextRequest) {
         SELECT 
           b.material_id,
           b.quantity_required,
+          b.unit as unit,
           COALESCE(b.fire_percentage, 0) as fire_percentage,
           m.name as material_name,
           m.stock_amount,
-          m.unit
+          m.unit as material_unit,
+          m.reserved_quantity
         FROM bom b
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
-        WHERE b.product_id = ?
+        WHERE b.product_id = ? AND b.deleted_at IS NULL
       `).all(serialNumber.product_id)
 
       // Her malzeme için stok düş
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + firePercentage / 100)
-        const required = quantityWithFire * serialNumber.quantity
+        const fromUnit = (item.unit || item.material_unit || '').toString()
+        const toUnit = (item.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        const required = convertedQuantity * serialNumber.quantity
 
         // Stok kontrolü
-        if (item.stock_amount < required) {
+        const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
+        if (available < required) {
           return NextResponse.json({
-            error: `Stok yetersiz: ${item.material_name} (Gereken: ${required.toFixed(2)} ${item.unit}, Mevcut: ${item.stock_amount} ${item.unit})`,
+            error: `Stok yetersiz: ${item.material_name} (Gereken: ${required.toFixed(2)} ${item.material_unit}, Mevcut: ${item.stock_amount} ${item.material_unit})`,
             current_station: currentStation
           }, { status: 400 })
         }
 
         // Stoku düş
-        const newStock = item.stock_amount - required
-        db.prepare('UPDATE materials SET stock_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .run(newStock, item.material_id)
+        applyMaterialStockChange(db, item.material_id, -required)
 
         // Stok hareketi kaydı
         const movementId = require('crypto').randomUUID()

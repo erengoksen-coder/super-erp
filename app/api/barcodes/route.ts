@@ -25,11 +25,13 @@ export async function GET(request: NextRequest) {
         o.order_number as customer_order_number,
         o.order_date as order_date,
         o.configuration,
-        o.notes
+        o.notes,
+        s.shipment_date as shipment_date
       FROM product_serial_numbers psn
       JOIN products p ON psn.product_id = p.id
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       LEFT JOIN orders o ON po.id = o.production_order_id
+      LEFT JOIN shipments s ON psn.shipment_id = s.id
       WHERE 1=1
     `
     const params: any[] = []

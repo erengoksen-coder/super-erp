@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
+import { createJournalEntry } from '@/lib/utils/accounting'
 
 // POST: Hammadde stok girişi
 export async function POST(request: NextRequest) {
@@ -54,17 +56,10 @@ export async function POST(request: NextRequest) {
 
     // Mevcut stok miktarını al
     const currentStock = material.stock_amount || 0
-    
-    // Yeni stok miktarını hesapla
-    const newStock = currentStock + normalizedQuantity
 
     db.transaction(() => {
-      // Stoku güncelle
-      db.prepare(`
-        UPDATE materials
-        SET stock_amount = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(newStock, material_id)
+      // Stoku güncelle (optimistic)
+      applyMaterialStockChange(db, material_id, normalizedQuantity)
 
       db.prepare(`
         INSERT INTO material_stocks (id, material_id, warehouse_id, quantity)
@@ -98,6 +93,15 @@ export async function POST(request: NextRequest) {
         targetWarehouseId,
         targetWarehouseId
       )
+
+      const priceId = randomUUID()
+      const unitCost = Number(material.purchase_price || 0)
+      if (unitCost > 0) {
+        db.prepare(`
+          INSERT INTO material_prices (id, material_id, price, price_type, source_type, source_id)
+          VALUES (?, ?, ?, 'purchase', 'stock_in', ?)
+        `).run(priceId, material_id, unitCost, movementId)
+      }
 
       // Bu malzeme için "ordered" (sipariş edildi) status'undaki satın alma taleplerini güncelle
       // Stok girişi yapılan miktarı received_quantity'ye ekle
@@ -138,6 +142,40 @@ export async function POST(request: NextRequest) {
       }
     })()
 
+    let accountingEntryId: string | null = null
+    let accountingWarning: string | null = null
+    const unitCost = Number(material.purchase_price || 0)
+    const entryAmount = unitCost * normalizedQuantity
+
+    if (entryAmount > 0) {
+      try {
+        const entryDate = new Date().toISOString().split('T')[0]
+        const entryDescription = `Stok girişi: ${material.code || material.name}`
+        accountingEntryId = await createJournalEntry({
+          entry_date: entryDate,
+          description: entryDescription,
+          reference_type: 'stock_in',
+          reference_id: movementId,
+          lines: [
+            {
+              account_code: '150',
+              debit: entryAmount,
+              credit: 0,
+              description: `${entryDescription} (Hammadde)`
+            },
+            {
+              account_code: '320',
+              debit: 0,
+              credit: entryAmount,
+              description: `${entryDescription} (Satıcılar)`
+            }
+          ]
+        })
+      } catch (entryError: any) {
+        accountingWarning = `Muhasebe kaydı oluşturulamadı: ${entryError.message}`
+      }
+    }
+
     // Güncel malzeme bilgisini al
     const updatedMaterial = db.prepare('SELECT * FROM materials WHERE id = ? AND deleted_at IS NULL').get(material_id)
 
@@ -145,7 +183,9 @@ export async function POST(request: NextRequest) {
       success: true,
       material: updatedMaterial,
       previous_stock: currentStock,
-      new_stock: newStock,
+      new_stock: currentStock + normalizedQuantity,
+      accounting_entry_id: accountingEntryId,
+      accounting_warning: accountingWarning,
       message: 'Stok girişi başarıyla yapıldı',
     })
   } catch (error: any) {

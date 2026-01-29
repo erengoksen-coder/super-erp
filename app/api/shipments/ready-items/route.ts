@@ -43,8 +43,36 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const customerId = searchParams.get('customer_id')
+    const barcode = searchParams.get('barcode')
 
     const db = getDatabase()
+
+    if (barcode) {
+      const item = db.prepare(`
+        SELECT 
+          psn.*,
+          p.name as product_name,
+          p.sku as product_sku,
+          po.order_number as production_order_number,
+          a.name as customer_name,
+          a.code as customer_code
+        FROM product_serial_numbers psn
+        JOIN products p ON psn.product_id = p.id
+        LEFT JOIN production_orders po ON psn.production_order_id = po.id
+        LEFT JOIN accounts a ON psn.customer_id = a.id
+        WHERE (psn.barcode = ? OR psn.serial_number = ?)
+          AND psn.ready_for_shipment = 1
+          AND (psn.status = 'in_stock' OR psn.status = 'available' OR psn.status IS NULL OR psn.status = '')
+          AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+        LIMIT 1
+      `).get(barcode, barcode) as ReadyItemRow | undefined
+
+      if (!item) {
+        return fail('Sevke hazır ürün bulunamadı', { status: 404 })
+      }
+
+      return ok({ item })
+    }
 
     let readyItems: ReadyItemRow[]
     

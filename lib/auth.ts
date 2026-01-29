@@ -4,10 +4,7 @@
  */
 
 import { useAuthStore } from '@/lib/store/authStore'
-
-export function getAuthToken(): string | null {
-  return useAuthStore.getState().token
-}
+import { fetchApi } from '@/lib/api/client'
 
 export function getUserId(): string | null {
   return useAuthStore.getState().user?.id ?? null
@@ -18,7 +15,7 @@ export function getUserRole(): string | null {
 }
 
 export function isAuthenticated(): boolean {
-  return !!useAuthStore.getState().token
+  return !!useAuthStore.getState().user
 }
 
 export function isAdmin(): boolean {
@@ -42,8 +39,10 @@ export function getCurrentUser() {
 }
 
 export function logout() {
-  useAuthStore.getState().clearAuth()
+  const clearAuth = useAuthStore.getState().clearAuth
+  clearAuth()
   if (typeof window !== 'undefined') {
+    fetchApi('/api/auth/logout', { method: 'POST' }).catch(() => {})
     window.location.href = '/auth/login'
   }
 }

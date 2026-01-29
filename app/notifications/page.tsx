@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, BellOff, Send } from 'lucide-react'
+import { Bell, BellOff, Send, AlertTriangle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { fetchApi } from '@/lib/api/client'
@@ -23,6 +23,8 @@ export default function NotificationsPage() {
   const [permission, setPermission] = useState<NotificationPermission>('default')
   const [subscribed, setSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [alerts, setAlerts] = useState<any[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(false)
 
   useEffect(() => {
     const isSupported = typeof window !== 'undefined' &&
@@ -54,6 +56,22 @@ export default function NotificationsPage() {
       checkSubscription()
     }
   }, [supported])
+
+  async function loadAlerts() {
+    try {
+      setAlertsLoading(true)
+      const data = await fetchApi<any[]>('/api/stock-alerts?status=open')
+      setAlerts(data)
+    } catch (error: any) {
+      // ignore
+    } finally {
+      setAlertsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAlerts()
+  }, [])
 
   async function subscribe() {
     if (!supported) return
@@ -118,6 +136,19 @@ export default function NotificationsPage() {
     }
   }
 
+  async function resolveAlert(id: string) {
+    try {
+      await fetchApi('/api/stock-alerts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      loadAlerts()
+    } catch (error: any) {
+      alert(error.message || 'Uyarı kapatılamadı')
+    }
+  }
+
   return (
     <div className="min-h-screen">
       <div className="flex items-center space-x-4 mb-6">
@@ -163,6 +194,44 @@ export default function NotificationsPage() {
         <p className="text-xs text-gray-500">
           Not: Bildirimler için VAPID anahtarlarının ortam değişkenlerinde tanımlı olması gerekir.
         </p>
+      </div>
+
+      <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+            <h2 className="text-lg font-semibold text-white">Kritik Stok Uyarıları</h2>
+          </div>
+          <button
+            onClick={loadAlerts}
+            className="px-3 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 transition text-sm"
+          >
+            Yenile
+          </button>
+        </div>
+
+        {alertsLoading ? (
+          <div className="text-center py-6 text-gray-400">Yükleniyor...</div>
+        ) : alerts.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">Açık uyarı yok</div>
+        ) : (
+          <div className="space-y-2">
+            {alerts.map((alert) => (
+              <div key={alert.id} className="flex items-center justify-between bg-gray-800 rounded px-4 py-3">
+                <div className="text-sm text-white">
+                  <span className="font-semibold">{alert.material_name}</span>
+                  {alert.material_code ? ` (${alert.material_code})` : ''} - {alert.message}
+                </div>
+                <button
+                  onClick={() => resolveAlert(alert.id)}
+                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition text-xs"
+                >
+                  Kapat
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

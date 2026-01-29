@@ -13,10 +13,9 @@ export type AuthUser = {
 }
 
 type AuthState = {
-  token: string | null
   user: AuthUser | null
   hydrated: boolean
-  setAuth: (token: string, user: AuthUser) => void
+  setAuth: (user: AuthUser | null) => void
   clearAuth: () => void
   setHydrated: (hydrated: boolean) => void
 }
@@ -24,11 +23,10 @@ type AuthState = {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      token: null,
       user: null,
       hydrated: false,
-      setAuth: (token, user) => set({ token, user }),
-      clearAuth: () => set({ token: null, user: null }),
+      setAuth: (user) => set({ user }),
+      clearAuth: () => set({ user: null }),
       setHydrated: (hydrated) => set({ hydrated }),
     }),
     {

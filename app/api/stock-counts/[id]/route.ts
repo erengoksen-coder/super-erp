@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
 
 type StockCountItemUpdate = {
@@ -76,11 +77,7 @@ export async function PATCH(
             WHERE material_id = ? AND warehouse_id = ?
           `).run(item.counted_qty, item.material_id, count.warehouse_id)
 
-          db.prepare(`
-            UPDATE materials
-            SET stock_amount = stock_amount + ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `).run(diff, item.material_id)
+          applyMaterialStockChange(db, item.material_id, diff)
 
           if (diff !== 0) {
             db.prepare(`

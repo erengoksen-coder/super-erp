@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 
 type MaterialRow = {
   id: string
@@ -57,22 +58,8 @@ export async function POST(request: NextRequest) {
       normalizedQuantity = quantity * factor
     }
 
-    // Yeni stok miktarını hesapla
-    const newStock = material.stock_amount + normalizedQuantity
-
-    if (newStock < 0) {
-      return NextResponse.json(
-        { error: 'Stok miktarı negatif olamaz' },
-        { status: 400 }
-      )
-    }
-
-    // Stoku güncelle
-    db.prepare(`
-      UPDATE materials
-      SET stock_amount = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(newStock, material_id)
+    // Stoku güncelle (optimistic)
+    applyMaterialStockChange(db, material_id, normalizedQuantity)
 
     db.prepare(`
       INSERT INTO material_stocks (id, material_id, warehouse_id, quantity)

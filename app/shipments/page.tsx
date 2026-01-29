@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
@@ -43,6 +43,7 @@ interface ReadyItem {
 
 export default function ShipmentsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [shipments, setShipments] = useState<Shipment[]>([])
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([])
   const [readyProducts, setReadyProducts] = useState<any[]>([])
@@ -59,6 +60,29 @@ export default function ShipmentsPage() {
   useEffect(() => {
     loadCustomers()
   }, [])
+
+  useEffect(() => {
+    const mode = searchParams?.get('mode')
+    const barcode = searchParams?.get('barcode')
+    if (mode !== 'ready' || !barcode) return
+
+    async function preloadReady() {
+      try {
+        setFilterStatus('ready')
+        const response = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(barcode)}`)
+        if (!response.ok) return
+        const payload = await response.json()
+        const item = payload?.data?.item || payload?.item
+        if (item?.customer_id) {
+          setSelectedReadyCustomerId(item.customer_id)
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    preloadReady()
+  }, [searchParams])
 
   const shipmentsKey = useMemo(() => {
     if (filterStatus === 'ready') return null
@@ -544,7 +568,7 @@ export default function ShipmentsPage() {
                 >
                   <span>← Geri</span>
                 </button>
-                {loading ? (
+                {readyProductsLoading ? (
                   <div className="text-center py-12">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                     <p className="mt-2 text-gray-400">Yükleniyor...</p>

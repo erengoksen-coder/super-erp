@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
 
 type BomRow = {
   material_id: string
   quantity_required: number
   fire_percentage: number | null
+  unit?: string | null
   material_name: string
   material_code: string | null
   material_unit: string
   material_unit_price: number | null
   supplier_name: string | null
   stock_amount: number | null
+  reserved_quantity?: number | null
 }
 
 type MrpItem = {
@@ -50,17 +53,20 @@ function calculateMrp(db: ReturnType<typeof getDatabase>, productId: string, qua
     SELECT 
       b.material_id,
       b.quantity_required,
+      b.unit as unit,
       b.fire_percentage,
       m.name as material_name,
       m.code as material_code,
       m.unit as material_unit,
       m.unit_price as material_unit_price,
       m.stock_amount as stock_amount,
+      m.reserved_quantity as reserved_quantity,
       a.name as supplier_name
     FROM bom b
+    JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
     JOIN materials m ON b.material_id = m.id
     LEFT JOIN accounts a ON m.supplier_id = a.id
-    WHERE b.product_id = ? AND m.deleted_at IS NULL
+    WHERE b.product_id = ? AND b.deleted_at IS NULL AND m.deleted_at IS NULL
   `).all(productId) as BomRow[]
 
   if (!bomRows.length) {
@@ -70,7 +76,11 @@ function calculateMrp(db: ReturnType<typeof getDatabase>, productId: string, qua
   const itemsMap = new Map<string, MrpItem>()
   for (const row of bomRows) {
     const fireFactor = 1 + (toNumber(row.fire_percentage, 0) / 100)
-    const required = toNumber(row.quantity_required, 0) * quantity * fireFactor
+    const fromUnit = (row.unit || row.material_unit || '').toString()
+    const toUnit = (row.material_unit || '').toString()
+    const factor = resolveUnitFactor(db, row.material_id || null, fromUnit, toUnit)
+    const baseRequired = toNumber(row.quantity_required, 0) * quantity * fireFactor
+    const required = factor ? baseRequired * factor : baseRequired
     const existing = itemsMap.get(row.material_id)
     if (existing) {
       existing.required_quantity += required
@@ -101,6 +111,10 @@ function calculateMrp(db: ReturnType<typeof getDatabase>, productId: string, qua
     } else {
       const fallback = bomRows.find((row) => row.material_id === item.material_id)?.stock_amount
       item.available_quantity = toNumber(fallback, 0)
+    }
+    const reservedFallback = bomRows.find((row) => row.material_id === item.material_id)?.reserved_quantity
+    if (reservedFallback && reservedFallback > 0) {
+      item.available_quantity = Math.max(item.available_quantity - reservedFallback, 0)
     }
     item.shortage = Math.max(item.required_quantity - item.available_quantity, 0)
   }

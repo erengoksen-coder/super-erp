@@ -19,6 +19,8 @@ interface Material {
   name: string
   unit: string
   stock_amount: number
+  total_in?: number
+  total_out?: number
   min_stock_level: number
   category?: string
 }
@@ -29,6 +31,8 @@ export default function MaterialsInventoryPage() {
   const [loading, setLoading] = useState(true)
   const [showStockIn, setShowStockIn] = useState(false)
   const [showStockOut, setShowStockOut] = useState(false)
+  const [activeTab, setActiveTab] = useState<'stockIn' | 'stockOut' | 'list'>('stockIn')
+  const [showList, setShowList] = useState(false)
   const [selectedMaterial, setSelectedMaterial] = useState<string>('')
   const [stockInQuantity, setStockInQuantity] = useState<number>(0)
   const [stockInInvoiceNumber, setStockInInvoiceNumber] = useState<string>('')
@@ -416,20 +420,32 @@ export default function MaterialsInventoryPage() {
           </button>
           <button
             onClick={() => {
-              setShowStockIn(!showStockIn)
+              setActiveTab('stockIn')
+              setShowStockIn(true)
               setShowStockOut(false)
+              setShowList(false)
             }}
-            className="bg-green-600 text-white px-3 md:px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation"
+            className={`px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation ${
+              activeTab === 'stockIn'
+                ? 'bg-green-600 text-white'
+                : 'bg-green-700/30 text-green-200 hover:bg-green-700/50'
+            }`}
           >
             <ArrowDown size={20} />
             <span>Stok Girişi</span>
           </button>
           <button
             onClick={() => {
-              setShowStockOut(!showStockOut)
+              setActiveTab('stockOut')
+              setShowStockOut(true)
               setShowStockIn(false)
+              setShowList(false)
             }}
-            className="bg-red-600 text-white px-3 md:px-4 py-2 rounded-lg hover:bg-red-700 transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation"
+            className={`px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation ${
+              activeTab === 'stockOut'
+                ? 'bg-red-600 text-white'
+                : 'bg-red-700/30 text-red-200 hover:bg-red-700/50'
+            }`}
           >
             <ArrowUp size={20} />
             <span>Stok Çıkışı</span>
@@ -463,7 +479,7 @@ export default function MaterialsInventoryPage() {
       </div>
 
       {/* Stok Girişi Formu */}
-      {showStockIn && (
+      {showStockIn && activeTab === 'stockIn' && (
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-6">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center space-x-2">
             <ArrowDown className="w-5 h-5" />
@@ -553,7 +569,7 @@ export default function MaterialsInventoryPage() {
       )}
 
       {/* Stok Çıkışı Formu */}
-      {showStockOut && (
+      {showStockOut && activeTab === 'stockOut' && (
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-4 md:mb-6">
           <h2 className="text-lg md:text-xl font-semibold text-white mb-4 flex items-center space-x-2">
             <ArrowUp className="w-5 h-5" />
@@ -639,6 +655,8 @@ export default function MaterialsInventoryPage() {
                   onClick={() => {
                     setQuickActionType('in')
                     setSelectedMaterial(quickActionMaterial.id)
+                    setActiveTab('stockIn')
+                    setShowList(false)
                     setShowStockIn(true)
                     setShowStockOut(false)
                     setQuickActionMaterial(null)
@@ -656,6 +674,8 @@ export default function MaterialsInventoryPage() {
                   onClick={() => {
                     setQuickActionType('out')
                     setSelectedMaterial(quickActionMaterial.id)
+                    setActiveTab('stockOut')
+                    setShowList(false)
                     setShowStockOut(true)
                     setShowStockIn(false)
                     setQuickActionMaterial(null)
@@ -685,57 +705,66 @@ export default function MaterialsInventoryPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          {categoryTabs.map((category) => (
+            <button
+              key={category}
+              onClick={() => {
+                setSelectedCategory(category)
+                setShowList(true)
+                setActiveTab('list')
+                setShowStockIn(false)
+                setShowStockOut(false)
+              }}
+              className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                selectedCategory === category
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+              type="button"
+            >
+              {category}
+            </button>
+          ))}
         </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="flex flex-wrap gap-2">
-            {categoryTabs.map((category) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                  selectedCategory === category
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                }`}
-                type="button"
-              >
-                {category}
-              </button>
-            ))}
-          </div>
 
-          <div className="flex justify-end">
-            <div className="relative w-full md:w-80">
-              <input
-                type="text"
-                value={categorySearch}
-                onChange={(e) => setCategorySearch(e.target.value)}
-                placeholder="Bu sekmede ara..."
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+        {showList && activeTab === 'list' && (
+          <>
+            <div className="flex justify-end">
+              <div className="relative w-full md:w-80">
+                <input
+                  type="text"
+                  value={categorySearch}
+                  onChange={(e) => setCategorySearch(e.target.value)}
+                  placeholder="Bu sekmede ara..."
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
-          </div>
 
-          {(selectedCategory === 'Tümü'
-            ? Object.entries(materialsByCategory)
-            : Object.entries(materialsByCategory).filter(([category]) => category === selectedCategory)
-          ).map(([category, categoryMaterials]) => {
-            const searchLower = categorySearch.trim().toLowerCase()
-            const filteredCategoryMaterials = searchLower
-              ? categoryMaterials.filter((material) => {
-                  const nameMatch = material.name.toLowerCase().includes(searchLower)
-                  const codeMatch = material.code?.toLowerCase().includes(searchLower) ?? false
-                  const unitMatch = material.unit.toLowerCase().includes(searchLower)
-                  return nameMatch || codeMatch || unitMatch
-                })
-              : categoryMaterials
-            return (
-            <div key={category} className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-gray-400">Yükleniyor...</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {(selectedCategory === 'Tümü'
+                  ? Object.entries(materialsByCategory)
+                  : Object.entries(materialsByCategory).filter(([category]) => category === selectedCategory)
+                ).map(([category, categoryMaterials]) => {
+                  const searchLower = categorySearch.trim().toLowerCase()
+                  const filteredCategoryMaterials = searchLower
+                    ? categoryMaterials.filter((material) => {
+                        const nameMatch = material.name.toLowerCase().includes(searchLower)
+                        const codeMatch = material.code?.toLowerCase().includes(searchLower) ?? false
+                        const unitMatch = material.unit.toLowerCase().includes(searchLower)
+                        return nameMatch || codeMatch || unitMatch
+                      })
+                    : categoryMaterials
+                  return (
+                    <div key={category} className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
               <div className="bg-gray-800 px-6 py-3 border-b border-gray-700">
                 <h2 className="text-lg font-semibold text-white capitalize flex items-center space-x-2">
                   <Package className="w-5 h-5" />
@@ -753,6 +782,8 @@ export default function MaterialsInventoryPage() {
                         <TableHead className="h-8">Kod</TableHead>
                         <TableHead className="h-8">Hammadde Adı</TableHead>
                         <TableHead className="h-8">Birim</TableHead>
+                        <TableHead className="h-8">Giriş</TableHead>
+                        <TableHead className="h-8">Çıkış</TableHead>
                         <TableHead className="h-8">Mevcut Stok</TableHead>
                         <TableHead className="h-8">Min. Stok</TableHead>
                         <TableHead className="h-8">Durum</TableHead>
@@ -787,6 +818,18 @@ export default function MaterialsInventoryPage() {
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
                               {material.unit}
+                            </TableCell>
+                            <TableCell className="text-gray-400 text-xs">
+                              {(material.total_in || 0).toLocaleString('tr-TR', {
+                                minimumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                                maximumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                              })}
+                            </TableCell>
+                            <TableCell className="text-gray-400 text-xs">
+                              {(material.total_out || 0).toLocaleString('tr-TR', {
+                                minimumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                                maximumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                              })}
                             </TableCell>
                             <TableCell className={`font-semibold text-xs ${
                               lowStock ? 'text-red-400' : 'text-white'
@@ -925,10 +968,14 @@ export default function MaterialsInventoryPage() {
                   </Table>
                 </div>
               </div>
-            </div>
-          )})}
-        </div>
-      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Hareket Geçmişi Modal */}
       {selectedMaterialForHistory && (

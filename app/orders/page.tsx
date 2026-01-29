@@ -67,7 +67,13 @@ export default function OrdersPage() {
     notes: '' // AÇIKLAMA
   })
 
-  const { data: ordersData, isLoading, mutate } = useApi<Order[]>('/api/orders')
+  const ordersKey = useMemo(() => {
+    if (filterStatus === 'all') return '/api/orders'
+    if (filterStatus === 'shipped') return '/api/orders?status=completed'
+    return `/api/orders?status=${encodeURIComponent(filterStatus)}`
+  }, [filterStatus])
+
+  const { data: ordersData, isLoading, mutate } = useApi<Order[]>(ordersKey)
 
   useEffect(() => {
     loadAccounts()
@@ -346,21 +352,6 @@ export default function OrdersPage() {
   const completedCount = orders.filter(o => o.status === 'completed').length
 
   const filteredOrders = orders.filter(order => {
-    // Status filtresi
-    if (filterStatus !== 'all') {
-      if (filterStatus === 'shipped') {
-        // Sevk edilenler: completed status'ü olanlar
-        if (order.status !== 'completed') {
-          return false
-        }
-      } else {
-        if (order.status !== filterStatus) {
-          return false
-        }
-      }
-    }
-    
-    // Arama filtresi
     if (searchTerm) {
       const search = searchTerm.toLowerCase()
       return (

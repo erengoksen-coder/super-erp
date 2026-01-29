@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
@@ -51,6 +51,12 @@ export default function PaymentsPage() {
     type: 'receipt',
     notes: ''
   })
+
+  useEffect(() => {
+    if (form.payment_date) return
+    const today = new Date().toISOString().split('T')[0]
+    setForm((prev) => ({ ...prev, payment_date: today }))
+  }, [form.payment_date])
 
   const accounts = useMemo(() => accountsData ?? [], [accountsData])
   const invoices = useMemo(() => invoicesData ?? [], [invoicesData])

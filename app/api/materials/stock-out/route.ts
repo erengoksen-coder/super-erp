@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 
 // POST: Hammadde stok çıkışı
 export async function POST(request: NextRequest) {
@@ -46,9 +47,6 @@ export async function POST(request: NextRequest) {
 
     // Mevcut stok miktarını al
     const currentStock = material.stock_amount || 0
-    
-    // Yeni stok miktarını hesapla
-    const newStock = currentStock - normalizedQuantity
 
     // Negatif stoka izin ver (kullanıcı uyarısı için)
     // if (newStock < 0) {
@@ -59,12 +57,8 @@ export async function POST(request: NextRequest) {
     // }
 
     db.transaction(() => {
-      // Stoku güncelle
-      db.prepare(`
-        UPDATE materials
-        SET stock_amount = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(newStock, material_id)
+      // Stoku güncelle (optimistic)
+      applyMaterialStockChange(db, material_id, -normalizedQuantity, 0, { allowNegative: true })
 
       db.prepare(`
         INSERT INTO material_stocks (id, material_id, warehouse_id, quantity)
@@ -102,7 +96,7 @@ export async function POST(request: NextRequest) {
       success: true,
       material: updatedMaterial,
       previous_stock: currentStock,
-      new_stock: newStock,
+      new_stock: currentStock - normalizedQuantity,
       message: 'Stok çıkışı başarıyla yapıldı',
     })
   } catch (error: any) {

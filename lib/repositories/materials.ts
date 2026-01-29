@@ -7,6 +7,8 @@ export type MaterialRow = {
   category: string | null
   unit: string
   stock_amount: number
+  total_in?: number
+  total_out?: number
   min_stock_level: number
   unit_price: number
 }
@@ -25,7 +27,17 @@ export type MaterialInsert = {
 export const materialsRepo = {
   getAll(): MaterialRow[] {
     const db = getDatabase()
-    return db.prepare('SELECT * FROM materials WHERE deleted_at IS NULL ORDER BY name').all() as MaterialRow[]
+    return db.prepare(`
+      SELECT 
+        m.*,
+        COALESCE(SUM(CASE WHEN sm.movement_type = 'in' THEN sm.quantity ELSE 0 END), 0) as total_in,
+        COALESCE(SUM(CASE WHEN sm.movement_type = 'out' THEN sm.quantity ELSE 0 END), 0) as total_out
+      FROM materials m
+      LEFT JOIN stock_movements sm ON sm.material_id = m.id AND sm.material_id IS NOT NULL
+      WHERE m.deleted_at IS NULL
+      GROUP BY m.id
+      ORDER BY m.name
+    `).all() as MaterialRow[]
   },
 
   getById(id: string): MaterialRow | undefined {

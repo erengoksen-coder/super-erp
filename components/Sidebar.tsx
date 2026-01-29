@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { 
   LayoutDashboard, 
   Package, 
@@ -10,8 +10,6 @@ import {
   Menu,
   X,
   Barcode,
-  QrCode,
-  Smartphone,
   Calendar,
   ShoppingCart,
   Truck,
@@ -20,11 +18,14 @@ import {
   BarChart3,
   Bell,
   Wallet,
-  Languages
+  BookOpen,
+  Languages,
+  ArrowLeftRight
 } from 'lucide-react'
 import { useState } from 'react'
 import { LogoWithBackground } from './Logo'
 import { useAuthStore } from '@/lib/store/authStore'
+import { logout } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
 
 const menuItems = [
@@ -41,6 +42,16 @@ const menuItems = [
   {
     name: 'Hammadde Depo',
     href: '/inventory/materials',
+    icon: Package,
+  },
+  {
+    name: 'Hammadde Fiyat Geçmişi',
+    href: '/inventory/materials/price-history',
+    icon: Package,
+  },
+  {
+    name: 'Hammadde Rezervasyon',
+    href: '/inventory/materials/reservations',
     icon: Package,
   },
   {
@@ -64,6 +75,26 @@ const menuItems = [
     icon: Factory,
   },
   {
+    name: 'Operasyonlar',
+    href: '/production/operations',
+    icon: Factory,
+  },
+  {
+    name: 'İstasyonlar',
+    href: '/production/work-centers',
+    icon: Package,
+  },
+  {
+    name: 'Personel',
+    href: '/production/personnel',
+    icon: Users,
+  },
+  {
+    name: 'Üretim Operasyonları',
+    href: '/production/order-operations',
+    icon: FileSpreadsheet,
+  },
+  {
     name: 'MRP (Malzeme Planlama)',
     href: '/production/mrp',
     icon: Factory,
@@ -77,6 +108,16 @@ const menuItems = [
     name: 'Raporlar',
     href: '/reports',
     icon: BarChart3,
+  },
+  {
+    name: 'Üretim Maliyet Raporu',
+    href: '/reports/costs',
+    icon: BarChart3,
+  },
+  {
+    name: 'Finans',
+    href: '/finance',
+    icon: BookOpen,
   },
   {
     name: 'Fire Analizi',
@@ -134,6 +175,11 @@ const menuItems = [
         icon: Package,
       },
       {
+        name: 'Birim Çevrimleri',
+        href: '/units/conversions',
+        icon: ArrowLeftRight,
+      },
+      {
         name: 'Kullanıcı Yönetimi',
         href: '/users',
         icon: Shield,
@@ -143,11 +189,9 @@ const menuItems = [
 export default function Sidebar() {
   const { t, language, setLanguage } = useI18n()
   const pathname = usePathname()
-  const router = useRouter()
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const user = useAuthStore((state) => state.user)
-  const isAuthenticated = useAuthStore((state) => !!state.token)
-  const clearAuth = useAuthStore((state) => state.clearAuth)
+  const isAuthenticated = useAuthStore((state) => !!state.user)
   const userRole = user?.role ?? null
   const userName = user?.full_name || user?.username || null
 
@@ -261,8 +305,7 @@ export default function Sidebar() {
             </div>
             <button
               onClick={() => {
-                clearAuth()
-                router.push('/auth/login')
+                logout()
               }}
               className="w-full text-xs text-gray-500 hover:text-lime-400 text-center transition-colors"
             >

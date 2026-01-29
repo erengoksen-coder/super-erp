@@ -24,7 +24,10 @@ export async function fetchApi<T>(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await fetch(input, {
+    credentials: 'include',
+    ...init,
+  })
   let payload: unknown = null
 
   try {
@@ -45,7 +48,11 @@ export async function fetchApi<T>(
 
   if (isApiEnvelope<T>(payload)) {
     if (payload.success) {
-      return payload.data
+      if ('data' in payload && payload.data !== undefined) {
+        return payload.data
+      }
+      // Fallback for legacy responses that set success=true but omit data.
+      return payload as unknown as T
     }
     throw new Error(payload.error)
   }

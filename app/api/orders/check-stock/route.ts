@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
 
 // GET: Seçilen siparişlerin stok kontrolünü yap
 export async function GET(request: NextRequest) {
@@ -85,13 +86,16 @@ export async function GET(request: NextRequest) {
         SELECT 
           b.material_id,
           b.quantity_required,
+          b.unit as unit,
           COALESCE(b.fire_percentage, 0) as fire_percentage,
           m.name as material_name,
           m.stock_amount,
-          m.unit
+          m.reserved_quantity,
+          m.unit as material_unit
         FROM bom b
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
-        WHERE b.product_id = ?
+        WHERE b.product_id = ? AND b.deleted_at IS NULL
       `).all(productId) as any[]
       
       if (!bom || bom.length === 0) {
@@ -113,8 +117,12 @@ export async function GET(request: NextRequest) {
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + (firePercentage / 100))
-        const required = quantityWithFire * order.quantity
-        const available = item.stock_amount || 0
+        const fromUnit = (item.unit || item.material_unit || '').toString()
+        const toUnit = (item.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        const required = convertedQuantity * order.quantity
+        const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
         
         if (available < required) {
           const shortage = required - available
@@ -124,7 +132,7 @@ export async function GET(request: NextRequest) {
             required: required,
             available: available,
             shortage: shortage,
-            unit: item.unit
+            unit: item.material_unit
           })
           canProduce = false
         }

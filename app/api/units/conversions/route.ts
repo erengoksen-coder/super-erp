@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     let query = `
       SELECT *
       FROM unit_conversions
-      WHERE 1=1
+      WHERE deleted_at IS NULL
     `
     const params: Array<string | null> = []
 
@@ -87,7 +87,52 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'id gerekli' }, { status: 400 })
     }
     const db = getDatabase()
-    db.prepare('DELETE FROM unit_conversions WHERE id = ?').run(id)
+    db.prepare(`
+      UPDATE unit_conversions
+      SET deleted_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id)
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+// PATCH: Birim dönüşümü güncelle
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json() as ConversionInput & { id?: string }
+    const { id, material_id, from_unit, to_unit, factor } = body
+
+    if (!id) {
+      return NextResponse.json({ error: 'id gerekli' }, { status: 400 })
+    }
+
+    if (!from_unit || !to_unit || !factor || factor <= 0) {
+      return NextResponse.json(
+        { error: 'from_unit, to_unit ve factor (pozitif) gerekli' },
+        { status: 400 }
+      )
+    }
+
+    const db = getDatabase()
+    db.prepare(`
+      UPDATE unit_conversions
+      SET material_id = ?,
+          from_unit = ?,
+          to_unit = ?,
+          factor = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NULL
+    `).run(
+      material_id || null,
+      from_unit.trim().toLowerCase(),
+      to_unit.trim().toLowerCase(),
+      factor,
+      id
+    )
+
     return NextResponse.json({ success: true })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

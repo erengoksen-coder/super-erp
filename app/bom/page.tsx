@@ -35,6 +35,7 @@ interface BOMItem {
   material_unit_price: number
   quantity: number
   fire_percentage: number
+  unit?: string | null
 }
 
 interface GroupedBOM {
@@ -44,6 +45,14 @@ interface GroupedBOM {
   items: BOMItem[]
 }
 
+interface BomVersion {
+  id: string
+  version_no: number
+  effective_date: string
+  revision_reason?: string | null
+  is_active: number
+}
+
 export default function BOMPage() {
   const [bomGroups, setBomGroups] = useState<GroupedBOM[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -51,9 +60,17 @@ export default function BOMPage() {
   const [loading, setLoading] = useState(true)
   const [editingItem, setEditingItem] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<string>('')
+  const [bomVersions, setBomVersions] = useState<BomVersion[]>([])
+  const [selectedVersionId, setSelectedVersionId] = useState<string>('')
+  const [showVersionModal, setShowVersionModal] = useState(false)
+  const [pendingVersionProduct, setPendingVersionProduct] = useState<string | null>(null)
+  const [pendingCopyFrom, setPendingCopyFrom] = useState<string | null>(null)
+  const [versionReason, setVersionReason] = useState('Malzeme güncellemesi')
+  const [versionDate, setVersionDate] = useState(new Date().toISOString().split('T')[0])
   const [selectedMaterial, setSelectedMaterial] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
   const [firePercentage, setFirePercentage] = useState<string>('0')
+  const [selectedUnit, setSelectedUnit] = useState<string>('')
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<string | null>(null)
   const [materialList, setMaterialList] = useState<Array<{
@@ -61,7 +78,8 @@ export default function BOMPage() {
     quantity: string
     fire_percentage: string
     unit_price: string
-  }>>([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+    unit: string
+  }>>([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
   
   const [productName, setProductName] = useState<string>('')
   const [unitPrice, setUnitPrice] = useState<string>('0')
@@ -69,6 +87,15 @@ export default function BOMPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    if (selectedProduct) {
+      loadVersions(selectedProduct)
+    } else {
+      setBomVersions([])
+      setSelectedVersionId('')
+    }
+  }, [selectedProduct])
 
   async function loadData() {
     setLoading(true)
@@ -88,8 +115,78 @@ export default function BOMPage() {
     }
   }
 
+  async function loadVersions(productId: string) {
+    try {
+      const versions = await fetchApi(`/api/bom/versions?product_id=${productId}`)
+      setBomVersions(versions)
+      const active = versions.find((v: BomVersion) => v.is_active === 1)
+      setSelectedVersionId(active?.id || versions[0]?.id || '')
+    } catch (error) {
+      console.error('BOM versiyonları yüklenemedi:', error)
+      setBomVersions([])
+      setSelectedVersionId('')
+    }
+  }
+
+  async function createNewVersion(
+    productId: string,
+    copyFrom?: string,
+    options?: { reason?: string; effectiveDate?: string }
+  ) {
+    const reason = options?.reason?.trim() || 'Malzeme güncellemesi'
+    const effectiveDate = options?.effectiveDate || new Date().toISOString().split('T')[0]
+    const payload = {
+      product_id: productId,
+      effective_date: effectiveDate,
+      revision_reason: reason,
+      copy_from_version_id: copyFrom || undefined,
+    }
+    const response = await fetchApi('/api/bom/versions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    await loadVersions(productId)
+    return response?.id || null
+  }
+
+  async function ensureVersionId(productId: string) {
+    if (selectedVersionId) return selectedVersionId
+    const created = await createNewVersion(productId, undefined, {
+      reason: 'İlk versiyon',
+      effectiveDate: new Date().toISOString().split('T')[0],
+    })
+    if (created) {
+      setSelectedVersionId(created)
+      return created
+    }
+    return ''
+  }
+
+  function openVersionModal(productId: string, copyFrom?: string) {
+    setPendingVersionProduct(productId)
+    setPendingCopyFrom(copyFrom || null)
+    setVersionReason('Malzeme güncellemesi')
+    setVersionDate(new Date().toISOString().split('T')[0])
+    setShowVersionModal(true)
+  }
+
+  async function handleCreateVersion() {
+    if (!pendingVersionProduct) return
+    const newId = await createNewVersion(pendingVersionProduct, pendingCopyFrom || undefined, {
+      reason: versionReason,
+      effectiveDate: versionDate,
+    })
+    if (newId) {
+      setSelectedVersionId(newId)
+    }
+    setShowVersionModal(false)
+    setPendingVersionProduct(null)
+    setPendingCopyFrom(null)
+  }
+
   function addMaterialRow() {
-    setMaterialList([...materialList, { material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+    setMaterialList([...materialList, { material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
   }
 
   function removeMaterialRow(index: number) {
@@ -98,7 +195,7 @@ export default function BOMPage() {
     }
   }
 
-  function updateMaterialRow(index: number, field: 'material_id' | 'quantity' | 'fire_percentage' | 'unit_price', value: string) {
+  function updateMaterialRow(index: number, field: 'material_id' | 'quantity' | 'fire_percentage' | 'unit_price' | 'unit', value: string) {
     const updated = [...materialList]
     // Eğer unit_price undefined ise, '0' olarak ayarla
     if (!updated[index].unit_price) {
@@ -114,9 +211,19 @@ export default function BOMPage() {
       } else if (!updated[index].unit_price) {
         updated[index].unit_price = '0'
       }
+      if (selectedMaterial?.unit) {
+        updated[index].unit = selectedMaterial.unit
+      }
     }
     
     setMaterialList(updated)
+  }
+
+  function buildUnitOptions(materialId?: string) {
+    const baseUnit = materials.find(m => m.id === materialId)?.unit?.toLowerCase() || ''
+    const defaults = ['adet', 'm', 'kg', 'm3']
+    const options = [baseUnit, ...defaults].filter(Boolean)
+    return Array.from(new Set(options))
   }
 
   async function handleSave() {
@@ -141,11 +248,14 @@ export default function BOMPage() {
           }),
         })
         productId = newProduct.id
+        await ensureVersionId(productId)
       } catch (error: any) {
         alert('Hata: ' + error.message)
         return
       }
     }
+
+    const versionId = productId ? await ensureVersionId(productId) : selectedVersionId
 
     // Tüm malzemeleri kontrol et
     const validMaterials = materialList.filter(m => m.material_id && m.quantity && parseFloat(m.quantity) > 0)
@@ -178,8 +288,10 @@ export default function BOMPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             product_id: productId,
+            version_id: versionId || undefined,
             material_id: material.material_id,
             quantity: parseFloat(material.quantity),
+            unit: material.unit || undefined,
             fire_percentage: parseFloat(material.fire_percentage) || 0,
           }),
         })
@@ -203,7 +315,8 @@ export default function BOMPage() {
       setShowAddForm(false)
       setSelectedProduct('')
       setProductName('')
-      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+      setSelectedUnit('')
+      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
       alert('Hata: ' + error.message)
@@ -281,6 +394,7 @@ export default function BOMPage() {
         quantity: item.quantity.toString(),
         fire_percentage: item.fire_percentage.toString(),
         unit_price: (item.material_unit_price || 0).toString(),
+        unit: (item.unit || item.material_unit || '').toString(),
       })))
       setShowAddForm(true)
       setEditingItem(null)
@@ -296,12 +410,14 @@ export default function BOMPage() {
     setQuantity(item.quantity.toString())
     setFirePercentage(item.fire_percentage.toString())
     setUnitPrice((item.material_unit_price || 0).toString())
+    setSelectedUnit((item.unit || item.material_unit || '').toString())
     // Tek malzeme için eski formu kullan
     setMaterialList([{
       material_id: item.material_id,
       quantity: item.quantity.toString(),
       fire_percentage: item.fire_percentage.toString(),
       unit_price: (item.material_unit_price || 0).toString(),
+      unit: (item.unit || item.material_unit || '').toString(),
     }])
     setShowAddForm(true)
     // Sayfayı yukarı kaydır
@@ -326,13 +442,16 @@ export default function BOMPage() {
         })
       }
 
+      const versionId = await ensureVersionId(selectedProduct)
       const response = await fetch('/api/bom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           product_id: selectedProduct,
+          version_id: versionId || undefined,
           material_id: selectedMaterial,
           quantity: parseFloat(quantity),
+          unit: selectedUnit || undefined,
           fire_percentage: parseFloat(firePercentage) || 0,
         }),
       })
@@ -350,7 +469,8 @@ export default function BOMPage() {
       setQuantity('')
       setFirePercentage('0')
       setUnitPrice('0')
-      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+      setSelectedUnit('')
+      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
       alert('Hata: ' + error.message)
@@ -389,7 +509,8 @@ export default function BOMPage() {
       }
 
       // Önce mevcut BOM kayıtlarını sil
-      const deleteResponse = await fetch(`/api/bom/product?product_id=${productId}`, {
+      const versionId = await ensureVersionId(selectedProduct)
+      const deleteResponse = await fetch(`/api/bom/product?product_id=${productId}&version_id=${versionId || ''}`, {
         method: 'DELETE',
       })
 
@@ -399,14 +520,17 @@ export default function BOMPage() {
       }
 
       // Yeni malzemeleri ekle
+      const versionIdForSave = await ensureVersionId(selectedProduct)
       const promises = validMaterials.map(material =>
         fetch('/api/bom', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             product_id: selectedProduct,
+            version_id: versionIdForSave || undefined,
             material_id: material.material_id,
             quantity: parseFloat(material.quantity),
+            unit: material.unit || undefined,
             fire_percentage: parseFloat(material.fire_percentage) || 0,
           }),
         })
@@ -431,7 +555,8 @@ export default function BOMPage() {
       setEditingProduct(null)
       setSelectedProduct('')
       setProductName('')
-      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+      setSelectedUnit('')
+      setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
       alert('Hata: ' + error.message)
@@ -455,8 +580,11 @@ export default function BOMPage() {
           onClick={() => {
             setShowAddForm(!showAddForm)
             setEditingItem(null)
+            setEditingProduct(null)
             setSelectedProduct('')
-            setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0' }])
+            setSelectedVersionId('')
+            setBomVersions([])
+            setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
           }}
           className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2 text-sm touch-manipulation mt-4 md:mt-0"
         >
@@ -502,11 +630,46 @@ export default function BOMPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
+                  BOM Versiyonu
+                </label>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={selectedVersionId}
+                    onChange={(e) => setSelectedVersionId(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    disabled={!selectedProduct}
+                  >
+                    <option value="">Versiyon seçin...</option>
+                    {bomVersions.map((version) => (
+                      <option key={version.id} value={version.id}>
+                        v{version.version_no} {version.is_active === 1 ? '(aktif)' : ''} - {version.effective_date}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedProduct) openVersionModal(selectedProduct, selectedVersionId || undefined)
+                    }}
+                    className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 text-xs"
+                    disabled={!selectedProduct}
+                  >
+                    Yeni
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
                   Malzeme *
                 </label>
                 <select
                   value={selectedMaterial}
-                  onChange={(e) => setSelectedMaterial(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setSelectedMaterial(value)
+                    const defaultUnit = materials.find(m => m.id === value)?.unit || ''
+                    setSelectedUnit(defaultUnit)
+                  }}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 >
                   <option value="">Malzeme seçin...</option>
@@ -640,6 +803,39 @@ export default function BOMPage() {
                 </div>
               </div>
 
+              {selectedProduct && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      BOM Versiyonu
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={selectedVersionId}
+                        onChange={(e) => setSelectedVersionId(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      >
+                        <option value="">Versiyon seçin...</option>
+                        {bomVersions.map((version) => (
+                          <option key={version.id} value={version.id}>
+                            v{version.version_no} {version.is_active === 1 ? '(aktif)' : ''} - {version.effective_date}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedProduct) openVersionModal(selectedProduct, selectedVersionId || undefined)
+                        }}
+                        className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 text-xs"
+                      >
+                        Yeni
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Çoklu Malzeme Listesi */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -657,7 +853,7 @@ export default function BOMPage() {
                 </div>
                 <div className="space-y-3">
                   {materialList.map((material, index) => (
-                    <div key={index} className="grid grid-cols-1 md:grid-cols-5 gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
                       <div className="md:col-span-2">
                         <label className="block text-xs text-gray-400 mb-1">Malzeme</label>
                         <select
@@ -706,6 +902,38 @@ export default function BOMPage() {
                           className="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                           placeholder="0.00"
                         />
+                      </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Birim *
+                </label>
+                <select
+                  value={selectedUnit}
+                  onChange={(e) => setSelectedUnit(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                >
+                  <option value="">Birim seçin...</option>
+                  {buildUnitOptions(selectedMaterial).map((unitOption) => (
+                    <option key={unitOption} value={unitOption}>
+                      {unitOption}
+                    </option>
+                  ))}
+                </select>
+              </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Birim</label>
+                        <select
+                          value={material.unit}
+                          onChange={(e) => updateMaterialRow(index, 'unit', e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        >
+                          <option value="">Birim seçin...</option>
+                          {buildUnitOptions(material.material_id).map((unitOption) => (
+                            <option key={unitOption} value={unitOption}>
+                              {unitOption}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-xs text-gray-400 mb-1">Birim Fiyat (TL)</label>
@@ -763,7 +991,8 @@ export default function BOMPage() {
                 setSelectedProduct('')
                 setProductName('')
                 setUnitPrice('0')
-                setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0' }])
+                setSelectedUnit('')
+                setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
               }}
               className="px-4 py-2 border border-gray-700 rounded-lg hover:bg-gray-800 transition text-white text-sm touch-manipulation"
             >
@@ -783,6 +1012,49 @@ export default function BOMPage() {
               <Save className="w-4 h-4 inline mr-1" />
               {editingItem ? 'Güncelle' : editingProduct ? 'Tümünü Güncelle' : 'Kaydet'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {showVersionModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg w-full max-w-lg p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Yeni BOM Versiyonu</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Geçerlilik Tarihi</label>
+              <input
+                type="date"
+                value={versionDate}
+                onChange={(e) => setVersionDate(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Revizyon Nedeni</label>
+              <textarea
+                value={versionReason}
+                onChange={(e) => setVersionReason(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
+                rows={3}
+                placeholder="Örn: Sünger kalitesi değişti"
+              />
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowVersionModal(false)}
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateVersion}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Oluştur
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -820,6 +1092,14 @@ export default function BOMPage() {
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => openVersionModal(group.product_id)}
+                      className="px-3 py-1.5 bg-gray-700 text-white rounded text-sm hover:bg-gray-600 transition flex items-center space-x-1"
+                      title="Yeni BOM versiyonu oluştur"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Yeni Versiyon</span>
+                    </button>
                     <button
                       onClick={() => startEditProduct(group.product_id)}
                       className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition flex items-center space-x-1"
@@ -859,6 +1139,7 @@ export default function BOMPage() {
                       const totalWithFire = item.quantity * (1 + item.fire_percentage / 100)
                       const unitPrice = item.material_unit_price || 0
                       const totalCost = totalWithFire * unitPrice
+                      const displayUnit = (item.unit || item.material_unit || '').toString() || '-'
                       return (
                         <TableRow key={item.id} className="border-gray-800">
                           <TableCell className="font-medium text-white text-xs px-4 py-2">
@@ -871,7 +1152,7 @@ export default function BOMPage() {
                             {item.quantity.toFixed(2)}
                           </TableCell>
                           <TableCell className="text-gray-400 text-xs px-4 py-2">
-                            {item.material_category && item.material_category.toLowerCase() === 'kumaş' ? 'Metre' : item.material_unit}
+                            {displayUnit}
                           </TableCell>
                           <TableCell className="text-blue-400 font-semibold text-xs px-4 py-2">
                             {unitPrice.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', minimumFractionDigits: 2 })}
@@ -880,7 +1161,7 @@ export default function BOMPage() {
                             {item.fire_percentage.toFixed(1)}%
                           </TableCell>
                           <TableCell className="text-yellow-400 font-semibold text-xs px-4 py-2">
-                            {totalWithFire.toFixed(2)} {item.material_category && item.material_category.toLowerCase() === 'kumaş' ? 'Metre' : item.material_unit}
+                            {totalWithFire.toFixed(2)} {displayUnit}
                           </TableCell>
                           <TableCell className="text-green-400 font-bold text-xs px-4 py-2">
                             {totalCost.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', minimumFractionDigits: 2 })}

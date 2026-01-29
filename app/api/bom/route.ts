@@ -7,7 +7,9 @@ type BomItemRow = {
   product_id: string
   material_id: string
   quantity: number
+  unit?: string | null
   fire_percentage: number | null
+  waste_percentage?: number | null
   parent_id?: string | null
   material_name: string
   material_code: string | null
@@ -39,16 +41,49 @@ type BomExistingRow = {
 
 type BomTreeNode = BomItemRow & { children: BomTreeNode[] }
 
+type BomVersionRow = {
+  id: string
+}
+
+async function resolveActiveVersionId(db: ReturnType<typeof getDatabase>, productId: string) {
+  const active = db.prepare(`
+    SELECT id FROM bom_versions
+    WHERE product_id = ? AND is_active = 1 AND deleted_at IS NULL
+    ORDER BY version_no DESC
+    LIMIT 1
+  `).get(productId) as BomVersionRow | undefined
+  if (active?.id) return active.id
+
+  const latest = db.prepare(`
+    SELECT id FROM bom_versions
+    WHERE product_id = ? AND deleted_at IS NULL
+    ORDER BY version_no DESC
+    LIMIT 1
+  `).get(productId) as BomVersionRow | undefined
+  if (latest?.id) return latest.id
+
+  const versionId = randomUUID()
+  const today = new Date().toISOString().split('T')[0]
+  db.prepare(`
+    INSERT INTO bom_versions
+    (id, product_id, version_no, effective_date, revision_reason, is_active)
+    VALUES (?, ?, 1, ?, 'İlk versiyon', 1)
+  `).run(versionId, productId, today)
+  return versionId
+}
+
 // GET: Tüm BOM kayıtlarını getir veya belirli bir ürün için
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
     const asTree = searchParams.get('tree') === '1'
+    const versionIdParam = searchParams.get('version_id')
 
     const db = getDatabase()
 
     if (productId) {
+      const versionId = versionIdParam || await resolveActiveVersionId(db, productId)
       // Belirli bir ürün için BOM kayıtlarını getir
       const bomItems = db.prepare(`
         SELECT 
@@ -63,9 +98,9 @@ export async function GET(request: NextRequest) {
         FROM bom b
         JOIN products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
-        WHERE b.product_id = ?
+        WHERE b.product_id = ? AND b.version_id = ? AND b.deleted_at IS NULL
         ORDER BY m.name
-      `).all(productId)
+      `).all(productId, versionId)
 
       if (!asTree) {
         return NextResponse.json(bomItems)
@@ -95,6 +130,7 @@ export async function GET(request: NextRequest) {
           b.material_id,
           b.parent_id,
           b.quantity_required as quantity,
+          b.unit as unit,
           b.fire_percentage,
           m.name as material_name,
           m.code as material_code,
@@ -104,8 +140,10 @@ export async function GET(request: NextRequest) {
           p.name as product_name,
           p.sku as product_sku
         FROM bom b
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
+        WHERE b.deleted_at IS NULL
         ORDER BY p.sku, m.name
       `).all() as BomItemRow[]
 
@@ -135,7 +173,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { product_id, material_id, quantity, fire_percentage, parent_id } = body
+    const { product_id, material_id, quantity, unit, fire_percentage, waste_percentage, parent_id, version_id } = body
 
     if (!product_id || !material_id || quantity === undefined || quantity <= 0) {
       return NextResponse.json(
@@ -152,26 +190,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
 
-    const material = db.prepare('SELECT id FROM materials WHERE id = ?').get(material_id) as MaterialRow | undefined
+    const material = db.prepare('SELECT id, unit FROM materials WHERE id = ?').get(material_id) as (MaterialRow & { unit?: string | null }) | undefined
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
-    // Aynı ürün-malzeme kombinasyonu var mı kontrol et
+    const resolvedVersionId = version_id || await resolveActiveVersionId(db, product_id)
+
+    const resolvedWaste = waste_percentage ?? fire_percentage ?? 0
+    const resolvedUnit = (unit || material.unit || '').toString().trim().toLowerCase() || null
+
+    // Aynı ürün-malzeme kombinasyonu var mı kontrol et (versiyon bazlı)
     const existing = db.prepare(`
       SELECT id FROM bom 
-      WHERE product_id = ? AND material_id = ? AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
-    `).get(product_id, material_id, parent_id || null, parent_id || null) as BomExistingRow | undefined
+      WHERE product_id = ? AND version_id = ? AND material_id = ?
+        AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+        AND deleted_at IS NULL
+    `).get(product_id, resolvedVersionId, material_id, parent_id || null, parent_id || null) as BomExistingRow | undefined
 
     if (existing) {
       // Mevcut kaydı güncelle
       db.prepare(`
         UPDATE bom
         SET quantity_required = ?,
+            unit = ?,
             fire_percentage = COALESCE(?, fire_percentage),
+            waste_percentage = COALESCE(?, waste_percentage),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(quantity, fire_percentage || 0, existing.id)
+      `).run(quantity, resolvedUnit, resolvedWaste, resolvedWaste, existing.id)
 
       return NextResponse.json({
         success: true,
@@ -183,9 +230,9 @@ export async function POST(request: NextRequest) {
       const bomId = randomUUID()
       db.prepare(`
         INSERT INTO bom 
-        (id, product_id, material_id, parent_id, quantity_required, fire_percentage)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(bomId, product_id, material_id, parent_id || null, quantity, fire_percentage || 0)
+        (id, version_id, product_id, material_id, parent_id, quantity_required, unit, fire_percentage, waste_percentage)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(bomId, resolvedVersionId, product_id, material_id, parent_id || null, quantity, resolvedUnit, resolvedWaste, resolvedWaste)
 
       return NextResponse.json({
         success: true,
@@ -223,7 +270,12 @@ export async function DELETE(request: NextRequest) {
     }
 
     for (const id of toDelete.reverse()) {
-      db.prepare('DELETE FROM bom WHERE id = ?').run(id)
+      db.prepare(`
+        UPDATE bom
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(id)
     }
 
     return NextResponse.json({ success: true, message: 'BOM kaydı silindi' })

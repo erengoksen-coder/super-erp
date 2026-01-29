@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
+import { getAuthUserId } from '@/lib/auth/session'
 
 const DEFAULT_STATIONS = ['iskelet', 'terzihane', 'doseme', 'montaj', 'sevkiyat']
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 function generateWorkOrderNumber(db: ReturnType<typeof getDatabase>) {
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
       ? stations
       : DEFAULT_STATIONS
 
-    const actorId = getActorId(request)
+    const actorId = await getActorId(request)
     const transaction = db.transaction(() => {
       db.prepare(`
         INSERT INTO work_orders

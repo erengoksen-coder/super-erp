@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateShipmentNumber } from '@/lib/utils/codeGenerator.server'
+import { resolveUnitFactor } from '@/lib/units'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 
@@ -64,6 +65,9 @@ type BomItemRow = {
   quantity: number
   fire_percentage: number | null
   unit_price: number | null
+  unit?: string | null
+  material_unit?: string | null
+  material_id?: string | null
 }
 
 type ProductPriceRow = {
@@ -192,19 +196,27 @@ export async function POST(request: NextRequest) {
         const bomItems = db.prepare(`
           SELECT 
             b.quantity_required as quantity,
+            b.unit as unit,
             b.fire_percentage,
-            m.unit_price
+            m.unit_price,
+            m.unit as material_unit,
+            m.id as material_id
           FROM bom b
+          JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
           JOIN materials m ON b.material_id = m.id
-          WHERE b.product_id = ?
+          WHERE b.product_id = ? AND b.deleted_at IS NULL
         `).all(item.product_id) as BomItemRow[]
 
         // Toplam maliyeti hesapla
         let bomCost = 0
         for (const bomItem of bomItems) {
           const quantityWithFire = bomItem.quantity * (1 + (bomItem.fire_percentage || 0) / 100)
+          const fromUnit = (bomItem.unit || bomItem.material_unit || '').toString()
+          const toUnit = (bomItem.material_unit || '').toString()
+          const factor = resolveUnitFactor(db, bomItem.material_id || null, fromUnit, toUnit)
+          const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
           const unitPrice = bomItem.unit_price || 0
-          bomCost += quantityWithFire * unitPrice
+          bomCost += convertedQuantity * unitPrice
         }
 
         // Eğer BOM maliyeti yoksa, selling_price kullan

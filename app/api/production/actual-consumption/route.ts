@@ -35,11 +35,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { production_order_id, material_id, actual_quantity } = body
+    const { production_order_id, material_id, actual_quantity, actual_usage, scrap_reason } = body
 
-    if (!production_order_id || !material_id || actual_quantity === undefined) {
+    const resolvedActual = actual_usage !== undefined ? actual_usage : actual_quantity
+
+    if (!production_order_id || !material_id || resolvedActual === undefined) {
       return NextResponse.json(
-        { error: 'production_order_id, material_id ve actual_quantity gerekli' },
+        { error: 'production_order_id, material_id ve actual_usage gerekli' },
         { status: 400 }
       )
     }
@@ -60,19 +62,20 @@ export async function POST(request: NextRequest) {
     
     // BOM'dan fire yüzdesini al
     const bomData = db.prepare(`
-      SELECT b.fire_percentage
+      SELECT COALESCE(b.waste_percentage, b.fire_percentage, 0) as waste_percentage
       FROM production_orders po
       JOIN bom b ON po.product_id = b.product_id
-      WHERE po.id = ? AND b.material_id = ?
+      JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+      WHERE po.id = ? AND b.material_id = ? AND b.deleted_at IS NULL
     `).get(production_order_id, material_id) as any
     
-    const firePercentage = bomData?.fire_percentage || 0
+    const firePercentage = bomData?.waste_percentage || 0
     // Planlanan miktar zaten fire dahil, base quantity'yi hesapla
     const baseQuantity = plannedQuantity / (1 + firePercentage / 100)
     // Fiili fire = Fiili harcanan - Base miktar
-    const fireQuantity = actual_quantity - baseQuantity
+    const fireQuantity = resolvedActual - baseQuantity
     
-    const variance = actual_quantity - plannedQuantity
+    const variance = resolvedActual - plannedQuantity
     const variancePercentage = plannedQuantity > 0 
       ? (variance / plannedQuantity) * 100 
       : 0
@@ -81,16 +84,20 @@ export async function POST(request: NextRequest) {
     db.prepare(`
       UPDATE production_actual_consumption
       SET actual_quantity = ?,
+          actual_usage = ?,
           fire_quantity = ?,
           variance = ?,
           variance_percentage = ?,
+          scrap_reason = ?,
           recorded_at = CURRENT_TIMESTAMP
       WHERE production_order_id = ? AND material_id = ?
     `).run(
-      actual_quantity,
+      resolvedActual,
+      resolvedActual,
       fireQuantity,
       variance,
       variancePercentage,
+      scrap_reason || null,
       production_order_id,
       material_id
     )

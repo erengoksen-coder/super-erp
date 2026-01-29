@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Tüm malzemeleri al
-    const materials = db.prepare('SELECT id FROM materials').all() as any[]
+    const materials = db.prepare('SELECT id FROM materials WHERE deleted_at IS NULL').all() as any[]
 
     db.transaction(() => {
       materials.forEach((material) => {
@@ -32,9 +32,14 @@ export async function POST(request: NextRequest) {
         db.prepare(`
           UPDATE materials
           SET stock_amount = ?,
+              reserved_quantity = CASE
+                WHEN reserved_quantity > ? THEN ?
+                ELSE reserved_quantity
+              END,
+              version = version + 1,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(calculatedStock, material.id)
+        `).run(calculatedStock, calculatedStock, calculatedStock, material.id)
       })
     })()
 

@@ -1,33 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
+import { getAccessTokenFromRequest } from '@/lib/auth/session'
+import { verifyAccessToken } from '@/lib/auth/jwt'
 
 // GET: Mevcut kullanıcı bilgileri
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    const token = authHeader?.replace('Bearer ', '') || request.headers.get('x-auth-token')
-
+    const token = getAccessTokenFromRequest(request)
     if (!token) {
-      return NextResponse.json(
-        { error: 'Token gerekli' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Token gerekli' }, { status: 401 })
     }
 
-    // Basit token kontrolü (gerçek uygulamada JWT decode edilmeli)
-    // Şimdilik token'ı user_id olarak kullanıyoruz
+    const payload = await verifyAccessToken(token).catch(() => null)
+    if (!payload?.userId) {
+      return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
+    }
+
     const db = getDatabase()
-    
-    // Token'dan user_id'yi al (basit implementasyon)
-    // Gerçek uygulamada JWT decode edilmeli
-    const userId = request.headers.get('x-user-id')
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Geçersiz token' },
-        { status: 401 }
-      )
-    }
+    const userId = payload.userId
 
     const user = db.prepare(`
       SELECT id, username, email, full_name, role, job_title, is_approved

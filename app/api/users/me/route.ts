@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
-import { createHash } from 'crypto'
+import { getAccessTokenFromRequest } from '@/lib/auth/session'
+import { verifyAccessToken } from '@/lib/auth/jwt'
 
 // GET: Mevcut kullanıcı bilgilerini getir
 export async function GET(request: NextRequest) {
   try {
-    // Authorization header'dan kullanıcı ID'sini al (basit implementasyon)
-    // Production'da JWT token kullanılmalı
-    const authHeader = request.headers.get('authorization')
-    const userId = request.headers.get('x-user-id') || authHeader?.replace('Bearer ', '')
-
+    const token = getAccessTokenFromRequest(request)
+    if (!token) {
+      return NextResponse.json({ error: 'Kullanıcı kimliği gerekli' }, { status: 401 })
+    }
+    const payload = await verifyAccessToken(token).catch(() => null)
+    const userId = payload?.userId
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Kullanıcı kimliği gerekli' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
     }
 
     const db = getDatabase()
@@ -58,14 +57,14 @@ export async function GET(request: NextRequest) {
 // PATCH: Mevcut kullanıcı profilini güncelle
 export async function PATCH(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    const userId = request.headers.get('x-user-id') || authHeader?.replace('Bearer ', '')
-
+    const token = getAccessTokenFromRequest(request)
+    if (!token) {
+      return NextResponse.json({ error: 'Kullanıcı kimliği gerekli' }, { status: 401 })
+    }
+    const payload = await verifyAccessToken(token).catch(() => null)
+    const userId = payload?.userId
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Kullanıcı kimliği gerekli' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
     }
 
     const body = await request.json()

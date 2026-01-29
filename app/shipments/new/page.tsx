@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Truck, User, Package, Plus, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
@@ -76,6 +76,20 @@ export default function NewShipmentPage() {
   }, [selectedCustomerId])
 
   const { data: readyItemsData, isLoading } = useApi<{ items: ReadyItem[] }>(readyItemsKey)
+  const pendingScansRef = useRef<string[]>([])
+
+  const readyBarcodeIndex = useMemo(() => {
+    const map = new Map<string, { product_id: string; product_name: string }>()
+    readyItems.forEach((item) => {
+      item.items.forEach((barcodeItem) => {
+        map.set(barcodeItem.barcode, {
+          product_id: item.product_id,
+          product_name: item.product_name,
+        })
+      })
+    })
+    return map
+  }, [readyItems])
 
   useEffect(() => {
     if (!readyItemsData?.items) return
@@ -90,21 +104,98 @@ export default function NewShipmentPage() {
     }))
     setShipmentItems(initialItems)
     setError('')
+
+    if (pendingScansRef.current.length > 0) {
+      const pending = [...pendingScansRef.current]
+      pendingScansRef.current = []
+      pending.forEach((code) => {
+        handleGlobalScan(code)
+      })
+    }
   }, [readyItemsData])
+
+  useEffect(() => {
+    const onScan = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { barcode?: string }
+      const barcode = detail?.barcode
+      if (!barcode) return
+      handleGlobalScan(barcode)
+    }
+
+    window.addEventListener('barcode:scanned', onScan as EventListener)
+    return () => window.removeEventListener('barcode:scanned', onScan as EventListener)
+  }, [selectedCustomerId, shipmentItems])
+
+  async function handleGlobalScan(barcode: string) {
+    if (!barcode) return
+    try {
+      const response = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(barcode)}`)
+      if (!response.ok) {
+        // Sevke hazır değilse ürün durumunu göster
+        try {
+          const fallback = await fetch(`/api/barcodes?barcode=${encodeURIComponent(barcode)}`)
+          if (fallback.ok) {
+            const items = await fallback.json()
+            const info = Array.isArray(items) && items.length > 0 ? items[0] : null
+            if (info) {
+              const stage = info.status === 'in_stock' ? 'Depoda' : (info.status || 'Bilinmiyor')
+              setError(`Bu barkod sevke hazır değil. Aşama: ${stage}`)
+              return
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return
+      }
+      const payload = await response.json()
+      const item = payload?.data?.item || payload?.item
+      if (!item?.product_id) return
+
+      if (!selectedCustomerId && item.customer_id) {
+        setSelectedCustomerId(item.customer_id)
+      } else if (selectedCustomerId && item.customer_id && item.customer_id !== selectedCustomerId) {
+        setError('Bu barkod seçili müşteriye ait değil.')
+        return
+      }
+
+      if (!shipmentItems.length) {
+        pendingScansRef.current.push(barcode)
+        return
+      }
+
+      setError('')
+      handleBarcodeInput(item.product_id, barcode)
+    } catch (e) {
+      // ignore
+    }
+  }
 
   function handleBarcodeInput(productId: string, barcode: string) {
     if (!barcode.trim()) return
+    const cleaned = barcode.trim()
+    const indexed = readyBarcodeIndex.get(cleaned)
+    if (!indexed) {
+      setError(`Bu barkod sevke hazır değil veya bulunamadı: ${cleaned}`)
+      return
+    }
+    if (indexed.product_id !== productId) {
+      setError(`Barkod farklı ürüne ait: ${indexed.product_name}`)
+      return
+    }
 
     setShipmentItems(items => items.map(item => {
       if (item.product_id === productId) {
         // Barkod zaten eklenmiş mi kontrol et
-        if (item.barcodes.includes(barcode.trim())) {
+        if (item.barcodes.includes(cleaned)) {
+          setError(`Bu barkod zaten eklendi: ${cleaned}`)
           return item
         }
         // Yeni barkod ekle
+        setError('')
         return {
           ...item,
-          barcodes: [...item.barcodes, barcode.trim()],
+          barcodes: [...item.barcodes, cleaned],
         }
       }
       return item

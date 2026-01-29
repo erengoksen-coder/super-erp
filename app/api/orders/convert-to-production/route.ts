@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
 import { generateProductionOrderNumber } from '@/lib/utils/codeGenerator'
 import { logger } from '@/lib/utils/logger'
@@ -24,6 +26,16 @@ export async function POST(request: NextRequest) {
     const convertedOrders: any[] = []
     const errors: string[] = []
     const skippedOrders: string[] = []
+
+  function getRequiredQuantity(db: ReturnType<typeof getDatabase>, item: any, orderQty: number) {
+    const firePercentage = (item.fire_percentage || 0) as number
+    const quantityWithFire = item.quantity_required * (1 + (firePercentage / 100))
+    const fromUnit = (item.unit || item.material_unit || '').toString()
+    const toUnit = (item.material_unit || '').toString()
+    const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
+    const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+    return convertedQuantity * orderQty
+  }
 
     // ÖNCE: Tüm siparişler için BOM ve stok kontrolü yap
     const ordersToConvert: any[] = []
@@ -250,15 +262,18 @@ export async function POST(request: NextRequest) {
         SELECT 
           b.material_id,
           b.quantity_required,
+          b.unit as unit,
           m.name as material_name,
           m.code as material_code,
           m.category as material_category,
           m.stock_amount,
-          m.unit,
+          m.unit as material_unit,
+          m.reserved_quantity,
           COALESCE(b.fire_percentage, 0) as fire_percentage
         FROM bom b
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
-        WHERE b.product_id = ?
+        WHERE b.product_id = ? AND b.deleted_at IS NULL
       `).all(order.product_id) as any[]
 
       logger.info(`[BOM KONTROLÜ] Sipariş: ${order.order_number}, Ürün: ${product.name}, Bulunan BOM sayısı: ${bom.length}`)
@@ -266,9 +281,10 @@ export async function POST(request: NextRequest) {
       if (bom.length === 0) {
         // Hangi ürünler için BOM var kontrol et (debug için)
         const allBomProducts = db.prepare(`
-          SELECT DISTINCT p.id, p.name, p.sku, COUNT(b.id) as bom_count
+          SELECT DISTINCT p.id, p.name, p.sku, COUNT(bv.id) as bom_count
           FROM products p
           LEFT JOIN bom b ON p.id = b.product_id
+          LEFT JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
           WHERE p.name LIKE ?
           GROUP BY p.id, p.name, p.sku
         `).all(`%galata%`) as any[]
@@ -342,10 +358,11 @@ export async function POST(request: NextRequest) {
             // Siparişteki kumaş koduna göre stok kontrolü yap
             const bomFabricItem = bom.find(b => (b as any).material_category && (b as any).material_category.toLowerCase() === 'kumaş')
             if (bomFabricItem) {
-              const firePercentage = (bomFabricItem as any).fire_percentage || 0
-              const quantityWithFire = (bomFabricItem as any).quantity_required * (1 + (firePercentage / 100))
-              const required = quantityWithFire * order.quantity
-              const available = orderFabricMaterial.stock_amount || 0
+              const required = getRequiredQuantity(db, {
+                ...bomFabricItem,
+                material_unit: orderFabricMaterial.unit
+              }, order.quantity)
+              const available = (orderFabricMaterial.stock_amount || 0) - (orderFabricMaterial.reserved_quantity || 0)
               
               logger.info(`[STOK KONTROLÜ] Kumaş stok kontrolü (siparişteki kumaş koduna göre)`, {
                 order_fabric_code: orderFabricCode,
@@ -353,8 +370,8 @@ export async function POST(request: NextRequest) {
                 material_name: orderFabricMaterial.name,
                 material_code: orderFabricMaterial.code,
                 quantity_required: (bomFabricItem as any).quantity_required,
-                fire_percentage: firePercentage,
-                quantity_with_fire: quantityWithFire,
+                fire_percentage: (bomFabricItem as any).fire_percentage || 0,
+                quantity_with_fire: required / order.quantity,
                 order_quantity: order.quantity,
                 required_total: required,
                 available_stock: available,
@@ -386,10 +403,8 @@ export async function POST(request: NextRequest) {
           continue // BOM'daki kumaş malzemesini atla, siparişteki kumaş koduna göre kontrol yaptık
         }
         
-        const firePercentage = item.fire_percentage || 0
-        const quantityWithFire = item.quantity_required * (1 + (firePercentage / 100))
-        const required = quantityWithFire * order.quantity
-        const available = item.stock_amount || 0
+        const required = getRequiredQuantity(db, item, order.quantity)
+        const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
         
         logger.info(`[STOK KONTROLÜ] Malzeme kontrolü`, {
           material_id: item.material_id,
@@ -397,19 +412,19 @@ export async function POST(request: NextRequest) {
           material_category: materialCategory,
           material_code: item.material_code,
           quantity_required: item.quantity_required,
-          fire_percentage: firePercentage,
-          quantity_with_fire: quantityWithFire,
+          fire_percentage: item.fire_percentage || 0,
+          quantity_with_fire: required / order.quantity,
           order_quantity: order.quantity,
           required_total: required,
           available_stock: available,
-          unit: item.unit,
+          unit: item.material_unit,
           sufficient: available >= required
         })
         
         if (available < required) {
           const shortage = required - available
           const errorMsg = `Sipariş ${order.order_number} için stok yetersiz: ${item.material_name} ` +
-            `(Gereken: ${required.toFixed(2)} ${item.unit}, Mevcut: ${available.toFixed(2)} ${item.unit}, Eksik: ${shortage.toFixed(2)} ${item.unit})`
+            `(Gereken: ${required.toFixed(2)} ${item.material_unit}, Mevcut: ${available.toFixed(2)} ${item.material_unit}, Eksik: ${shortage.toFixed(2)} ${item.material_unit})`
           stockErrors.push(errorMsg)
           errors.push(errorMsg)
           logger.error(`[STOK KONTROLÜ] Stok yetersiz`, {
@@ -531,9 +546,8 @@ export async function POST(request: NextRequest) {
       // Malzeme maliyetini hesapla
       let totalMaterialCost = 0
       for (const item of bomWithPrices) {
-        const firePercentage = (item as any).fire_percentage || 0
-        const quantityWithFire = (item as any).quantity_required * (1 + (firePercentage / 100))
-        const itemCost = quantityWithFire * (item as any).purchase_price * order.quantity
+        const totalRequired = getRequiredQuantity(db, item, order.quantity)
+        const itemCost = totalRequired * (item as any).purchase_price
         totalMaterialCost += itemCost
       }
 
@@ -706,6 +720,19 @@ export async function POST(request: NextRequest) {
         }
         logger.info(`[1/5] Üretim emri oluşturuldu: ${orderNumber}`, { production_order_id: productionOrderId })
 
+        db.prepare(`
+          INSERT INTO production_costs
+          (id, production_order_id, material_cost, labor_cost, overhead_cost, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          productionOrderId,
+          costs.materialCost ?? 0,
+          costs.laborCost ?? 0,
+          0,
+          costs.totalCost ?? 0
+        )
+
         // 2. Stokları düş - Siparişteki kumaş koduna göre
         for (const item of bom) {
           const materialCategory = (item as any).material_category
@@ -714,8 +741,11 @@ export async function POST(request: NextRequest) {
           if (materialCategory && materialCategory.toLowerCase() === 'kumaş' && orderFabricMaterial) {
             // Siparişteki kumaş koduna göre hammadde depodan stoktan düş
             const firePercentage = (item as any).fire_percentage || 0
-            const quantityWithFire = (item as any).quantity_required * (1 + (firePercentage / 100))
-            const totalRequired = quantityWithFire * order.quantity
+            const fromUnit = ((item as any).unit || orderFabricMaterial.unit || '').toString()
+            const toUnit = (orderFabricMaterial.unit || '').toString()
+            const factor = resolveUnitFactor(db, (item as any).material_id || null, fromUnit, toUnit)
+            const baseRequired = ((item as any).quantity_required * order.quantity) * (factor || 1)
+            const totalRequired = baseRequired * (1 + (firePercentage / 100))
 
             logger.info(`[STOK DÜŞÜMÜ] Kumaş stoktan düşülüyor (siparişteki kumaş koduna göre)`, {
               order_fabric_code: orderFabricMaterial.name || orderFabricMaterial.code,
@@ -724,17 +754,14 @@ export async function POST(request: NextRequest) {
               material_code: orderFabricMaterial.code,
               quantity_required: (item as any).quantity_required,
               fire_percentage: firePercentage,
-              quantity_with_fire: quantityWithFire,
+              quantity_with_fire: totalRequired / order.quantity,
               order_quantity: order.quantity,
               total_required: totalRequired,
               available_before: orderFabricMaterial.stock_amount
             })
 
             // Siparişteki kumaş koduna göre hammadde depodan stoktan düş
-            db.prepare('UPDATE materials SET stock_amount = stock_amount - ? WHERE id = ?').run(
-              totalRequired,
-              orderFabricMaterial.id
-            )
+            applyMaterialStockChange(db, orderFabricMaterial.id, -totalRequired)
 
             // Stok hareketi kaydet
             const movementId = randomUUID()
@@ -760,8 +787,8 @@ export async function POST(request: NextRequest) {
               randomUUID(),
               productionOrderId,
               orderFabricMaterial.id,
-              (item as any).quantity_required * order.quantity,
-              totalRequired - ((item as any).quantity_required * order.quantity)
+              baseRequired,
+              totalRequired - baseRequired
             )
             
             continue // BOM'daki kumaş malzemesini atla, siparişteki kumaş koduna göre işlem yaptık
@@ -769,14 +796,14 @@ export async function POST(request: NextRequest) {
           
           // Diğer malzemeler için normal stok düşümü
           const firePercentage = (item as any).fire_percentage || 0
-          const quantityWithFire = (item as any).quantity_required * (1 + (firePercentage / 100))
-          const totalRequired = quantityWithFire * order.quantity
+          const fromUnit = ((item as any).unit || (item as any).material_unit || '').toString()
+          const toUnit = ((item as any).material_unit || '').toString()
+          const factor = resolveUnitFactor(db, (item as any).material_id || null, fromUnit, toUnit)
+          const baseRequired = ((item as any).quantity_required * order.quantity) * (factor || 1)
+          const totalRequired = baseRequired * (1 + (firePercentage / 100))
 
           // Malzeme stokunu güncelle
-          db.prepare('UPDATE materials SET stock_amount = stock_amount - ? WHERE id = ?').run(
-            totalRequired,
-            (item as any).material_id
-          )
+          applyMaterialStockChange(db, (item as any).material_id, -totalRequired)
 
           // Stok hareketi kaydet
           const movementId = randomUUID()
@@ -802,8 +829,8 @@ export async function POST(request: NextRequest) {
             randomUUID(),
             productionOrderId,
             (item as any).material_id,
-            (item as any).quantity_required * order.quantity,
-            totalRequired - ((item as any).quantity_required * order.quantity)
+            baseRequired,
+            totalRequired - baseRequired
           )
         }
         logger.info(`[2/5] Stoklar düşürüldü`, { production_order_id: productionOrderId })

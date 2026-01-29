@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
+import { resolveUnitFactor } from '@/lib/units'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
+import { getAuthUserId } from '@/lib/auth/session'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
 
-function getActorId(request: NextRequest) {
-  return request.headers.get('x-user-id') || null
+async function getActorId(request: NextRequest) {
+  return await getAuthUserId(request)
 }
 
 // POST: Üretim emrini iptal et ve malzemeleri stoka geri ekle
@@ -41,12 +44,15 @@ export async function POST(
       SELECT 
         b.material_id,
         b.quantity_required,
+        b.unit as unit,
         COALESCE(b.fire_percentage, 0) as fire_percentage,
         m.name as material_name,
-        m.unit
+        m.unit as material_unit,
+        m.reserved_quantity
       FROM bom b
+      JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
       JOIN materials m ON b.material_id = m.id
-      WHERE b.product_id = ?
+      WHERE b.product_id = ? AND b.deleted_at IS NULL
     `).all(order.product_id) as any[]
 
     // Stok hareketlerini al (bu üretim emri için)
@@ -60,15 +66,14 @@ export async function POST(
       for (const bomItem of bom) {
         const firePercentage = bomItem.fire_percentage || 0
         const quantityWithFire = bomItem.quantity_required * (1 + firePercentage / 100)
-        const totalRequired = quantityWithFire * order.quantity
+        const fromUnit = (bomItem.unit || bomItem.material_unit || '').toString()
+        const toUnit = (bomItem.material_unit || '').toString()
+        const factor = resolveUnitFactor(db, bomItem.material_id || null, fromUnit, toUnit)
+        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
+        const totalRequired = convertedQuantity * order.quantity
 
         // Stoku geri ekle
-        db.prepare(`
-          UPDATE materials
-          SET stock_amount = stock_amount + ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(totalRequired, bomItem.material_id)
+        applyMaterialStockChange(db, bomItem.material_id, totalRequired)
 
         // Geri alma stok hareketi oluştur
         const movementId = randomUUID()
@@ -81,7 +86,7 @@ export async function POST(
           bomItem.material_id,
           totalRequired,
           orderId,
-          `Üretim emri iptali: ${order.order_number} - ${bomItem.material_name} (Fire: ${firePercentage}%) - Geri eklenen: ${totalRequired} ${bomItem.unit}`,
+          `Üretim emri iptali: ${order.order_number} - ${bomItem.material_name} (Fire: ${firePercentage}%) - Geri eklenen: ${totalRequired} ${bomItem.material_unit}`,
           DEFAULT_WAREHOUSE_ID,
           DEFAULT_WAREHOUSE_ID
         )
@@ -120,7 +125,7 @@ export async function POST(
       tableName: 'production_orders',
       action: 'update',
       recordId: orderId,
-      userId: getActorId(request),
+      userId: await getActorId(request),
       before: { status: order.status },
       after: { status: 'cancelled' },
     })

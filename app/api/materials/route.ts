@@ -52,6 +52,14 @@ export async function POST(request: NextRequest) {
         unit_price,
       })
 
+      if (unit_price > 0) {
+        const priceId = randomUUID()
+        db.prepare(`
+          INSERT INTO material_prices (id, material_id, price, price_type, source_type, source_id)
+          VALUES (?, ?, ?, 'purchase', 'material_create', ?)
+        `).run(priceId, id, unit_price, id)
+      }
+
       // Eğer başlangıç stoku varsa, stok hareketi kaydı oluştur
       if (stock_amount > 0) {
         const movementId = randomUUID()
