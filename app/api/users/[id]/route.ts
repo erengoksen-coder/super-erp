@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { createHash } from 'crypto'
 import { randomUUID } from 'crypto'
@@ -23,10 +24,10 @@ async function getActorId(request: NextRequest) {
 }
 
 // GET: Tek kullanıcı detayı
-export async function GET(
-  request: NextRequest,
+export const GET = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const userId = resolvedParams.id
@@ -71,13 +72,13 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Kullanıcı güncelle (onaylama, izin güncelleme)
-export async function PATCH(
-  request: NextRequest,
+export const PATCH = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const userId = resolvedParams.id
@@ -221,13 +222,13 @@ export async function PATCH(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Kullanıcı sil
-export async function DELETE(
-  request: NextRequest,
+export const DELETE = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const userId = resolvedParams.id
@@ -266,4 +267,4 @@ export async function DELETE(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

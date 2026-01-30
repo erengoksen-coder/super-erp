@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
 
@@ -37,14 +38,16 @@ type ShipmentItemResponse = Omit<ShipmentItemRow, 'serial_numbers'> & {
 }
 
 // GET: Tek sevkiyat detayı
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
+export const GET = withAuth(
+  async (
+    request: NextRequest,
+    user,
+    context?: unknown
+  ) => {
+    try {
     const db = getDatabase()
-    const resolvedParams = await Promise.resolve(params)
-    const shipmentId = resolvedParams.id
+    const resolvedParams = await Promise.resolve((context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params)
+    const shipmentId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-1)[0]
 
     const shipment = db.prepare(`
       SELECT 
@@ -69,7 +72,7 @@ export async function GET(
         p.name as product_name,
         p.sku as product_sku
       FROM shipment_items si
-      JOIN products p ON si.product_id = p.id
+      JOIN active_products p ON si.product_id = p.id
       WHERE si.shipment_id = ? AND si.deleted_at IS NULL
       ORDER BY p.sku
     `).all(shipmentId) as ShipmentItemRow[]
@@ -95,7 +98,7 @@ export async function GET(
       SELECT DISTINCT o.customer_name
       FROM product_serial_numbers psn
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
-      LEFT JOIN orders o ON o.production_order_id = po.id
+      LEFT JOIN active_orders o ON o.production_order_id = po.id
       WHERE psn.shipment_id = ?
         AND o.customer_name IS NOT NULL
         AND o.customer_name != ''
@@ -114,20 +117,23 @@ export async function GET(
       end_customer_name: endCustomerName,
       items: itemsWithParsedSerials,
     })
-  } catch (error: any) {
-    return fail(error.message, { status: 500 })
+    } catch (error: any) {
+      return fail(error.message, { status: 500 })
+    }
   }
-}
+)
 
 // DELETE: Sevkiyatı geri al (iptal et)
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+export const DELETE = withAuth(
+  async (
+    request: NextRequest,
+    user,
+    context?: unknown
+  ) => {
   try {
     const db = getDatabase()
-    const resolvedParams = await Promise.resolve(params)
-    const shipmentId = resolvedParams.id
+    const resolvedParams = await Promise.resolve((context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params)
+    const shipmentId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-1)[0]
     const { randomUUID } = await import('crypto')
 
     // Sevkiyat bilgilerini al
@@ -150,11 +156,38 @@ export async function DELETE(
         si.*,
         p.name as product_name
       FROM shipment_items si
-      JOIN products p ON si.product_id = p.id
+      JOIN active_products p ON si.product_id = p.id
       WHERE si.shipment_id = ? AND si.deleted_at IS NULL
     `).all(shipmentId) as ShipmentItemRow[]
 
     db.transaction(() => {
+      // Eğer sevkiyatın faturası varsa iptal et (soft delete)
+      const linkedInvoiceId = shipment.invoice_id
+        || (db.prepare('SELECT id FROM invoices WHERE shipment_id = ? AND deleted_at IS NULL').get(shipmentId) as { id?: string } | undefined)?.id
+      if (linkedInvoiceId) {
+        db.prepare(`
+          UPDATE invoices
+          SET status = 'cancelled',
+              deleted_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(linkedInvoiceId)
+
+        db.prepare(`
+          UPDATE invoice_items
+          SET deleted_at = CURRENT_TIMESTAMP
+          WHERE invoice_id = ?
+        `).run(linkedInvoiceId)
+
+        db.prepare(`
+          UPDATE shipments
+          SET invoice_id = NULL,
+              invoice_number = NULL,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(shipmentId)
+      }
+
       // Her kalem için işlemleri geri al
       for (const item of items) {
         // Barkodları geri al (ready_for_shipment = 1, shipment_id = NULL)
@@ -222,4 +255,5 @@ export async function DELETE(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+  }
+)

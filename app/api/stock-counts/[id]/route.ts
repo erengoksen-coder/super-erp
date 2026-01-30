@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
@@ -14,10 +15,10 @@ type StockCountUpdate = {
 }
 
 // GET: Stok sayımı detayı
-export async function GET(
-  request: NextRequest,
+export const GET = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
@@ -36,13 +37,13 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Stok sayımı güncelle / tamamla
-export async function PATCH(
-  request: NextRequest,
+export const PATCH = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const body = await request.json() as StockCountUpdate
@@ -110,4 +111,4 @@ export async function PATCH(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

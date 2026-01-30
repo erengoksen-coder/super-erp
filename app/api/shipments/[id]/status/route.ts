@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
 
@@ -8,6 +9,8 @@ type ShipmentRow = {
   customer_id: string
   total_amount?: number | null
   final_amount?: number | null
+  invoice_id?: string | null
+  invoice_number?: string | null
 }
 
 type ShipmentItemRow = {
@@ -24,10 +27,10 @@ type ShipmentStatusInput = {
 }
 
 // PATCH: Sevkiyat durumunu güncelle
-export async function PATCH(
-  request: NextRequest,
+export const PATCH = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const shipmentId = resolvedParams.id
@@ -70,7 +73,7 @@ export async function PATCH(
         const shipmentItems = db.prepare(`
           SELECT si.*, p.sku as product_sku
           FROM shipment_items si
-          JOIN products p ON si.product_id = p.id
+          JOIN active_products p ON si.product_id = p.id
           WHERE si.shipment_id = ?
         `).all(shipmentId) as ShipmentItemRow[]
 
@@ -120,6 +123,32 @@ export async function PATCH(
               console.warn('Serial numbers parse hatası:', e)
             }
           }
+        }
+
+        // 3. Eğer sevkiyatın faturası varsa iptal et (soft delete)
+        const invoiceId = shipment.invoice_id
+        if (invoiceId) {
+          db.prepare(`
+            UPDATE invoices
+            SET status = 'cancelled',
+                deleted_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(invoiceId)
+
+          db.prepare(`
+            UPDATE invoice_items
+            SET deleted_at = CURRENT_TIMESTAMP
+            WHERE invoice_id = ?
+          `).run(invoiceId)
+
+          db.prepare(`
+            UPDATE shipments
+            SET invoice_id = NULL,
+                invoice_number = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(shipmentId)
         }
       }
 
@@ -243,5 +272,5 @@ export async function PATCH(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 

@@ -1,9 +1,10 @@
 import { ok } from '@/lib/api/response'
+import { withAuth } from '@/lib/api/withAuth'
 import { handleApi } from '@/lib/api/handler'
 import { sendPush } from '@/lib/notifications/push'
 import { pushSubscriptionsRepo } from '@/lib/repositories/pushSubscriptions'
 
-export async function POST() {
+export const POST = withAuth(async (request) => {
   return handleApi(async () => {
     const subscriptions = pushSubscriptionsRepo.list()
 
@@ -38,4 +39,4 @@ export async function POST() {
 
     return ok({ sent, removed })
   })
-}
+})

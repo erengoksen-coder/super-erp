@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
@@ -6,10 +7,10 @@ import { ok, fail } from '@/lib/api/response'
 import { handleApi } from '@/lib/api/handler'
 
 // GET: Tüm ürünleri getir
-export async function GET() {
+export const GET = withAuth(async (request) => {
   return handleApi(async () => {
     const db = getDatabase()
-    const products = db.prepare('SELECT * FROM products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
+    const products = db.prepare('SELECT * FROM active_products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
     
     // Her ürün için gerçek stok miktarını hesapla (sadece tamamlanmış üretim emirlerindeki ürünler)
     const productsWithRealStock = products.map(product => {
@@ -33,16 +34,25 @@ export async function GET() {
     
     return ok(productsWithRealStock, { headers: CACHE_HEADERS_SHORT })
   })
-}
+})
 
 // POST: Yeni ürün ekle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   return handleApi(async () => {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await request.json()
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
+    }
     const db = getDatabase()
     
     const id = randomUUID()
     const { name, sku, price = 0 } = body
+
+    if (!name || !sku) {
+      return fail('name ve sku gerekli', { status: 400 })
+    }
 
     db.prepare(`
       INSERT INTO products (id, name, sku, price)
@@ -51,6 +61,6 @@ export async function POST(request: NextRequest) {
 
     return ok({ id, ...body }, { status: 201 })
   })
-}
+})
 
 

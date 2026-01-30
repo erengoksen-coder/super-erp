@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok } from '@/lib/api/response'
 import { clearAuthCookies, getRefreshTokenFromRequest, hashToken } from '@/lib/auth/session'
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   const db = getDatabase()
   const refreshToken = getRefreshTokenFromRequest(request)
 
@@ -19,4 +20,4 @@ export async function POST(request: NextRequest) {
   const response = ok({ success: true })
   clearAuthCookies(response)
   return response
-}
+})

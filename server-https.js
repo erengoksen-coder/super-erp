@@ -143,6 +143,8 @@ const apiPermissionMap = new Map([
   ['/api/products', '/inventory/products'],
   ['/api/inventory', '/inventory'],
   ['/api/orders', '/orders'],
+  ['/api/sales-orders', '/orders'],
+  ['/api/purchase-orders', '/orders'],
   ['/api/production', '/production'],
   ['/api/work-orders', '/production/work-orders'],
   ['/api/shipments', '/shipments'],
@@ -157,7 +159,6 @@ const apiPermissionMap = new Map([
   ['/api/notifications', '/notifications'],
   ['/api/operations', '/production/operations'],
   ['/api/work-centers', '/production/work-centers'],
-  ['/api/personnel', '/production/personnel'],
   ['/api/reports', '/reports/costs'],
   ['/api/production/costs', '/reports/costs'],
 ])
@@ -318,11 +319,21 @@ async function authorizeRequest(req, res) {
         res.end(JSON.stringify({ error: 'Yetkisiz' }))
         return false
       }
-    } else if (!canAccessPath(permissions, pathname, 'view')) {
+    } else {
+      const isOrdersChild =
+        pathname === '/sales-orders' ||
+        pathname.startsWith('/sales-orders/') ||
+        pathname === '/purchase-orders' ||
+        pathname.startsWith('/purchase-orders/')
+      if (isOrdersChild && canAccessPath(permissions, '/orders', 'view')) {
+        return true
+      }
+      if (!canAccessPath(permissions, pathname, 'view')) {
       res.statusCode = 302
       res.setHeader('Location', '/')
       res.end()
       return false
+      }
     }
   }
 

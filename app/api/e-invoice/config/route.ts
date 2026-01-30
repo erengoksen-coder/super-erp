@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -9,7 +10,7 @@ type ConfigInput = {
 }
 
 // GET: Entegratör konfigürasyonları
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const configs = db.prepare(`
@@ -21,10 +22,10 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni entegratör konfigürasyonu kaydet
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as ConfigInput
     const { provider, config, is_active } = body
@@ -49,10 +50,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Aktif konfigürasyonu değiştir
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as { id?: string; is_active?: boolean }
     if (!body.id) {
@@ -71,4 +72,4 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

@@ -177,7 +177,7 @@ SELECT
         WHEN s.current_quantity >= b.quantity THEN true 
         ELSE false 
     END as is_available
-FROM products p
+FROM active_products p
 JOIN bom b ON p.id = b.product_id
 JOIN stocks s ON b.stock_id = s.id
 WHERE p.deleted_at IS NULL AND s.deleted_at IS NULL;

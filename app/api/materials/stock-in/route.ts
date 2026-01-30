@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { resolveUnitFactor } from '@/lib/units'
@@ -6,7 +7,7 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { createJournalEntry } from '@/lib/utils/accounting'
 
 // POST: Hammadde stok girişi
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { material_id, quantity, unit, warehouse_id, invoice_number, shipment_number, user_id } = body
@@ -191,4 +192,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

@@ -101,7 +101,7 @@ try {
     
     // 10. Orders (Siparişler)
     try {
-      const deleted = db.prepare('DELETE FROM orders').run();
+      const deleted = db.prepare('DELETE FROM active_orders').run();
       deletedCounts.orders = deleted.changes;
       console.log(`✓ ${deleted.changes} sipariş silindi`);
     } catch (e) {

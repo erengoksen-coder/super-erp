@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { handleApi } from '@/lib/api/handler'
@@ -15,7 +16,7 @@ type SubscriptionBody = {
   user_id?: string | null
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   return handleApi(async () => {
     const body = await request.json() as SubscriptionBody
     const subscription = body.subscription
@@ -36,4 +37,4 @@ export async function POST(request: NextRequest) {
 
     return ok({ subscribed: true })
   })
-}
+})

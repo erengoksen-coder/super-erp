@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { logger } from '@/lib/utils/logger'
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     // Test logları yaz
     logger.info('Test log mesajı - INFO seviyesi', { test: true, timestamp: new Date().toISOString() })
@@ -18,5 +19,5 @@ export async function GET(request: NextRequest) {
     logger.error('Test log endpoint hatası', { error: error.message })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

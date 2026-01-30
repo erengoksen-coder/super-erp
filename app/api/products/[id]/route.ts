@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Tek bir ürün bilgisini getir
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
-    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!productId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
 
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
@@ -19,22 +25,27 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 
 // PATCH: Ürün bilgilerini güncelle (stok miktarı dahil)
-export async function PATCH(
+export const PATCH = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const body = await request.json()
     const { stock_amount, min_stock_level, name, sku, price, selling_price, cost_price } = body
 
     const db = getDatabase()
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!productId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -79,7 +90,7 @@ export async function PATCH(
     }
 
     updateQuery += ' WHERE id = ? AND deleted_at IS NULL'
-    updateParams.push(resolvedParams.id)
+    updateParams.push(productId)
 
     db.prepare(updateQuery).run(...updateParams)
 
@@ -90,27 +101,32 @@ export async function PATCH(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 
 // DELETE: Ürünü sil
-export async function DELETE(
+export const DELETE = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!productId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
 
     // İlişkili kayıtları kontrol et
-    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE product_id = ?').get(resolvedParams.id) as any
-    const orderCount = db.prepare('SELECT COUNT(*) as count FROM production_orders WHERE product_id = ?').get(resolvedParams.id) as any
-    const serialCount = db.prepare('SELECT COUNT(*) as count FROM product_serial_numbers WHERE product_id = ?').get(resolvedParams.id) as any
+    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE product_id = ?').get(productId) as any
+    const orderCount = db.prepare('SELECT COUNT(*) as count FROM production_orders WHERE product_id = ?').get(productId) as any
+    const serialCount = db.prepare('SELECT COUNT(*) as count FROM product_serial_numbers WHERE product_id = ?').get(productId) as any
 
     if (bomCount.count > 0 || orderCount.count > 0 || serialCount.count > 0) {
       return NextResponse.json(
@@ -128,7 +144,7 @@ export async function DELETE(
 
     // Ürünü sil
     db.prepare('UPDATE products SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
-      .run(resolvedParams.id)
+      .run(productId)
 
     return NextResponse.json({
       success: true,
@@ -137,5 +153,5 @@ export async function DELETE(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 

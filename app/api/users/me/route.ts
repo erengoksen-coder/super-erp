@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { getAccessTokenFromRequest } from '@/lib/auth/session'
 import { verifyAccessToken } from '@/lib/auth/jwt'
+import { loadUserPermissions } from '@/lib/auth/permissions'
 
 // GET: Mevcut kullanıcı bilgilerini getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const token = getAccessTokenFromRequest(request)
     if (!token) {
       return NextResponse.json({ error: 'Kullanıcı kimliği gerekli' }, { status: 401 })
     }
-    const payload = await verifyAccessToken(token).catch(() => null)
+    const payload = await verifyAccessToken(token).catch (() => null)
     const userId = payload?.userId
     if (!userId) {
       return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
@@ -39,11 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // İzinleri getir
-    const permissions = db.prepare(`
-      SELECT page_path, can_view, can_create, can_edit, can_delete
-      FROM user_permissions
-      WHERE user_id = ? AND company_id = ? AND branch_id = ?
-    `).all(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    const permissions = loadUserPermissions(db, userId)
 
     return NextResponse.json({
       ...user,
@@ -52,10 +50,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Mevcut kullanıcı profilini güncelle
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const token = getAccessTokenFromRequest(request)
     if (!token) {
@@ -110,5 +108,5 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

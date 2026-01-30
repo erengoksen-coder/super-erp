@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
-import { generateInvoiceNumber } from '@/lib/utils/codeGenerator'
+import { generateNextCode } from '@/lib/utils/codeGenerator'
 
 type InvoiceRow = {
   id: string
@@ -29,7 +30,7 @@ type InvoiceCreateInput = {
 }
 
 // GET: Faturaları listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const customerId = searchParams.get('customer_id')
@@ -79,10 +80,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Sevkiyattan fatura oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as InvoiceCreateInput
     const { shipment_id, invoice_date, type = 'sale', notes } = body
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
     const items = db.prepare(`
       SELECT si.*, p.name as product_name, p.sku as product_sku
       FROM shipment_items si
-      JOIN products p ON si.product_id = p.id
+      JOIN active_products p ON si.product_id = p.id
       WHERE si.shipment_id = ? AND si.deleted_at IS NULL
       ORDER BY si.created_at
     `).all(shipment_id) as any[]
@@ -116,8 +117,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sevkiyat kalemi bulunamadı' }, { status: 400 })
     }
 
-    const invoiceId = randomUUID()
-    const invoiceNumber = await generateInvoiceNumber(type)
     const invoiceDate = invoice_date || shipment.shipment_date || new Date().toISOString().slice(0, 10)
 
     const totalAmount = shipment.total_amount || 0
@@ -125,57 +124,86 @@ export async function POST(request: NextRequest) {
     const taxAmount = shipment.tax_amount || 0
     const finalAmount = shipment.final_amount || totalAmount + taxAmount
 
-    db.transaction(() => {
-      db.prepare(`
-        INSERT INTO invoices
-        (id, invoice_number, shipment_id, customer_id, invoice_date, type, status, total_amount, tax_rate, tax_amount, final_amount, notes)
-        VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?, ?)
-      `).run(
-        invoiceId,
-        invoiceNumber,
-        shipment_id,
-        shipment.customer_id,
-        invoiceDate,
-        type,
-        totalAmount,
-        taxRate,
-        taxAmount,
-        finalAmount,
-        notes || shipment.notes || null
-      )
+    const getNextInvoiceNumber = () => {
+      const prefix = type === 'sale' ? 'SAT' : 'ALI'
+      const year = new Date().getFullYear()
+      const prefixWithYear = `${prefix}-${year}`
+      const row = db.prepare(`
+        SELECT invoice_number FROM invoices
+        WHERE invoice_number LIKE ?
+        ORDER BY invoice_number DESC
+        LIMIT 1
+      `).get(`${prefixWithYear}-%`) as { invoice_number?: string } | undefined
+      return generateNextCode(row?.invoice_number || null, { prefix: prefixWithYear, padding: 3 })
+    }
 
-      const insertItem = db.prepare(`
-        INSERT INTO invoice_items (id, invoice_id, product_id, quantity, unit_price, total_price, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `)
-      for (const item of items) {
-        insertItem.run(
-          randomUUID(),
-          invoiceId,
-          item.product_id,
-          item.quantity,
-          item.unit_price || 0,
-          item.total_price || 0,
-          item.notes || null
-        )
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const invoiceId = randomUUID()
+      try {
+        const result = db.transaction(() => {
+          const invoiceNumber = getNextInvoiceNumber()
+          db.prepare(`
+            INSERT INTO invoices
+            (id, invoice_number, shipment_id, customer_id, invoice_date, type, status, total_amount, tax_rate, tax_amount, final_amount, notes)
+            VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?, ?)
+          `).run(
+            invoiceId,
+            invoiceNumber,
+            shipment_id,
+            shipment.customer_id,
+            invoiceDate,
+            type,
+            totalAmount,
+            taxRate,
+            taxAmount,
+            finalAmount,
+            notes || shipment.notes || null
+          )
+
+          const insertItem = db.prepare(`
+            INSERT INTO invoice_items (id, invoice_id, product_id, quantity, unit_price, total_price, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `)
+          for (const item of items) {
+            insertItem.run(
+              randomUUID(),
+              invoiceId,
+              item.product_id,
+              item.quantity,
+              item.unit_price || 0,
+              item.total_price || 0,
+              item.notes || null
+            )
+          }
+
+          db.prepare(`
+            UPDATE shipments
+            SET invoice_id = ?, invoice_number = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(invoiceId, invoiceNumber, shipment_id)
+
+          return { invoiceId, invoiceNumber }
+        })()
+
+        return NextResponse.json({
+          success: true,
+          invoice: {
+            id: result.invoiceId,
+            invoice_number: result.invoiceNumber,
+            shipment_id,
+          },
+        }, { status: 201 })
+      } catch (error: any) {
+        const message = String(error?.message || '')
+        if (message.includes('UNIQUE') && message.includes('invoice_number') && attempt < 2) {
+          continue
+        }
+        throw error
       }
+    }
 
-      db.prepare(`
-        UPDATE shipments
-        SET invoice_id = ?, invoice_number = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(invoiceId, invoiceNumber, shipment_id)
-    })()
-
-    return NextResponse.json({
-      success: true,
-      invoice: {
-        id: invoiceId,
-        invoice_number: invoiceNumber,
-        shipment_id,
-      },
-    }, { status: 201 })
+    return NextResponse.json({ error: 'Fatura numarası oluşturulamadı' }, { status: 500 })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

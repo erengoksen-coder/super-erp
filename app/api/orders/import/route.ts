@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import * as XLSX from 'xlsx'
@@ -54,7 +55,7 @@ function createAccountIfNotExists(db: any, dealerName: string | null): void {
 }
 
 // POST: Excel dosyasından siparişleri yükle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { file } = body
@@ -132,13 +133,13 @@ export async function POST(request: NextRequest) {
         // Ürünü bul (SKU veya isim ile)
         let productId: string | null = null
         if (productSku) {
-          const product = db.prepare('SELECT id FROM products WHERE sku = ?').get(productSku) as any
+          const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(productSku) as any
           if (product) {
             productId = product.id
           }
         }
         if (!productId && productName) {
-          const product = db.prepare('SELECT id FROM products WHERE name LIKE ?').get(`%${productName}%`) as any
+          const product = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${productName}%`) as any
           if (product) {
             productId = product.id
           }
@@ -282,4 +283,4 @@ export async function POST(request: NextRequest) {
       details: error.message 
     }, { status: 500 })
   }
-}
+})

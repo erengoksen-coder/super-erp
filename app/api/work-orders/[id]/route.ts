@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { logAudit } from '@/lib/audit'
 import { getAuthUserId } from '@/lib/auth/session'
@@ -7,9 +8,12 @@ async function getActorId(request: NextRequest) {
   return await getAuthUserId(request)
 }
 
-export async function GET(request: NextRequest, context: { params: { id: string } }) {
+export const GET = withAuth(async (request: NextRequest, user, context?: { params?: { id?: string } | Promise<{ id?: string }> }) => {
   try {
-    const { id } = context.params
+    const resolvedParams = await Promise.resolve(context?.params)
+    const id =
+      resolvedParams?.id ??
+      new URL(request.url).pathname.split('/').filter(Boolean).slice(-1)[0]
     const db = getDatabase()
 
     const workOrder = db.prepare(`
@@ -21,7 +25,7 @@ export async function GET(request: NextRequest, context: { params: { id: string 
         p.sku as product_sku
       FROM work_orders wo
       JOIN production_orders po ON wo.production_order_id = po.id
-      LEFT JOIN products p ON po.product_id = p.id
+      LEFT JOIN active_products p ON po.product_id = p.id
       WHERE wo.id = ? AND wo.company_id = ? AND wo.branch_id = ? AND wo.deleted_at IS NULL
     `).get(id, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
 
@@ -43,11 +47,14 @@ export async function GET(request: NextRequest, context: { params: { id: string 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
-export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
+export const PATCH = withAuth(async (request: NextRequest, user, context?: { params?: { id?: string } | Promise<{ id?: string }> }) => {
   try {
-    const { id } = context.params
+    const resolvedParams = await Promise.resolve(context?.params)
+    const id =
+      resolvedParams?.id ??
+      new URL(request.url).pathname.split('/').filter(Boolean).slice(-1)[0]
     const body = await request.json()
     const { status, planned_start_date, planned_end_date, notes } = body || {}
 
@@ -93,4 +100,4 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

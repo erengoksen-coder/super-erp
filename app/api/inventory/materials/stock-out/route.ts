@@ -1,0 +1,1 @@
+export { POST } from '../../../../materials/stock-out/route'

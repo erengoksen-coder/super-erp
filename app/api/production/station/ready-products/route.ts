@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Sevk edilebilir ürünler ve mamül depo miktarları
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
 
@@ -18,7 +19,7 @@ export async function GET() {
         p.sku as product_sku,
         COUNT(*) as ready_count
       FROM product_serial_numbers psn
-      JOIN products p ON psn.product_id = p.id
+      JOIN active_products p ON psn.product_id = p.id
       LEFT JOIN accounts a ON psn.customer_id = a.id
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       WHERE psn.ready_for_shipment = 1
@@ -38,7 +39,7 @@ export async function GET() {
         sku,
         name,
         stock_amount
-      FROM products
+      FROM active_products
       ORDER BY sku
     `).all()
 
@@ -77,6 +78,6 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

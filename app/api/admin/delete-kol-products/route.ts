@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
 
     // Önce ürünleri bul
     const products = db.prepare(`
       SELECT id, sku, name 
-      FROM products 
+      FROM active_products 
       WHERE sku IN ('KOL-001', 'KOL-002', 'KOL-003')
     `).all() as any[]
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Ürünleri sil
     for (const product of products) {
       try {
-        const result = db.prepare('DELETE FROM products WHERE id = ?').run(product.id)
+        const result = db.prepare('DELETE FROM active_products WHERE id = ?').run(product.id)
         if (result.changes > 0) {
           productsDeleted++
         }
@@ -53,5 +54,5 @@ export async function POST(request: NextRequest) {
     console.error('KOL ürünleri silinirken hata:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

@@ -2,10 +2,10 @@
 -- Bu dosyayı Supabase SQL Editor'de çalıştırarak test verilerini ekleyebilirsiniz
 
 -- ============================================
--- 1. HAMMADDE STOKLARI (Materials/Stocks)
+-- 1. HAMMADDE STOKLARI (Materials)
 -- ============================================
 
-INSERT INTO stocks (code, name, category, unit, current_quantity, min_quantity, unit_cost) VALUES
+INSERT INTO materials (code, name, category, unit, stock_amount, min_stock_level, unit_price) VALUES
 ('KUM-001', 'Kadife Kumaş - Kırmızı', 'kumaş', 'metre', 100.5, 20, 45.00),
 ('KUM-002', 'Deri Kumaş - Siyah', 'kumaş', 'metre', 75.0, 15, 120.00),
 ('KUM-003', 'Keten Kumaş - Bej', 'kumaş', 'metre', 50.0, 10, 35.00),
@@ -22,19 +22,19 @@ INSERT INTO stocks (code, name, category, unit, current_quantity, min_quantity, 
 -- 2. ÜRÜNLER (Products - Koltuk Modelleri)
 -- ============================================
 
-INSERT INTO products (sku, name, description, category, base_cost, base_price, unit) VALUES
-('KOL-001', 'Chester Koltuk', 'Klasik Chester modeli, konforlu ve şık', 'Koltuk', 450.00, 850.00, 'adet'),
-('KOL-002', 'Berjer Koltuk', 'Modern berjer modeli, kompakt tasarım', 'Koltuk', 380.00, 720.00, 'adet'),
-('KOL-003', 'Kanepe 2+1', '2+1 kanepe seti, geniş aile için', 'Kanepe', 1200.00, 2200.00, 'adet'),
-('KOL-004', 'Köşe Koltuk', 'L şeklinde köşe koltuk, büyük oturma alanı', 'Koltuk', 950.00, 1800.00, 'adet'),
-('KOL-005', 'Tekli Koltuk', 'Minimalist tekli koltuk, küçük alanlar için', 'Koltuk', 320.00, 600.00, 'adet');
+INSERT INTO products (sku, name, price) VALUES
+('KOL-001', 'Chester Koltuk', 850.00),
+('KOL-002', 'Berjer Koltuk', 720.00),
+('KOL-003', 'Kanepe 2+1', 2200.00),
+('KOL-004', 'Köşe Koltuk', 1800.00),
+('KOL-005', 'Tekli Koltuk', 600.00);
 
 -- ============================================
 -- 3. BOM (Bill of Materials) - Ürün Reçeteleri
 -- ============================================
 
 -- Chester Koltuk Reçetesi
-INSERT INTO bom (product_id, stock_id, quantity, unit) 
+INSERT INTO bom (product_id, material_id, quantity_required, unit)
 SELECT 
     p.id,
     s.id,
@@ -45,12 +45,12 @@ SELECT
         WHEN s.code = 'DIG-001' THEN 15.0 -- 15 metre iplik
     END,
     s.unit
-FROM products p, stocks s
+FROM active_products p, materials s
 WHERE p.sku = 'KOL-001'
 AND s.code IN ('KUM-001', 'SUN-002', 'AYK-001', 'DIG-001');
 
 -- Berjer Koltuk Reçetesi
-INSERT INTO bom (product_id, stock_id, quantity, unit)
+INSERT INTO bom (product_id, material_id, quantity_required, unit)
 SELECT 
     p.id,
     s.id,
@@ -61,12 +61,12 @@ SELECT
         WHEN s.code = 'DIG-001' THEN 10.0
     END,
     s.unit
-FROM products p, stocks s
+FROM active_products p, materials s
 WHERE p.sku = 'KOL-002'
 AND s.code IN ('KUM-002', 'SUN-001', 'AYK-002', 'DIG-001');
 
 -- Kanepe 2+1 Reçetesi
-INSERT INTO bom (product_id, stock_id, quantity, unit)
+INSERT INTO bom (product_id, material_id, quantity_required, unit)
 SELECT 
     p.id,
     s.id,
@@ -77,12 +77,12 @@ SELECT
         WHEN s.code = 'DIG-001' THEN 35.0
     END,
     s.unit
-FROM products p, stocks s
+FROM active_products p, materials s
 WHERE p.sku = 'KOL-003'
 AND s.code IN ('KUM-003', 'SUN-002', 'AYK-001', 'DIG-001');
 
 -- Köşe Koltuk Reçetesi
-INSERT INTO bom (product_id, stock_id, quantity, unit)
+INSERT INTO bom (product_id, material_id, quantity_required, unit)
 SELECT 
     p.id,
     s.id,
@@ -93,12 +93,12 @@ SELECT
         WHEN s.code = 'DIG-001' THEN 25.0
     END,
     s.unit
-FROM products p, stocks s
+FROM active_products p, materials s
 WHERE p.sku = 'KOL-004'
 AND s.code IN ('KUM-001', 'SUN-003', 'AYK-002', 'DIG-001');
 
 -- Tekli Koltuk Reçetesi
-INSERT INTO bom (product_id, stock_id, quantity, unit)
+INSERT INTO bom (product_id, material_id, quantity_required, unit)
 SELECT 
     p.id,
     s.id,
@@ -109,7 +109,7 @@ SELECT
         WHEN s.code = 'DIG-001' THEN 8.0
     END,
     s.unit
-FROM products p, stocks s
+FROM active_products p, materials s
 WHERE p.sku = 'KOL-005'
 AND s.code IN ('KUM-002', 'SUN-001', 'AYK-003', 'DIG-001');
 
@@ -124,7 +124,7 @@ AND s.code IN ('KUM-002', 'SUN-001', 'AYK-003', 'DIG-001');
 --     5,
 --     'pending',
 --     CURRENT_DATE
--- FROM products p
+-- FROM active_products p
 -- WHERE p.sku = 'KOL-001';
 
 

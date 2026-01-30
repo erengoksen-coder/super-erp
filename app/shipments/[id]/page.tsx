@@ -424,7 +424,9 @@ export default function ShipmentDetailPage() {
                       <div className="text-xs text-gray-600 mb-1">Notlar:</div>
                       <div className="text-xs text-gray-900">
                         {item.notes}
-                        {shipment.end_customer_name ? ` (Müşteri: ${shipment.end_customer_name})` : ''}
+                        {(shipment.end_customer_name || shipment.customer_name)
+                          ? ` (Müşteri: ${shipment.end_customer_name || shipment.customer_name})`
+                          : ''}
                       </div>
                     </div>
                   )}

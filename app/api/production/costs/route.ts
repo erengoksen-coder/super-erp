@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Üretim maliyet kayıtları
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const orderId = searchParams.get('production_order_id')
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
       SELECT pc.*, po.order_number, p.name as product_name, p.sku as product_sku
       FROM production_costs pc
       JOIN production_orders po ON pc.production_order_id = po.id
-      JOIN products p ON po.product_id = p.id
+      JOIN active_products p ON po.product_id = p.id
       WHERE pc.deleted_at IS NULL
     `
     const params: string[] = []
@@ -28,4 +29,4 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

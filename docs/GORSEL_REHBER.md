@@ -163,7 +163,7 @@ stock_movements
 SELECT name, unit, stock_amount FROM materials;
 
 -- Ürünler
-SELECT name, sku, price FROM products;
+SELECT name, sku, price FROM active_products;
 
 -- BOM Reçeteleri
 SELECT 
@@ -171,7 +171,7 @@ SELECT
     m.name as material_name,
     b.quantity_required
 FROM bom b
-JOIN products p ON b.product_id = p.id
+JOIN active_products p ON b.product_id = p.id
 JOIN materials m ON b.material_id = m.id;
 ```
 

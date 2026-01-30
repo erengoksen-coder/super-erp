@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // POST: Barkod okutarak stok düş
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { barcode, customer_id } = body
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
         p.sku,
         p.stock_amount
       FROM product_serial_numbers psn
-      JOIN products p ON psn.product_id = p.id
+      JOIN active_products p ON psn.product_id = p.id
       WHERE psn.barcode = ? OR psn.serial_number = ?
     `).get(barcode, barcode) as any
 
@@ -90,5 +91,5 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

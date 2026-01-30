@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
 
@@ -21,14 +22,18 @@ type AccountTransactionRow = {
 }
 
 // GET: Cari hesap işlemlerini getir
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
     const db = getDatabase()
-    const resolvedParams = await Promise.resolve(params)
-    const accountId = resolvedParams.id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!accountId) {
+      return fail('ID gerekli', { status: 400 })
+    }
 
     const transactions = db.prepare(`
       SELECT 
@@ -43,7 +48,7 @@ export async function GET(
       FROM account_transactions at
       LEFT JOIN shipment_items si ON at.reference_id = si.id AND at.reference_type = 'shipment_item'
       LEFT JOIN shipments s ON si.shipment_id = s.id
-      LEFT JOIN products p ON si.product_id = p.id
+      LEFT JOIN active_products p ON si.product_id = p.id
       WHERE at.account_id = ?
       ORDER BY at.created_at ASC
     `).all(accountId) as AccountTransactionRow[]
@@ -62,4 +67,4 @@ export async function GET(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});

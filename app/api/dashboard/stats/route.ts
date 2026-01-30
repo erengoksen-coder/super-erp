@@ -1,4 +1,5 @@
 import { ok } from '@/lib/api/response'
+import { withAuth } from '@/lib/api/withAuth'
 import { handleApi } from '@/lib/api/handler'
 import { getDatabase } from '@/lib/database/db'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
@@ -24,7 +25,7 @@ type StationStatRow = {
   total_quantity: number | null
 }
 
-export async function GET() {
+export const GET = withAuth(async (request) => {
   return handleApi(async () => {
     const db = getDatabase()
 
@@ -70,7 +71,7 @@ export async function GET() {
       const date = new Date()
       date.setDate(date.getDate() - i)
       const dateKey = date.toISOString().split('T')[0]
-      const found = productionTrend.find(p => p.date === dateKey)
+      const found = productionTrend.find((p) => p.date === dateKey)
       trendData.push({
         date: dateKey,
         count: found?.count || 0,
@@ -126,5 +127,5 @@ export async function GET() {
       { headers: CACHE_HEADERS_SHORT }
     )
   })
-}
+})
 

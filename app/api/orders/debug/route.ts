@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Debug endpoint - Sipariş durumunu kontrol et
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const orderId = searchParams.get('order_id')
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     const db = getDatabase()
     
     // Sipariş bilgisini al
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any
+    const order = db.prepare('SELECT * FROM active_orders WHERE id = ?').get(orderId) as any
     
     if (!order) {
       return NextResponse.json({ error: 'Sipariş bulunamadı' }, { status: 404 })
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     // Pending sorgusunda görünüyor mu kontrol et
     const pendingQuery = `
       SELECT COUNT(*) as count
-      FROM orders
+      FROM active_orders
       WHERE status = 'pending'
         AND (production_order_id IS NULL OR production_order_id = '' OR TRIM(COALESCE(production_order_id, '')) = '')
         AND id = ?
@@ -70,5 +71,5 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

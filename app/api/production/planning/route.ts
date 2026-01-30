@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Üretim planlama verileri (açıklamalı, tarihli)
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
         p.name as product_name,
         p.sku as product_sku
       FROM production_orders po
-      JOIN products p ON po.product_id = p.id
+      JOIN active_products p ON po.product_id = p.id
       WHERE po.status != 'completed'
         AND po.status != 'cancelled'
       ORDER BY po.created_at ASC
@@ -104,6 +105,6 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

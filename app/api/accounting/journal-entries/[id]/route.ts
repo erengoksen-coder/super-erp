@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 type JournalEntryRow = {
@@ -13,13 +14,18 @@ type JournalEntryLineRow = {
 }
 
 // GET: Yevmiye kaydı detayı
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (
+  _request: NextRequest,
+  _user,
+  context?: { params?: { id?: string } }
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = context?.params?.id
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Yevmiye kaydı
     const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as JournalEntryRow | undefined
@@ -47,6 +53,6 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

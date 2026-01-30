@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { networkInterfaces } from 'os'
 
 // GET: Bilgisayarın yerel IP adresini döndür
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const interfaces = networkInterfaces()
     let ip = 'localhost'
@@ -45,6 +46,6 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ ip: 'localhost', error: error.message }, { status: 500 })
   }
-}
+})
 
 

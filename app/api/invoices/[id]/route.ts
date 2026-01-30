@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Fatura detayı
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
+export const GET = withAuth(
+  async (
+    request: NextRequest,
+    user,
+    { params }: { params: Promise<{ id: string }> | { id: string } }
+  ) => {
+    try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
     const invoice = db.prepare(`
@@ -24,23 +27,26 @@ export async function GET(
     const items = db.prepare(`
       SELECT ii.*, p.name as product_name, p.sku as product_sku
       FROM invoice_items ii
-      JOIN products p ON ii.product_id = p.id
+      JOIN active_products p ON ii.product_id = p.id
       WHERE ii.invoice_id = ? AND ii.deleted_at IS NULL
       ORDER BY ii.created_at
     `).all(resolvedParams.id)
 
     return NextResponse.json({ ...invoice, items })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    } catch (error: any) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
-}
+)
 
 // DELETE: Faturayı iptal et (soft delete)
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
+export const DELETE = withAuth(
+  async (
+    request: NextRequest,
+    user,
+    { params }: { params: Promise<{ id: string }> | { id: string } }
+  ) => {
+    try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
     const invoice = db.prepare('SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL').get(resolvedParams.id) as any
@@ -63,7 +69,8 @@ export async function DELETE(
     })()
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    } catch (error: any) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
-}
+)

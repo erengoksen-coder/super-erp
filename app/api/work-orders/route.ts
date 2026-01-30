@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
@@ -41,7 +42,7 @@ function generateWorkOrderNumber(db: ReturnType<typeof getDatabase>) {
   return `WO-${todayStr}-${randomUUID().slice(0, 4)}`
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
         p.sku as product_sku
       FROM work_orders wo
       JOIN production_orders po ON wo.production_order_id = po.id
-      LEFT JOIN products p ON po.product_id = p.id
+      LEFT JOIN active_products p ON po.product_id = p.id
       WHERE wo.company_id = ? AND wo.branch_id = ? AND wo.deleted_at IS NULL
     `
     const params: any[] = [DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID]
@@ -91,9 +92,9 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { production_order_id, planned_start_date, planned_end_date, notes, stations } = body || {}
@@ -179,4 +180,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

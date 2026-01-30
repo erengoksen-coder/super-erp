@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
@@ -37,7 +38,7 @@ type PaymentCreateInput = {
 }
 
 // GET: Ödeme/tahsilatları listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const accountId = searchParams.get('account_id')
@@ -88,10 +89,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 
 // POST: Ödeme/tahsilat oluştur ve cari hareketi yaz
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as PaymentCreateInput
     const {
@@ -226,4 +227,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})

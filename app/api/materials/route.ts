@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { materialsRepo } from '@/lib/repositories/materials'
+import { getDatabase } from '@/lib/database/db'
 
 type MaterialInput = {
   name: string
@@ -15,23 +17,32 @@ type MaterialInput = {
 }
 
 // GET: Tüm hammaddeleri getir
-export async function GET() {
+export const GET = withAuth(async () => {
   try {
     const materials = materialsRepo.getAll()
     return ok(materials, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 
 // POST: Yeni hammadde ekle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as MaterialInput
+    let body: MaterialInput
+    try {
+      body = await request.json() as MaterialInput
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
+    }
     const db = getDatabase()
     
     const id = randomUUID()
     const { name, unit, stock_amount = 0, min_stock_level = 0, category, code, unit_price = 0 } = body
+
+    if (!name || !unit) {
+      return fail('name ve unit gerekli', { status: 400 })
+    }
 
     // Kod oluştur (eğer verilmemişse)
     let materialCode = code
@@ -80,5 +91,5 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 

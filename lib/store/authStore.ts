@@ -10,6 +10,13 @@ export type AuthUser = {
   full_name?: string | null
   role: string
   job_title?: string | null
+  permissions?: Array<{
+    page_path: string
+    can_view: number
+    can_create: number
+    can_edit: number
+    can_delete: number
+  }>
 }
 
 type AuthState = {

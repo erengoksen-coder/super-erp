@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 
@@ -12,7 +13,7 @@ type OperationRow = {
 }
 
 // GET: Operasyonları listele
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const operations = db.prepare(`
@@ -25,10 +26,10 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Operasyon oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { code, name, description, standard_duration_minutes } = body || {}
@@ -55,10 +56,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Operasyon güncelle
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { id, code, name, description, standard_duration_minutes, is_active } = body || {}
@@ -95,10 +96,10 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Operasyon sil
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -117,4 +118,4 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

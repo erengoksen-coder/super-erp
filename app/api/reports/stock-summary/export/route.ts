@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import * as XLSX from 'xlsx'
 
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const materials = db.prepare(`
@@ -13,7 +14,7 @@ export async function GET() {
 
     const products = db.prepare(`
       SELECT sku, name, stock_amount, min_stock_level
-      FROM products
+      FROM active_products
       ORDER BY sku
     `).all() as Array<Record<string, string | number | null>>
 
@@ -35,4 +36,4 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

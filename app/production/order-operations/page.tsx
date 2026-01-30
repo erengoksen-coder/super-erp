@@ -21,10 +21,6 @@ type WorkCenter = {
   name: string
 }
 
-type Personnel = {
-  id: string
-  full_name: string
-}
 
 type OrderOperation = {
   id: string
@@ -69,7 +65,6 @@ export default function OrderOperationsPage() {
   const [orders, setOrders] = useState<ProductionOrder[]>([])
   const [operations, setOperations] = useState<Operation[]>([])
   const [workCenters, setWorkCenters] = useState<WorkCenter[]>([])
-  const [personnel, setPersonnel] = useState<Personnel[]>([])
   const [rows, setRows] = useState<OrderOperation[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -77,7 +72,6 @@ export default function OrderOperationsPage() {
     production_order_id: '',
     operation_id: '',
     work_center_id: '',
-    personnel_id: '',
     planned_start: '',
     planned_end: '',
     actual_start: '',
@@ -100,7 +94,6 @@ export default function OrderOperationsPage() {
         fetchApi('/api/production'),
         fetchApi('/api/operations'),
         fetchApi('/api/work-centers'),
-        fetchApi('/api/personnel'),
         fetchApi('/api/production/order-operations'),
       ])
 
@@ -113,13 +106,11 @@ export default function OrderOperationsPage() {
       const orderRows = normalizeList<ProductionOrder>(getValue(0))
       const ops = normalizeList<Operation>(getValue(1))
       const centers = normalizeList<WorkCenter>(getValue(2))
-      const people = normalizeList<Personnel>(getValue(3))
-      const opsRows = normalizeList<OrderOperation>(getValue(4))
+      const opsRows = normalizeList<OrderOperation>(getValue(3))
 
       setOrders(orderRows)
       setOperations(ops)
       setWorkCenters(centers)
-      setPersonnel(people)
       setRows(opsRows)
     } catch (error) {
       console.error('Operasyon verileri yüklenemedi:', error)
@@ -150,7 +141,6 @@ export default function OrderOperationsPage() {
           production_order_id: form.production_order_id,
           operation_id: form.operation_id,
           work_center_id: form.work_center_id || null,
-          personnel_id: form.personnel_id || null,
           planned_start: form.planned_start || null,
           planned_end: form.planned_end || null,
           actual_start: form.actual_start || null,
@@ -166,7 +156,6 @@ export default function OrderOperationsPage() {
         production_order_id: '',
         operation_id: '',
         work_center_id: '',
-        personnel_id: '',
         planned_start: '',
         planned_end: '',
         actual_start: '',
@@ -260,22 +249,6 @@ export default function OrderOperationsPage() {
               {workCenters.map((center) => (
                 <option key={center.id} value={center.id}>
                   {center.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Personel</label>
-            <select
-              value={form.personnel_id}
-              onChange={(e) => setForm({ ...form, personnel_id: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
-            >
-              <option value="">Seçin</option>
-              {personnel.length === 0 && <option value="" disabled>Kayıt yok</option>}
-              {personnel.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.full_name}
                 </option>
               ))}
             </select>

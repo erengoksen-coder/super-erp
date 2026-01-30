@@ -99,7 +99,7 @@ Beklenen tablolar:
 SELECT * FROM materials;
 
 -- Ürünleri görüntüle
-SELECT * FROM products;
+SELECT * FROM active_products;
 
 -- BOM reçetelerini görüntüle
 SELECT * FROM bom;

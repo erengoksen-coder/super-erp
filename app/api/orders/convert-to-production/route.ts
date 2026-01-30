@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -7,7 +8,7 @@ import { generateProductionOrderNumber } from '@/lib/utils/codeGenerator'
 import { logger } from '@/lib/utils/logger'
 
 // POST: Siparişleri üretim emrine dönüştür
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   logger.info('[BAŞLANGIÇ] Sipariş dönüştürme API çağrıldı')
   try {
     const body = await request.json()
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     
     for (const orderId of order_ids) {
       // Siparişi al
-      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any
+      const order = db.prepare('SELECT * FROM active_orders WHERE id = ?').get(orderId) as any
       if (!order) {
         errors.push(`Sipariş bulunamadı: ${orderId}`)
         continue
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
       
       // Eğer product_id varsa, ürünün konfigürasyonla uyuşup uyuşmadığını kontrol et
       if (productId && order.configuration) {
-        const product = db.prepare('SELECT name FROM products WHERE id = ?').get(productId) as any
+        const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(productId) as any
         if (product && product.name) {
           const productNameLower = (product.name || '').toLowerCase()
           const configLower = (order.configuration || '').toLowerCase().trim()
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
       if (!productId) {
         // Ürün eşleştirilmemiş, ürünü bul
         if (order.product_sku) {
-          const existingProduct = db.prepare('SELECT id, name FROM products WHERE sku = ?').get(order.product_sku) as any
+          const existingProduct = db.prepare('SELECT id, name FROM active_products WHERE sku = ?').get(order.product_sku) as any
           if (existingProduct) {
             // SKU ile bulunan ürünün konfigürasyonla uyuşup uyuşmadığını kontrol et
             if (order.configuration) {
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
             
             // Önce tam eşleşme dene
             const exactMatch = db.prepare(`
-              SELECT id, name FROM products 
+              SELECT id, name FROM active_products 
               WHERE LOWER(TRIM(name)) = ?
             `).get(expectedProductName) as any
             
@@ -192,7 +193,7 @@ export async function POST(request: NextRequest) {
             
             // Tam eşleşme yoksa, kısmi eşleşme dene
             if (!productId) {
-              const allProducts = db.prepare('SELECT id, name, sku FROM products').all() as any[]
+              const allProducts = db.prepare('SELECT id, name, sku FROM active_products').all() as any[]
               
               // Önce tüm eşleşen ürünleri bul
               const matchingProducts = allProducts.filter(p => {
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
         if (!productId && order.product_name) {
           const productNameClean = (order.product_name || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').trim().split(' ')[0]
           const existingProduct = db.prepare(`
-            SELECT id, name FROM products 
+            SELECT id, name FROM active_products 
             WHERE LOWER(TRIM(name)) LIKE ?
             LIMIT 1
           `).get(`%${productNameClean}%`) as any
@@ -246,7 +247,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Ürün bilgisini al
-      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(order.product_id) as any
+      const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(order.product_id) as any
       if (!product) {
         logger.error(`[ÜRÜN BULUNAMADI] Sipariş ${order.order_number} için product_id: ${order.product_id} bulunamadı`)
         // product_id geçersiz, siparişteki product_id'yi temizle ve tekrar ürün eşleştirmesi yap
@@ -282,7 +283,7 @@ export async function POST(request: NextRequest) {
         // Hangi ürünler için BOM var kontrol et (debug için)
         const allBomProducts = db.prepare(`
           SELECT DISTINCT p.id, p.name, p.sku, COUNT(bv.id) as bom_count
-          FROM products p
+          FROM active_products p
           LEFT JOIN bom b ON p.id = b.product_id
           LEFT JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
           WHERE p.name LIKE ?
@@ -663,7 +664,7 @@ export async function POST(request: NextRequest) {
         logger.info(`[BAŞLANGIÇ] Sipariş ${orderNumberToUpdate} dönüştürülüyor...`, { order_id: orderIdToUpdate })
         
         // ÖNCE: Mevcut durumu kontrol et
-        const beforeUpdate = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
+        const beforeUpdate = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
         logger.info(`[ÖNCE] Sipariş ${orderNumberToUpdate} mevcut durum`, {
           order_id: orderIdToUpdate,
           current_production_order_id: beforeUpdate?.production_order_id,
@@ -888,7 +889,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Hemen doğrulama yap
-        const verify = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
+        const verify = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
         logger.info(`[4c/5] Doğrulama`, {
           production_order_id: verify?.production_order_id,
           status: verify?.status,
@@ -912,7 +913,7 @@ export async function POST(request: NextRequest) {
             WHERE id = ?
           `).run(productionOrderId, orderIdToUpdate)
           
-          const retryVerify = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
+          const retryVerify = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
           if (!retryVerify || retryVerify.production_order_id !== productionOrderId || retryVerify.status !== 'in_production') {
             logger.error(`Sipariş ${orderNumberToUpdate} retry sonrası da doğrulanamadı`, {
               retryVerify,
@@ -927,7 +928,7 @@ export async function POST(request: NextRequest) {
         logger.info(`[5/5] Pending sorgusu kontrol ediliyor...`, { order_id: orderIdToUpdate })
         const pendingCheck = db.prepare(`
           SELECT COUNT(*) as count
-          FROM orders
+          FROM active_orders
           WHERE status = 'pending'
             AND (production_order_id IS NULL OR production_order_id = '')
             AND id = ?
@@ -1009,5 +1010,5 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

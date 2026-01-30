@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Yevmiye kayıtlarını listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('start_date')
@@ -32,14 +33,23 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Manuel yevmiye kaydı oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Geçersiz JSON' }, { status: 400 })
+    }
     const { createJournalEntry } = await import('@/lib/utils/accounting')
-    
+
+    if (!body || !Array.isArray(body.lines) || body.lines.length === 0) {
+      return NextResponse.json({ error: 'Yevmiye satırları gerekli' }, { status: 400 })
+    }
+
     const entryId = await createJournalEntry(body)
     
     return NextResponse.json({ 
@@ -50,6 +60,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

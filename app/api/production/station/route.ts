@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -10,7 +11,7 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
  */
 
 // POST: Barkod okutarak istasyon geçişi
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { barcode, station } = body
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
       SELECT psn.*, po.*, p.name as product_name, p.sku
       FROM product_serial_numbers psn
       JOIN production_orders po ON psn.production_order_id = po.id
-      JOIN products p ON po.product_id = p.id
+      JOIN active_products p ON po.product_id = p.id
       WHERE psn.barcode = ? OR psn.serial_number = ?
       LIMIT 1
     `).get(barcode, barcode) as any
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
     const updatedOrder = db.prepare(`
       SELECT po.*, p.name as product_name, p.sku
       FROM production_orders po
-      JOIN products p ON po.product_id = p.id
+      JOIN active_products p ON po.product_id = p.id
       WHERE po.id = ?
     `).get(productionOrderId) as any
 
@@ -196,10 +197,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // GET: İstasyon bazlı istatistikler (darboğaz analizi)
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     
@@ -246,5 +247,5 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

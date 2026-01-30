@@ -239,12 +239,29 @@ function initializeDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
+  try {
+    db.exec('ALTER TABLE audit_logs ADD COLUMN old_data TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE audit_logs ADD COLUMN new_data TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE audit_logs ADD COLUMN ip_address TEXT')
+  } catch {}
 
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_table_record ON audit_logs(table_name, record_id)')
   } catch {}
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)')
+  } catch {}
+
+  // Active views for soft deletes
+  try {
+    db.exec('CREATE VIEW IF NOT EXISTS active_orders AS SELECT * FROM orders WHERE deleted_at IS NULL')
+  } catch {}
+  try {
+    db.exec('CREATE VIEW IF NOT EXISTS active_products AS SELECT * FROM products WHERE deleted_at IS NULL')
   } catch {}
 
   // Unit Conversions (Birim çevrimleri)
@@ -398,6 +415,87 @@ function initializeDatabase() {
           permId,
           'role_admin',
           key,
+          perm.can_view ?? 0,
+          perm.can_create ?? 0,
+          perm.can_edit ?? 0,
+          perm.can_delete ?? 0,
+          DEFAULT_COMPANY_ID,
+          DEFAULT_BRANCH_ID
+        )
+      }
+    }
+  } catch {}
+
+  // Satış/Satın Alma siparişleri için varsayılan izinleri kopyala
+  try {
+    const targetPaths = ['/sales-orders', '/purchase-orders']
+    const permissionInsert = db.prepare(`
+      INSERT OR IGNORE INTO permissions (key, name, category, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    const rolePermInsert = db.prepare(`
+      INSERT OR IGNORE INTO role_permissions
+      (id, role_id, permission_key, can_view, can_create, can_edit, can_delete, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const userPermInsert = db.prepare(`
+      INSERT OR IGNORE INTO user_permissions
+      (id, user_id, page_path, can_view, can_create, can_edit, can_delete, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    for (const path of targetPaths) {
+      permissionInsert.run(path, path, null, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    }
+
+    const baseRolePerms = db.prepare(`
+      SELECT role_id, can_view, can_create, can_edit, can_delete
+      FROM role_permissions
+      WHERE permission_key = '/orders'
+    `).all() as Array<{
+      role_id: string
+      can_view: number
+      can_create: number
+      can_edit: number
+      can_delete: number
+    }>
+
+    for (const perm of baseRolePerms) {
+      for (const path of targetPaths) {
+        const permId = `rp_${perm.role_id}_${path.replace(/[^a-zA-Z0-9_]+/g, '_')}`
+        rolePermInsert.run(
+          permId,
+          perm.role_id,
+          path,
+          perm.can_view ?? 0,
+          perm.can_create ?? 0,
+          perm.can_edit ?? 0,
+          perm.can_delete ?? 0,
+          DEFAULT_COMPANY_ID,
+          DEFAULT_BRANCH_ID
+        )
+      }
+    }
+
+    const baseUserPerms = db.prepare(`
+      SELECT user_id, can_view, can_create, can_edit, can_delete
+      FROM user_permissions
+      WHERE page_path = '/orders'
+    `).all() as Array<{
+      user_id: string
+      can_view: number
+      can_create: number
+      can_edit: number
+      can_delete: number
+    }>
+
+    for (const perm of baseUserPerms) {
+      for (const path of targetPaths) {
+        const permId = `up_${perm.user_id}_${path.replace(/[^a-zA-Z0-9_]+/g, '_')}`
+        userPermInsert.run(
+          permId,
+          perm.user_id,
+          path,
           perm.can_view ?? 0,
           perm.can_create ?? 0,
           perm.can_edit ?? 0,
@@ -750,21 +848,262 @@ function initializeDatabase() {
     )
   `)
 
-  // Personel
+  // HR (İK) taban şeması
   db.exec(`
-    CREATE TABLE IF NOT EXISTS personnel (
+    CREATE TABLE IF NOT EXISTS hr_employees (
       id TEXT PRIMARY KEY,
       full_name TEXT NOT NULL,
-      role TEXT,
-      phone TEXT,
       email TEXT,
-      hourly_rate REAL DEFAULT 0,
+      phone TEXT,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_departments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      manager_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_departments_name ON hr_departments(name)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      department_id TEXT,
+      leader_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (department_id) REFERENCES hr_departments(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_teams_department ON hr_teams(department_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_workplaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT,
+      city TEXT,
+      country TEXT,
+      timezone TEXT,
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       deleted_at TEXT
     )
   `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_workplaces_name ON hr_workplaces(name)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_employee_profiles (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT UNIQUE NOT NULL,
+      department_id TEXT,
+      team_id TEXT,
+      workplace_id TEXT,
+      title TEXT,
+      employment_type TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      manager_id TEXT,
+      base_salary REAL DEFAULT 0,
+      salary_currency TEXT DEFAULT 'TRY',
+      payroll_type TEXT DEFAULT 'monthly',
+      bank_iban TEXT,
+      national_id TEXT,
+      birth_date TEXT,
+      address TEXT,
+      emergency_contact_name TEXT,
+      emergency_contact_phone TEXT,
+      annual_leave_days REAL DEFAULT 14,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id),
+      FOREIGN KEY (department_id) REFERENCES hr_departments(id),
+      FOREIGN KEY (team_id) REFERENCES hr_teams(id),
+      FOREIGN KEY (workplace_id) REFERENCES hr_workplaces(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_employee_profiles_employee ON hr_employee_profiles(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_contracts (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      contract_type TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      work_hours_per_week REAL DEFAULT 45,
+      probation_end_date TEXT,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_contracts_employee ON hr_contracts(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_compensation (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      effective_from TEXT,
+      effective_to TEXT,
+      base_salary REAL DEFAULT 0,
+      salary_currency TEXT DEFAULT 'TRY',
+      bonus REAL DEFAULT 0,
+      allowance REAL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_compensation_employee ON hr_compensation(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_custom_fields (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      field_key TEXT NOT NULL,
+      field_value TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(employee_id, field_key),
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_custom_fields_employee ON hr_custom_fields(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_timeoff_balances (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      annual_entitlement REAL DEFAULT 0,
+      carried_over REAL DEFAULT 0,
+      used REAL DEFAULT 0,
+      remaining REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(employee_id, year),
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_balances_employee_year ON hr_timeoff_balances(employee_id, year)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_timeoff_requests (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      total_days REAL DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      reason TEXT,
+      notes TEXT,
+      approver_id TEXT,
+      approved_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_employee ON hr_timeoff_requests(employee_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_status ON hr_timeoff_requests(status)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_attendance (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      check_in TEXT,
+      check_out TEXT,
+      break_minutes INTEGER DEFAULT 0,
+      total_minutes INTEGER DEFAULT 0,
+      expected_minutes INTEGER DEFAULT 600,
+      absence_minutes INTEGER DEFAULT 0,
+      overtime_minutes INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'present',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(employee_id, date),
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_attendance_employee_date ON hr_attendance(employee_id, date)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_payrolls (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      base_gross REAL DEFAULT 0,
+      gross_earnings REAL DEFAULT 0,
+      total_deductions REAL DEFAULT 0,
+      net_pay REAL DEFAULT 0,
+      currency TEXT DEFAULT 'TRY',
+      status TEXT DEFAULT 'draft',
+      issued_at TEXT,
+      paid_at TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_payroll_items (
+      id TEXT PRIMARY KEY,
+      payroll_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      code TEXT,
+      description TEXT,
+      amount REAL NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (payroll_id) REFERENCES hr_payrolls(id) ON DELETE CASCADE
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payrolls_employee_period ON hr_payrolls(employee_id, period_start, period_end)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payroll_items_payroll_id ON hr_payroll_items(payroll_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_holidays (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      name TEXT NOT NULL,
+      is_working_day INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      UNIQUE(date, name)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_holidays_date ON hr_holidays(date)') } catch {}
 
   // Üretim emri operasyonları
   db.exec(`
@@ -788,7 +1127,7 @@ function initializeDatabase() {
       FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE,
       FOREIGN KEY (operation_id) REFERENCES operations(id),
       FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
-      FOREIGN KEY (personnel_id) REFERENCES personnel(id),
+      FOREIGN KEY (personnel_id) REFERENCES hr_employees(id),
       UNIQUE(production_order_id, operation_id)
     )
   `)

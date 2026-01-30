@@ -38,13 +38,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
+    }
     const parsed = registerSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.errors[0]?.message || 'Geçersiz istek' },
-        { status: 400 }
-      )
+      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
+      return NextResponse.json({ error: message }, { status: 400 })
     }
     const { username, email, password, full_name, job_title } = parsed.data
 

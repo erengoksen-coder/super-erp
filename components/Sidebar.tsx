@@ -15,6 +15,7 @@ import {
   Truck,
   Shield,
   FileSpreadsheet,
+  ClipboardList,
   BarChart3,
   Bell,
   Wallet,
@@ -26,6 +27,7 @@ import { useState } from 'react'
 import { LogoWithBackground } from './Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { logout } from '@/lib/auth'
+import { canAccessPath } from '@/lib/auth/permissions-check'
 import { useI18n } from '@/lib/i18n'
 
 const menuItems = [
@@ -85,13 +87,18 @@ const menuItems = [
     icon: Package,
   },
   {
-    name: 'Personel',
-    href: '/production/personnel',
+    name: 'Üretim Operasyonları',
+    href: '/production/order-operations',
+    icon: FileSpreadsheet,
+  },
+  {
+    name: 'İK Paneli',
+    href: '/hr',
     icon: Users,
   },
   {
-    name: 'Üretim Operasyonları',
-    href: '/production/order-operations',
+    name: 'API Katalogu',
+    href: '/api-catalog',
     icon: FileSpreadsheet,
   },
   {
@@ -103,6 +110,16 @@ const menuItems = [
     name: 'Siparişler',
     href: '/orders',
     icon: FileSpreadsheet,
+  },
+  {
+    name: 'Satış Siparişleri',
+    href: '/sales-orders',
+    icon: ClipboardList,
+  },
+  {
+    name: 'Satın Alma Siparişleri',
+    href: '/purchase-orders',
+    icon: ClipboardList,
   },
   {
     name: 'Raporlar',
@@ -192,8 +209,9 @@ export default function Sidebar() {
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const user = useAuthStore((state) => state.user)
   const isAuthenticated = useAuthStore((state) => !!state.user)
-  const userRole = user?.role ?? null
+  const userRole = (user?.role || '').toLowerCase()
   const userName = user?.full_name || user?.username || null
+  const permissions = user?.permissions || []
 
   // Public sayfalarda sidebar gösterme
   if (pathname?.startsWith('/auth/')) {
@@ -206,11 +224,15 @@ export default function Sidebar() {
   }
 
   // Kullanıcı yönetimi sadece admin için
+  const hasOrdersAccess = canAccessPath(permissions, '/orders', 'view')
   const filteredMenuItems = menuItems.filter(item => {
-    if (item.href === '/users' && userRole !== 'admin') {
-      return false
+    if (userRole === 'admin' || userRole === 'yönetici' || userRole === 'yonetici') {
+      return true
     }
-    return true
+    if ((item.href === '/sales-orders' || item.href === '/purchase-orders') && hasOrdersAccess) {
+      return true
+    }
+    return canAccessPath(permissions, item.href, 'view')
   })
 
   return (

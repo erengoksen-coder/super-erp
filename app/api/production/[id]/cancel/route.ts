@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -11,14 +12,18 @@ async function getActorId(request: NextRequest) {
 }
 
 // POST: Üretim emrini iptal et ve malzemeleri stoka geri ekle
-export async function POST(
+export const POST = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
     const db = getDatabase()
-    const resolvedParams = await Promise.resolve(params)
-    const orderId = resolvedParams.id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const orderId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
+    if (!orderId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Üretim emri bilgilerini al
     const order = db.prepare(`
@@ -137,4 +142,4 @@ export async function POST(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});

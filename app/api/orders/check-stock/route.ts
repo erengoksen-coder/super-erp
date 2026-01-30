@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 
 // GET: Seçilen siparişlerin stok kontrolünü yap
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const orderIdsParam = searchParams.get('order_ids')
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
     
     // Her sipariş için stok kontrolü yap
     for (const orderId of orderIds) {
-      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any
+      const order = db.prepare('SELECT * FROM active_orders WHERE id = ?').get(orderId) as any
       
       if (!order) {
         results.push({
@@ -41,14 +42,14 @@ export async function GET(request: NextRequest) {
       if (!productId) {
         // Ürün eşleştirilmemiş, ürünü bul
         if (order.product_sku) {
-          const product = db.prepare('SELECT id FROM products WHERE sku = ?').get(order.product_sku) as any
+          const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(order.product_sku) as any
           if (product) {
             productId = product.id
           }
         }
         
         if (!productId && order.product_name) {
-          const product = db.prepare('SELECT id FROM products WHERE name LIKE ?').get(`%${order.product_name}%`) as any
+          const product = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${order.product_name}%`) as any
           if (product) {
             productId = product.id
           }
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Ürün bilgisini al
-      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId) as any
+      const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(productId) as any
       if (!product) {
         results.push({
           order_id: orderId,
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest) {
     console.error('Stok kontrolü hatası:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 
 

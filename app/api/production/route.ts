@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
@@ -12,7 +13,7 @@ async function getActorId(request: NextRequest) {
 }
 
 // GET: Tüm üretim emirlerini getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -50,8 +51,8 @@ export async function GET(request: NextRequest) {
         o.configuration,
         o.notes
       FROM production_orders po
-      LEFT JOIN products p ON po.product_id = p.id
-      LEFT JOIN orders o ON po.id = o.production_order_id
+      LEFT JOIN active_products p ON po.product_id = p.id
+      LEFT JOIN active_orders o ON po.id = o.production_order_id
       WHERE 1=1
     `
     const params: any[] = []
@@ -92,10 +93,10 @@ export async function GET(request: NextRequest) {
       details: error.stack 
     }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni üretim emri oluştur ve stokları düş
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { order_number, product_id, quantity, due_date } = body
@@ -108,36 +109,35 @@ export async function POST(request: NextRequest) {
     const { generateBarcode, generateSerialNumber } = await import('@/lib/utils/barcodeGenerator')
     
     // Önce ürün bilgisini al
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id) as any
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(product_id) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
 
-    // Bugünkü barkod sayısını al (transaction dışında)
-    const today = new Date().toISOString().split('T')[0]
-    const todayCount = db.prepare(`
-      SELECT COUNT(*) as count 
-      FROM product_serial_numbers 
-      WHERE product_id = ? AND date(created_at) = date(?)
-    `).get(product_id, today) as any
-
-    const startSequence = (todayCount?.count || 0) + 1
-
-    // Barkodları önceden oluştur (transaction dışında)
-    const barcodesToInsert: Array<{ id: string; barcode: string; serial: string }> = []
-    for (let i = 0; i < quantity; i++) {
-      const sequence = startSequence + i
-      const barcode = generateBarcode(product.sku, sequence)
-      const serial = generateSerialNumber(sequence)
-      barcodesToInsert.push({
-        id: randomUUID(),
-        barcode,
-        serial,
-      })
-    }
-    
     const actorId = await getActorId(request)
     const transaction = db.transaction(() => {
+      // Transaction içinde say - yarış koşullarını önle
+      const todayCount = db.prepare(`
+        SELECT COUNT(*) as count 
+        FROM product_serial_numbers 
+        WHERE product_id = ? AND date(created_at) = date('now')
+      `).get(product_id) as any
+
+      const startSequence = (todayCount?.count || 0) + 1
+
+      // Barkodları transaction içinde oluştur
+      const barcodesToInsert: Array<{ id: string; barcode: string; serial: string }> = []
+      for (let i = 0; i < quantity; i++) {
+        const sequence = startSequence + i
+        const barcode = generateBarcode(product.sku, sequence)
+        const serial = generateSerialNumber(sequence)
+        barcodesToInsert.push({
+          id: randomUUID(),
+          barcode,
+          serial,
+        })
+      }
+
       // 1. Stok kontrolü ve maliyet hesaplama
       const bom = db.prepare(`
         SELECT 
@@ -341,4 +341,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

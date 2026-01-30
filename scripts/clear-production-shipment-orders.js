@@ -83,7 +83,7 @@ try {
       const updated = db.prepare('UPDATE orders SET production_order_id = NULL').run();
       console.log(`✓ ${updated.changes} siparişteki production_order_id temizlendi`);
       
-      const deleted = db.prepare('DELETE FROM orders').run();
+      const deleted = db.prepare('DELETE FROM active_orders').run();
       deletedCounts.orders = deleted.changes;
       console.log(`✓ ${deleted.changes} sipariş silindi`);
     } catch (e) {

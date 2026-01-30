@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { ok, fail } from '@/lib/api/response'
 import { accountsRepo } from '@/lib/repositories/accounts'
 
@@ -19,13 +20,17 @@ type AccountUpdateInput = {
 }
 
 // GET: Tek cari hesap detayı
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
-    const accountId = resolvedParams.id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!accountId) {
+      return fail('ID gerekli', { status: 400 })
+    }
 
     const account = accountsRepo.getById(accountId)
 
@@ -37,16 +42,20 @@ export async function GET(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});
 
 // PUT: Cari hesap güncelle
-export async function PUT(
+export const PUT = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
-    const accountId = resolvedParams.id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!accountId) {
+      return fail('ID gerekli', { status: 400 })
+    }
     const body = await request.json() as AccountUpdateInput
     const { name, type, tax_number, phone, email, address, risk_limit, updated_by } = body
 
@@ -76,16 +85,20 @@ export async function PUT(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});
 
 // DELETE: Cari hesap sil
-export async function DELETE(
+export const DELETE = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
-    const accountId = resolvedParams.id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (!accountId) {
+      return fail('ID gerekli', { status: 400 })
+    }
 
     // Cari hesabın var olup olmadığını kontrol et
     const existingAccount = accountsRepo.getById(accountId)
@@ -107,5 +120,5 @@ export async function DELETE(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});
 

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { logAudit as logAuditEntry } from '@/lib/audit/logger'
 
 // PATCH: Satın alma talebi durumunu güncelle
-export async function PATCH(
-  request: NextRequest,
+export const PATCH = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const body = await request.json()
@@ -86,13 +88,13 @@ export async function PATCH(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Satın alma talebini sil
-export async function DELETE(
-  request: NextRequest,
+export const DELETE = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
@@ -107,6 +109,19 @@ export async function DELETE(
     db.prepare('UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
       .run(resolvedParams.id)
 
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    const ipAddress = forwardedFor ? forwardedFor.split(',')[0].trim() : request.headers.get('x-real-ip') || undefined
+
+    logAuditEntry({
+      table: 'purchase_requests',
+      recordId: resolvedParams.id,
+      action: 'DELETE',
+      oldData: request_record,
+      newData: null,
+      userId: user.userId,
+      ipAddress,
+    })
+
     return NextResponse.json({
       success: true,
       message: 'Satın alma talebi silindi',
@@ -114,5 +129,5 @@ export async function DELETE(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

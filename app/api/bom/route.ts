@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -73,7 +74,7 @@ async function resolveActiveVersionId(db: ReturnType<typeof getDatabase>, produc
 }
 
 // GET: Tüm BOM kayıtlarını getir veya belirli bir ürün için
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
           p.name as product_name,
           p.sku as product_sku
         FROM bom b
-        JOIN products p ON b.product_id = p.id
+        JOIN active_products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
         WHERE b.product_id = ? AND b.version_id = ? AND b.deleted_at IS NULL
         ORDER BY m.name
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest) {
           p.sku as product_sku
         FROM bom b
         JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
-        JOIN products p ON b.product_id = p.id
+        JOIN active_products p ON b.product_id = p.id
         JOIN materials m ON b.material_id = m.id
         WHERE b.deleted_at IS NULL
         ORDER BY p.sku, m.name
@@ -167,10 +168,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni BOM kaydı oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { product_id, material_id, quantity, unit, fire_percentage, waste_percentage, parent_id, version_id } = body
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Ürün ve malzeme kontrolü
-    const product = db.prepare('SELECT id FROM products WHERE id = ?').get(product_id) as ProductRow | undefined
+    const product = db.prepare('SELECT id FROM active_products WHERE id = ?').get(product_id) as ProductRow | undefined
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -243,10 +244,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: BOM kaydını sil
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const bomId = searchParams.get('id')
@@ -282,4 +283,4 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

@@ -51,13 +51,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
+    }
     const parsed = loginSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.errors[0]?.message || 'Geçersiz istek' },
-        { status: 400 }
-      )
+      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
+      return NextResponse.json({ error: message }, { status: 400 })
     }
     const { username, password } = parsed.data
 
@@ -134,6 +137,7 @@ export async function POST(request: NextRequest) {
     setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)
     return response
   } catch (error: any) {
+    console.error('Login hatası:', error?.message || error, error?.stack)
     return fail(error.message, { status: 500 })
   }
 }

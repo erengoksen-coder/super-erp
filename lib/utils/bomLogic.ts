@@ -65,29 +65,29 @@ export async function checkBOMAvailability(
 
     // Her hammadde için kontrol et
     for (const item of bomData) {
-      const required = parseFloat(item.required_quantity) * quantity
-      const available = parseFloat(item.available_quantity)
+      const required = parseFloat(item.quantity_required) * quantity
+      const available = parseFloat(item.available_stock)
 
       // KRİTİK KONTROL: Stok eksiye düşecekse ekle
       if (available < required || available <= 0) {
         insufficientItems.push({
-          stock_id: item.stock_id,
-          stock_name: item.stock_name,
+          stock_id: item.material_id,
+          stock_name: item.material_name,
           required,
           available,
-          unit: item.stock_unit,
+          unit: item.material_unit,
         })
       }
 
       // Maliyet hesapla (opsiyonel)
       const { data: stockData } = await supabase
-        .from('stocks')
-        .select('unit_cost')
-        .eq('id', item.stock_id)
+        .from('materials')
+        .select('unit_price')
+        .eq('id', item.material_id)
         .single()
 
-      if (stockData?.unit_cost) {
-        totalCost += parseFloat(stockData.unit_cost) * required
+      if (stockData?.unit_price) {
+        totalCost += parseFloat(stockData.unit_price) * required
       }
     }
 
@@ -197,17 +197,17 @@ export async function createProductionOrderWithStockDeduction(
     const stockMovements = []
     
     for (const item of bomData) {
-      const requiredPerUnit = parseFloat(item.required_quantity)
+      const requiredPerUnit = parseFloat(item.quantity_required)
       const totalRequired = requiredPerUnit * quantity
 
       // Son bir kontrol daha (race condition için)
       const { data: currentStock } = await supabase
-        .from('stocks')
-        .select('current_quantity')
-        .eq('id', item.stock_id)
+        .from('materials')
+        .select('stock_amount')
+        .eq('id', item.material_id)
         .single()
 
-      if (currentStock && parseFloat(currentStock.current_quantity) < totalRequired) {
+      if (currentStock && parseFloat(currentStock.stock_amount) < totalRequired) {
         // Üretim emrini iptal et
         await supabase
           .from('production_orders')
@@ -216,19 +216,19 @@ export async function createProductionOrderWithStockDeduction(
         
         return {
           success: false,
-          error: `${item.stock_name} stoku yetersiz. Üretim emri iptal edildi.`,
+          error: `${item.material_name} stoku yetersiz. Üretim emri iptal edildi.`,
         }
       }
 
       // Stok hareketi kaydı oluştur
       // Trigger otomatik olarak stokları düşecek
       stockMovements.push({
-        stock_id: item.stock_id,
+        stock_id: item.material_id,
         movement_type: 'out',
         quantity: totalRequired,
         reference_type: 'production',
         reference_id: order.id,
-        notes: `Üretim emri: ${orderNumber}\nÜrün: ${item.stock_name}\nReçete: ${requiredPerUnit} ${item.stock_unit}/birim × ${quantity} adet = ${totalRequired} ${item.stock_unit}`,
+        notes: `Üretim emri: ${orderNumber}\nÜrün: ${item.material_name}\nReçete: ${requiredPerUnit} ${item.material_unit}/birim × ${quantity} adet = ${totalRequired} ${item.material_unit}`,
       })
     }
 
@@ -289,17 +289,17 @@ export async function cancelProductionOrder(orderId: string): Promise<boolean> {
 
     // Her hammadde için stok geri ekle
     for (const item of bomData || []) {
-      const totalRequired = parseFloat(item.required_quantity) * order.quantity
+      const totalRequired = parseFloat(item.quantity_required) * order.quantity
 
       await supabase
         .from('stock_movements')
         .insert({
-          stock_id: item.stock_id,
+          material_id: item.material_id,
           movement_type: 'in',
           quantity: totalRequired,
           reference_type: 'production',
           reference_id: orderId,
-          notes: `Üretim emri iptal: ${order.order_number} - ${item.stock_name} geri eklendi`,
+          notes: `Üretim emri iptal: ${order.order_number} - ${item.material_name} geri eklendi`,
         })
     }
 

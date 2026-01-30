@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
 
@@ -39,7 +40,7 @@ type ReadyItemUpdateInput = {
 }
 
 // GET: Müşteriye ait sevk edilebilir ürünleri getir (customer_id yoksa tümünü getir)
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const customerId = searchParams.get('customer_id')
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
           a.name as customer_name,
           a.code as customer_code
         FROM product_serial_numbers psn
-        JOIN products p ON psn.product_id = p.id
+        JOIN active_products p ON psn.product_id = p.id
         LEFT JOIN production_orders po ON psn.production_order_id = po.id
         LEFT JOIN accounts a ON psn.customer_id = a.id
         WHERE (psn.barcode = ? OR psn.serial_number = ?)
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
           a.name as customer_name,
           a.code as customer_code
         FROM product_serial_numbers psn
-        JOIN products p ON psn.product_id = p.id
+        JOIN active_products p ON psn.product_id = p.id
         LEFT JOIN production_orders po ON psn.production_order_id = po.id
         LEFT JOIN accounts a ON psn.customer_id = a.id
         WHERE psn.ready_for_shipment = 1
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
           a.name as customer_name,
           a.code as customer_code
         FROM product_serial_numbers psn
-        JOIN products p ON psn.product_id = p.id
+        JOIN active_products p ON psn.product_id = p.id
         LEFT JOIN production_orders po ON psn.production_order_id = po.id
         LEFT JOIN accounts a ON psn.customer_id = a.id
         WHERE psn.ready_for_shipment = 1
@@ -154,10 +155,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 
 // POST: Ürünü sevk edilebilir olarak işaretle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as ReadyItemUpdateInput
     const { barcode, customer_id, ready } = body
@@ -211,5 +212,5 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 

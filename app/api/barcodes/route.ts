@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateBarcode, generateSerialNumber } from '@/lib/utils/barcodeGenerator'
 
 // GET: Barkodları listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
@@ -28,9 +29,9 @@ export async function GET(request: NextRequest) {
         o.notes,
         s.shipment_date as shipment_date
       FROM product_serial_numbers psn
-      JOIN products p ON psn.product_id = p.id
+      JOIN active_products p ON psn.product_id = p.id
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
-      LEFT JOIN orders o ON po.id = o.production_order_id
+      LEFT JOIN active_orders o ON po.id = o.production_order_id
       LEFT JOIN shipments s ON psn.shipment_id = s.id
       WHERE 1=1
     `
@@ -71,10 +72,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni barkodlar oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { product_id, quantity, production_order_id, notes } = body
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     const db = getDatabase()
 
     // Ürün bilgisini al
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id) as any
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(product_id) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -180,4 +181,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

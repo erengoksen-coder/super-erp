@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Kritik seviyenin altına düşen malzemeleri getir
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     
@@ -30,6 +31,6 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

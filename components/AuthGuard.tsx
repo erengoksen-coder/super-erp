@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/lib/store/authStore'
 import { fetchApi } from '@/lib/api/client'
+import { canAccessPath } from '@/lib/auth/permissions-check'
 
 const publicPaths = ['/auth/login', '/auth/register']
 
@@ -13,6 +14,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const hydrated = useAuthStore((state) => state.hydrated)
   const setAuth = useAuthStore((state) => state.setAuth)
   const clearAuth = useAuthStore((state) => state.clearAuth)
+  const user = useAuthStore((state) => state.user)
 
   useEffect(() => {
     // Public sayfalar için kontrol yapma
@@ -56,6 +58,35 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
     verifySession()
   }, [pathname, hydrated, setAuth, clearAuth])
+
+  useEffect(() => {
+    if (!hydrated || isChecking || publicPaths.includes(pathname || '')) {
+      return
+    }
+    if (!user) {
+      return
+    }
+    const role = (user.role || '').toLowerCase()
+    const isAdmin = role === 'admin' || role === 'yönetici' || role === 'yonetici'
+    if (!isAdmin) {
+      const permissions = user.permissions || []
+      const normalizedPath = pathname || '/'
+      const isOrdersChild =
+        normalizedPath === '/sales-orders' ||
+        normalizedPath.startsWith('/sales-orders/') ||
+        normalizedPath === '/purchase-orders' ||
+        normalizedPath.startsWith('/purchase-orders/')
+      const hasOrdersAccess = canAccessPath(permissions, '/orders', 'view')
+      if (isOrdersChild && hasOrdersAccess) {
+        return
+      }
+      if (!canAccessPath(permissions, normalizedPath, 'view')) {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/'
+        }
+      }
+    }
+  }, [hydrated, isChecking, pathname, user])
 
   // Public sayfalar veya authenticated kullanıcılar için içeriği göster
   if (publicPaths.includes(pathname || '')) {

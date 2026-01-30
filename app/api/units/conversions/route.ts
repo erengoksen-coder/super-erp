@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -10,7 +11,7 @@ type ConversionInput = {
 }
 
 // GET: Birim dönüşümlerini getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const materialId = searchParams.get('material_id')
@@ -44,10 +45,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Birim dönüşümü ekle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as ConversionInput
     const { material_id, from_unit, to_unit, factor } = body
@@ -76,10 +77,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Birim dönüşümü sil
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -97,10 +98,10 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Birim dönüşümü güncelle
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as ConversionInput & { id?: string }
     const { id, material_id, from_unit, to_unit, factor } = body
@@ -137,4 +138,4 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

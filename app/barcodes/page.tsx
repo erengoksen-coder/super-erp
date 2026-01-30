@@ -254,6 +254,11 @@ export default function BarcodesPage() {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
+    const barcodeValue = barcode.barcode.replace(/[^0-9]/g, '') || barcode.barcode
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+      barcode.barcode
+    )}`
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -261,18 +266,38 @@ export default function BarcodesPage() {
           <title>Barkod: ${barcode.barcode}</title>
           <style>
             @media print {
-              @page { size: 80mm 50mm; margin: 5mm; }
+              @page { size: 100mm 100mm; margin: 4mm; }
             }
             body {
               font-family: Arial, sans-serif;
-              padding: 10px;
+              width: 100mm;
+              height: 100mm;
+              padding: 6mm;
               text-align: center;
+              box-sizing: border-box;
+            }
+            .row {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 12px;
+              margin-top: 8px;
             }
             .barcode {
               font-size: 24px;
               font-weight: bold;
               margin: 10px 0;
               letter-spacing: 2px;
+            }
+            .barcode-canvas {
+              display: block;
+              margin: 6px auto 0;
+              max-width: 100%;
+              height: auto;
+            }
+            .qr {
+              width: 100px;
+              height: 100px;
             }
             .serial {
               font-size: 14px;
@@ -293,15 +318,69 @@ export default function BarcodesPage() {
           <div class="product">${barcode.product_name}</div>
           <div class="sku">${barcode.sku}</div>
           <div class="barcode">${barcode.barcode}</div>
-          <div class="serial">SN: ${barcode.serial_number}</div>
+          <canvas id="barcode-canvas" class="barcode-canvas" width="280" height="80"></canvas>
+          <div class="row">
+            <img id="qr-image" class="qr" src="${qrCodeUrl}" alt="QR" />
+            <div class="serial">SN: ${barcode.serial_number}</div>
+          </div>
           <div style="margin-top: 10px; font-size: 10px;">
             ${new Date(barcode.created_at).toLocaleDateString('tr-TR')}
           </div>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+          <script>
+            (function() {
+              const qrImg = document.getElementById('qr-image')
+              const canvas = document.getElementById('barcode-canvas')
+              let barcodeReady = false
+              let qrReady = false
+
+              function tryPrint() {
+                if (barcodeReady && qrReady) {
+                  window.print()
+                }
+              }
+
+              try {
+                const options = {
+                  width: 1.5,
+                  height: 60,
+                  displayValue: true,
+                  fontSize: 14,
+                  margin: 10,
+                  background: '#ffffff',
+                  lineColor: '#000000',
+                  textAlign: 'center',
+                  textPosition: 'bottom',
+                  textMargin: 4
+                }
+                const value = '${barcodeValue}'
+                if (value.length === 13) {
+                  JsBarcode(canvas, value, Object.assign({}, options, { format: 'EAN13' }))
+                } else {
+                  JsBarcode(canvas, value, Object.assign({}, options, { format: 'CODE128' }))
+                }
+                barcodeReady = true
+              } catch (e) {
+                console.error('Print barcode error', e)
+                barcodeReady = true
+              }
+
+              if (qrImg && qrImg.complete) {
+                qrReady = true
+              } else if (qrImg) {
+                qrImg.onload = function() { qrReady = true; tryPrint() }
+                qrImg.onerror = function() { qrReady = true; tryPrint() }
+              } else {
+                qrReady = true
+              }
+
+              tryPrint()
+            })()
+          </script>
         </body>
       </html>
     `)
     printWindow.document.close()
-    printWindow.print()
   }
 
   return (

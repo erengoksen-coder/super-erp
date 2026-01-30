@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
@@ -32,14 +33,21 @@ type MaterialUpdateInput = {
 }
 
 // GET: Tek bir malzeme bilgisini getir
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
-    const material = materialsRepo.getById(resolvedParams.id)
+    const resolvedParams = await Promise.resolve(context?.params)
+    const materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+
+    if (!materialId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
+
+    const material = materialsRepo.getById(materialId)
 
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
@@ -49,22 +57,28 @@ export async function GET(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});
 
 // PATCH: Malzeme bilgilerini güncelle (stok miktarı dahil)
-export async function PATCH(
+export const PATCH = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const body = await request.json() as MaterialUpdateInput
     const { stock_amount, min_stock_level, name, code, unit, category, unit_price } = body
 
     const db = getDatabase()
+    const resolvedParams = await Promise.resolve(context?.params)
+    const materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+
+    if (!materialId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Malzemeyi bul
-    const material = materialsRepo.getById(resolvedParams.id)
+    const material = materialsRepo.getById(materialId)
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
@@ -78,7 +92,7 @@ export async function PATCH(
       const oldStockAmount = material.stock_amount || 0
       const newStockAmount = stock_amount
       const difference = newStockAmount - oldStockAmount
-      applyMaterialStockChange(db, resolvedParams.id, difference, 0, { allowNegative: true })
+      applyMaterialStockChange(db, materialId, difference, 0, { allowNegative: true })
       
       // Eğer stok miktarı değiştiyse, stock_movements tablosuna bir "adjustment" hareketi ekle
       if (difference !== 0) {
@@ -95,7 +109,7 @@ export async function PATCH(
             VALUES (?, ?, ?, ?, 'adjustment', ?, ?, ?, CURRENT_TIMESTAMP)
           `).run(
             movementId,
-            resolvedParams.id,
+            materialId,
             difference > 0 ? 'in' : 'out',
             Math.abs(difference),
             `Manuel stok düzeltmesi: ${oldStockAmount} → ${newStockAmount}`,
@@ -142,17 +156,17 @@ export async function PATCH(
         db.prepare(`
           INSERT INTO material_prices (id, material_id, price, price_type, source_type, source_id)
           VALUES (?, ?, ?, 'purchase', 'material_update', ?)
-        `).run(priceId, resolvedParams.id, unit_price, resolvedParams.id)
+        `).run(priceId, materialId, unit_price, materialId)
       }
     }
 
     updateQuery += ' WHERE id = ? AND deleted_at IS NULL'
-    updateParams.push(resolvedParams.id)
+    updateParams.push(materialId)
 
     db.prepare(updateQuery).run(...updateParams)
 
     // Güncellenmiş malzeme bilgisini döndür
-    const updatedMaterial = materialsRepo.getById(resolvedParams.id)
+    const updatedMaterial = materialsRepo.getById(materialId)
 
     return ok(
       { material: updatedMaterial },
@@ -161,26 +175,32 @@ export async function PATCH(
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});
 
 // DELETE: Malzemeyi sil
-export async function DELETE(
+export const DELETE = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
     const db = getDatabase()
+    const resolvedParams = await Promise.resolve(context?.params)
+    const materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+
+    if (!materialId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     // Malzemeyi bul
-    const material = materialsRepo.getById(resolvedParams.id)
+    const material = materialsRepo.getById(materialId)
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
     // İlişkili kayıtları kontrol et
-    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(resolvedParams.id) as CountRow | undefined
-    const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(resolvedParams.id) as CountRow | undefined
+    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(materialId) as CountRow | undefined
+    const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(materialId) as CountRow | undefined
 
     if ((bomCount?.count || 0) > 0 || (movementCount?.count || 0) > 0) {
       return fail('Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.', {
@@ -194,10 +214,10 @@ export async function DELETE(
 
     // Malzemeyi pasife al
     db.prepare('UPDATE materials SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
-      .run(resolvedParams.id)
+      .run(materialId)
 
     return ok(null, { message: 'Malzeme başarıyla silindi' })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+});

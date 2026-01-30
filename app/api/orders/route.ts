@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
-import { getAuthUserId } from '@/lib/auth/session'
+import { logAudit as logAuditEntry } from '@/lib/audit/logger'
+import { withAuth } from '@/lib/api/withAuth'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -70,10 +71,6 @@ type OrderStatusRow = {
   order_number: string
 }
 
-async function getActorId(request: NextRequest) {
-  return await getAuthUserId(request)
-}
-
 // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
 function createAccountIfNotExists(db: Db, dealerName: string | null): void {
   if (!dealerName || dealerName.trim() === '') {
@@ -127,7 +124,7 @@ function createAccountIfNotExists(db: Db, dealerName: string | null): void {
 }
 
 // GET: Tüm siparişleri getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -145,8 +142,8 @@ export async function GET(request: NextRequest) {
           o.*,
           p.name as matched_product_name,
           p.sku as matched_product_sku
-        FROM orders o
-        LEFT JOIN products p ON o.product_id = p.id
+        FROM active_orders o
+        LEFT JOIN active_products p ON o.product_id = p.id
         WHERE o.status = 'pending'
           AND o.status != 'in_production'
           AND (o.production_order_id IS NULL OR o.production_order_id = '')
@@ -220,15 +217,15 @@ export async function GET(request: NextRequest) {
         o.*,
         p.name as matched_product_name,
         p.sku as matched_product_sku
-      FROM orders o
-      LEFT JOIN products p ON o.product_id = p.id
+        FROM active_orders o
+      LEFT JOIN active_products p ON o.product_id = p.id
       WHERE 1=1
     `
     const params: string[] = []
 
     query += ' AND o.company_id = ? AND o.branch_id = ?'
     params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
-    query += ' AND o.deleted_at IS NULL'
+    // active_orders view already filters deleted_at
 
     if (status) {
       query += ' AND o.status = ?'
@@ -252,12 +249,13 @@ export async function GET(request: NextRequest) {
     console.error('Siparişler yüklenirken hata:', error)
     return fail(error.message, { status: 500 })
   }
-}
+}, ['admin', 'manager', 'sales'])
 
 // POST: Manuel sipariş oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, user) => {
   try {
     const body = await request.json()
+    ;(body as { created_by?: string }).created_by = user.userId
     const { orders: manualOrders } = body as { orders?: ManualOrderInput[] }
 
     if (!manualOrders || !Array.isArray(manualOrders) || manualOrders.length === 0) {
@@ -269,53 +267,53 @@ export async function POST(request: NextRequest) {
 
     const db = getDatabase()
     const insertedOrders: InsertedOrder[] = []
+    const actorId = user.userId
 
-    const actorId = await getActorId(request)
+    const insertOrders = db.transaction(() => {
+      // Manuel sipariş oluşturma
+      for (const order of manualOrders) {
+        const orderId = randomUUID()
+        const orderNumber = order.order_number || `SIP-${Date.now()}-${randomUUID().substring(0, 8)}`
 
-    // Manuel sipariş oluşturma
-    for (const order of manualOrders) {
-      const orderId = randomUUID()
-      const orderNumber = order.order_number || `SIP-${Date.now()}-${randomUUID().substring(0, 8)}`
-      
-      // Excel formatındaki ekstra alanları notlar alanına birleştir
-      let combinedNotes = order.notes || ''
-      if (order.fabric_code) {
-        combinedNotes += (combinedNotes ? ' | ' : '') + `Kumaş: ${order.fabric_code}`
-      }
-      if (order.case_info) {
-        combinedNotes += (combinedNotes ? ' | ' : '') + `Kasa: ${order.case_info}`
-      }
-      if (order.leg_info) {
-        combinedNotes += (combinedNotes ? ' | ' : '') + `Ayak: ${order.leg_info}`
-      }
-      if (order.unit) {
-        combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${order.unit}`
-      }
-      
-      // Ürünü bul (SKU veya isim ile)
-      let productId: string | null = order.product_id || null
-      if (!productId && order.product_sku) {
-        const product = db.prepare('SELECT id FROM products WHERE sku = ?').get(order.product_sku) as ProductIdRow | undefined
-        if (product) {
-          productId = product.id
+        // Excel formatındaki ekstra alanları notlar alanına birleştir
+        let combinedNotes = order.notes || ''
+        if (order.fabric_code) {
+          combinedNotes += (combinedNotes ? ' | ' : '') + `Kumaş: ${order.fabric_code}`
         }
-      }
-      if (!productId && order.product_name) {
-        const product = db.prepare('SELECT id FROM products WHERE name LIKE ?').get(`%${order.product_name}%`) as ProductIdRow | undefined
-        if (product) {
-          productId = product.id
+        if (order.case_info) {
+          combinedNotes += (combinedNotes ? ' | ' : '') + `Kasa: ${order.case_info}`
         }
-      }
-      
-      // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
-      createAccountIfNotExists(db, order.dealer_name)
-      
-      db.prepare(`
+        if (order.leg_info) {
+          combinedNotes += (combinedNotes ? ' | ' : '') + `Ayak: ${order.leg_info}`
+        }
+        if (order.unit) {
+          combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${order.unit}`
+        }
+
+        // Ürünü bul (SKU veya isim ile)
+        let productId: string | null = order.product_id || null
+        if (!productId && order.product_sku) {
+          const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(order.product_sku) as ProductIdRow | undefined
+          if (product) {
+            productId = product.id
+          }
+        }
+        if (!productId && order.product_name) {
+          const product = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${order.product_name}%`) as ProductIdRow | undefined
+          if (product) {
+            productId = product.id
+          }
+        }
+
+        // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
+        createAccountIfNotExists(db, order.dealer_name)
+
+        db.prepare(`
         INSERT INTO orders (
           id, order_number, dealer_name, customer_name, customer_code, product_name, product_sku,
           product_id, quantity, unit_price, total_amount, order_date, delivery_date, status,
           configuration, notes, company_id, branch_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         orderId,
         orderNumber,
@@ -336,29 +334,32 @@ export async function POST(request: NextRequest) {
         DEFAULT_BRANCH_ID
       )
 
-      insertedOrders.push({
-        id: orderId,
-        order_number: orderNumber,
-        product_name: order.product_name,
-        quantity: order.quantity,
-        status: 'pending',
-        product_id: productId
-      })
-
-      logAudit(db, {
-        tableName: 'orders',
-        action: 'create',
-        recordId: orderId,
-        userId: actorId,
-        after: {
+        insertedOrders.push({
           id: orderId,
           order_number: orderNumber,
+          product_name: order.product_name,
+          quantity: order.quantity,
           status: 'pending',
-          product_id: productId,
-        },
-      })
-    }
-    
+          product_id: productId
+        })
+
+        logAudit(db, {
+          tableName: 'orders',
+          action: 'create',
+          recordId: orderId,
+          userId: actorId,
+          after: {
+            id: orderId,
+            order_number: orderNumber,
+            status: 'pending',
+            product_id: productId,
+          },
+        })
+      }
+    })
+
+    insertOrders()
+
     return ok(
       {
         orders: insertedOrders,
@@ -369,10 +370,10 @@ export async function POST(request: NextRequest) {
     console.error('Sipariş oluşturulurken hata:', error)
     return fail(error.message, { status: 500 })
   }
-}
+}, ['admin', 'sales'])
 
 // PATCH: Sipariş durumunu güncelle (ör. iptal)
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest, user) => {
   try {
     const body = await request.json()
     const orderId = body?.orderId || body?.id
@@ -392,7 +393,7 @@ export async function PATCH(request: NextRequest) {
 
     const db = getDatabase()
     const current = db
-      .prepare('SELECT id, status, production_order_id, order_number FROM orders WHERE id = ? AND deleted_at IS NULL')
+      .prepare('SELECT id, status, production_order_id, order_number FROM active_orders WHERE id = ? AND deleted_at IS NULL')
       .get(orderId) as OrderStatusRow | undefined
 
     if (!current) {
@@ -421,7 +422,7 @@ export async function PATCH(request: NextRequest) {
       tableName: 'orders',
       action: 'update',
       recordId: orderId,
-      userId: await getActorId(request),
+      userId: user.userId,
       before: {
         status: current.status,
         cancel_reason: null,
@@ -440,27 +441,56 @@ export async function PATCH(request: NextRequest) {
     logger.error('[Orders API - PATCH] Hata', { error: error?.message })
     return fail(error.message || 'Sipariş güncellenemedi', { status: 500 })
   }
-}
+})
 
-// DELETE: Tüm siparişleri sil
-export async function DELETE(request: NextRequest) {
+// DELETE: Sipariş sil
+export const DELETE = withAuth(async (request: NextRequest, user) => {
   try {
     const db = getDatabase()
-    
-    // Tüm siparişleri sil
-    const deleteResult = db.prepare('UPDATE orders SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
-    
-    logger.info(`[Orders API - DELETE] ${deleteResult.changes} sipariş silindi`)
-    
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (!id) {
+      return fail('Sipariş id gerekli', { status: 400 })
+    }
+
+    const order = db.prepare('SELECT * FROM active_orders WHERE id = ? AND deleted_at IS NULL').get(id) as OrderRow | undefined
+    if (!order) {
+      return fail('Sipariş bulunamadı', { status: 404 })
+    }
+
+    const deleteResult = db
+      .prepare('UPDATE orders SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
+      .run(id)
+
+    if (deleteResult.changes === 0) {
+      return fail('Sipariş bulunamadı', { status: 404 })
+    }
+
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    const ipAddress = forwardedFor ? forwardedFor.split(',')[0].trim() : request.headers.get('x-real-ip') || undefined
+
+    logAuditEntry({
+      table: 'orders',
+      recordId: id,
+      action: 'DELETE',
+      oldData: order,
+      newData: null,
+      userId: user.userId,
+      ipAddress,
+    })
+
+    logger.info(`[Orders API - DELETE] Sipariş silindi`, { id })
+
     return ok(
       {
         deleted_count: deleteResult.changes,
       },
-      { message: `${deleteResult.changes} sipariş başarıyla silindi` }
+      { message: 'Sipariş başarıyla silindi' }
     )
   } catch (error: any) {
     console.error('Siparişler silinirken hata:', error)
     logger.error(`[Orders API - DELETE] Hata: ${error.message}`, { error })
     return fail('Siparişler silinemedi', { status: 500, details: error.message })
   }
-}
+}, ['admin'])

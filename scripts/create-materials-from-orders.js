@@ -18,7 +18,7 @@ console.log('Siparişlerden kumaş kodları çıkarılıyor...\n')
 // Tüm siparişleri al
 const orders = db.prepare(`
   SELECT id, order_number, notes 
-  FROM orders 
+  FROM active_orders 
   WHERE notes IS NOT NULL AND notes != ''
 `).all()
 

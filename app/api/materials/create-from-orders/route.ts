@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
 /**
  * POST: Siparişlerden kumaş kodlarını çıkarıp hammadde deposuna malzeme kartları oluştur
  */
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     db.pragma('foreign_keys = OFF')
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
     // Tüm siparişleri al
     const orders = db.prepare(`
       SELECT id, order_number, notes 
-      FROM orders 
+      FROM active_orders 
       WHERE notes IS NOT NULL AND notes != ''
     `).all() as Array<{ id: string; order_number: string; notes: string }>
 
@@ -144,5 +145,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 

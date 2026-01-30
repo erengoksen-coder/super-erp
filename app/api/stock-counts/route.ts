@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase, DEFAULT_WAREHOUSE_ID } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -14,7 +15,7 @@ type StockCountInput = {
 }
 
 // GET: Stok sayımları
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const counts = db.prepare(`
@@ -27,10 +28,10 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni stok sayımı oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as StockCountInput
     const warehouseId = body.warehouse_id || DEFAULT_WAREHOUSE_ID
@@ -88,4 +89,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

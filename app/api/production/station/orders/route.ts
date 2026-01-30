@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -67,7 +68,7 @@ type SerialStatusRow = {
 }
 
 // GET: İstasyona göre üretim emirlerini getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const station = searchParams.get('station') || 'iskelet'
@@ -114,7 +115,7 @@ export async function GET(request: NextRequest) {
         p.name as product_name,
         p.sku as product_sku
       FROM production_orders po
-      JOIN products p ON po.product_id = p.id
+      JOIN active_products p ON po.product_id = p.id
       WHERE po.current_station = ?
         AND po.status != 'completed'
         AND po.status != 'cancelled'
@@ -124,7 +125,7 @@ export async function GET(request: NextRequest) {
     // Her üretim emri için orders tablosundan bayi/müşteri bilgisini al
     productionOrders = productionOrders.map((po) => {
       const orderInfo = db
-        .prepare('SELECT dealer_name, customer_name, id, notes, configuration, product_name FROM orders WHERE production_order_id = ?')
+        .prepare('SELECT dealer_name, customer_name, id, notes, configuration, product_name FROM active_orders WHERE production_order_id = ?')
         .get(po.id) as OrderInfoRow | undefined
       return {
         ...po,
@@ -185,10 +186,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Üretim emrini bir sonraki istasyona geçir veya geri çevir
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { order_id, station, notes, item_index, item_total, revert } = body
@@ -310,7 +311,7 @@ export async function PATCH(request: NextRequest) {
     } // item_index ve item_total varsa buraya gelmez, early return yapıyor
     
     // Ürün bilgisini al (berjer kontrolü için)
-    const product = db.prepare('SELECT name FROM products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
+    const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
     const isBerjer = product?.name && product.name.toLowerCase().includes('berjer')
     
     const stationOrder = ['iskelet', 'terzihane', 'döseme', 'montaj', 'berjer', 'sevkiyat', 'completed']
@@ -466,7 +467,7 @@ export async function PATCH(request: NextRequest) {
       if (currentStation === 'berjer' && nextStation === 'completed') {
         // Mevcut stoku al
       const currentStock = db
-        .prepare('SELECT stock_amount FROM products WHERE id = ?')
+        .prepare('SELECT stock_amount FROM active_products WHERE id = ?')
         .get(order.product_id) as ProductStockRow | undefined
         const newStock = (currentStock?.stock_amount || 0) + order.quantity
         
@@ -539,7 +540,7 @@ export async function PATCH(request: NextRequest) {
       if (currentStation === 'montaj' && nextStation === 'completed') {
         // Mevcut stoku al
         const currentStock = db
-          .prepare('SELECT stock_amount FROM products WHERE id = ?')
+          .prepare('SELECT stock_amount FROM active_products WHERE id = ?')
           .get(order.product_id) as ProductStockRow | undefined
         const newStock = (currentStock?.stock_amount || 0) + order.quantity
         
@@ -620,5 +621,5 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

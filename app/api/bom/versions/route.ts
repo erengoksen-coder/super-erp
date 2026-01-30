@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 
@@ -13,7 +14,7 @@ type BomVersionRow = {
 }
 
 // GET: Ürün için BOM versiyonlarını getir
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
@@ -33,10 +34,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni BOM versiyonu oluştur (opsiyonel kopyalama)
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const {
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDatabase()
-    const product = db.prepare('SELECT id FROM products WHERE id = ?').get(product_id) as { id: string } | undefined
+    const product = db.prepare('SELECT id FROM active_products WHERE id = ?').get(product_id) as { id: string } | undefined
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -134,4 +135,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

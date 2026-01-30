@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Hesap planını getir
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const accounts = db.prepare(`
@@ -18,10 +19,10 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Hesap planına yeni hesap ekle
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as {
       code?: string
@@ -70,6 +71,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

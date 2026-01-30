@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 
 // POST: Üretim emirleri, barkodlar ve sevkiyat verilerini sil
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     
@@ -101,5 +102,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { logAudit } from '@/lib/audit'
 import { getAuthUserId } from '@/lib/auth/session'
@@ -7,9 +8,12 @@ async function getActorId(request: NextRequest) {
   return await getAuthUserId(request)
 }
 
-export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
+export const PATCH = withAuth(async (request: NextRequest, user, context?: { params?: { id?: string } | Promise<{ id?: string }> }) => {
   try {
-    const { id } = context.params
+    const resolvedParams = await Promise.resolve(context?.params)
+    const id =
+      resolvedParams?.id ??
+      new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
     const body = await request.json()
     const { station, status, notes } = body || {}
 
@@ -67,4 +71,4 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

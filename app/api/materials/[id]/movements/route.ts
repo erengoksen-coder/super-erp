@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 type StockMovementRow = {
@@ -23,12 +24,17 @@ type StockMovementFormatted = StockMovementRow & {
 }
 
 // GET: Belirli bir malzemenin stok hareket geçmişi
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(context?.params)
+    const materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
+    if (!materialId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const db = getDatabase()
 
     const movements = db.prepare(`
@@ -50,7 +56,7 @@ export async function GET(
       WHERE sm.material_id = ?
       ORDER BY sm.created_at DESC
       LIMIT 100
-    `).all(resolvedParams.id) as StockMovementRow[]
+    `).all(materialId) as StockMovementRow[]
 
     // Tarih formatını düzenle
     const formattedMovements = movements.map((movement): StockMovementFormatted => {
@@ -85,5 +91,5 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 

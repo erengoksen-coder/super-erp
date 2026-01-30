@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 
 // POST: Tüm veri girişlerini sil (yapısal tablolar korunur)
 // Yapısal tablolar (korunur): users, user_permissions, products, materials, bom, accounts, chart_of_accounts
 // Veri tabloları (silinir): orders, production_orders, stock_movements, shipments, purchase_requests, vb.
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
       
       // 10. Orders (Siparişler)
       try {
-        const deletedOrders = db.prepare('DELETE FROM orders').run()
+        const deletedOrders = db.prepare('DELETE FROM active_orders').run()
         deletedCounts.orders = deletedOrders.changes
         logger.info(`[TEMİZLEME] ${deletedOrders.changes} sipariş silindi`)
       } catch (e: any) {
@@ -160,5 +161,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 

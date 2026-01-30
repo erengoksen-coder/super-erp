@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase, DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -8,7 +9,7 @@ type WarehouseInput = {
 }
 
 // GET: Depoları listele
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const warehouses = db.prepare(`
@@ -22,10 +23,10 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Depo oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json() as WarehouseInput
     const { code, name } = body
@@ -45,10 +46,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Depo pasife al
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -61,4 +62,4 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

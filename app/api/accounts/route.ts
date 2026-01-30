@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { accountsRepo } from '@/lib/repositories/accounts'
@@ -15,7 +16,7 @@ type AccountInput = {
 }
 
 // GET: Tüm cari hesapları listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') // 'customer' veya 'supplier'
@@ -25,19 +26,21 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 
 // POST: Yeni cari hesap oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as AccountInput
+    let body: AccountInput
+    try {
+      body = await request.json() as AccountInput
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
+    }
     const { name, type = 'customer', tax_number, phone, email, address, risk_limit, created_by } = body
 
     if (!name) {
-      return NextResponse.json(
-        { error: 'Müşteri/Tedarikçi adı gerekli' },
-        { status: 400 }
-      )
+      return fail('Müşteri/Tedarikçi adı gerekli', { status: 400 })
     }
 
     // Kod oluştur
@@ -71,6 +74,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-}
+})
 
 

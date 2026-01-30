@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // DELETE: Bir ürünün BOM kayıtlarını sil (versiyona göre)
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
@@ -15,7 +16,7 @@ export async function DELETE(request: NextRequest) {
     const db = getDatabase()
     
     // Ürün kontrolü
-    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId) as any
+    const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(productId) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -53,6 +54,6 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 

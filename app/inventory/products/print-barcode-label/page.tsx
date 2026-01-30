@@ -244,7 +244,7 @@ export default function PrintBarcodeLabelPage() {
   })
 
   return (
-    <div className="p-4">
+    <div className="p-4 print-page">
       {/* Yazdırma Kontrolleri - Sadece ekranda görünür, yazdırılmaz */}
       <div className="mb-4 print:hidden flex items-center justify-between">
         <button
@@ -264,9 +264,9 @@ export default function PrintBarcodeLabelPage() {
       </div>
 
       {/* Etiket - Ayarlardan gelen boyutlar */}
-      <div className="flex justify-center items-center min-h-[400px] py-8">
+      <div className="flex justify-center items-center min-h-[400px] py-8 print-wrapper">
         <div
-          className="bg-white border-2 border-gray-300 shadow-lg"
+          className="bg-white border-2 border-gray-300 shadow-lg print-label"
           style={{
             width: `${labelSettings.label_width}mm`,
             height: `${labelSettings.label_height}mm`,
@@ -334,7 +334,7 @@ export default function PrintBarcodeLabelPage() {
           </div>
 
           {/* Üretim Emri Kartı Detayları - Ayarlardan gelen font boyutu */}
-          <div className="font-black text-gray-900 leading-tight" style={{ 
+          <div className="font-black text-gray-900 leading-tight print-details" style={{ 
             fontSize: `${labelSettings.detail_font_size}px`,
             flex: 1, 
             display: 'flex', 
@@ -396,7 +396,7 @@ export default function PrintBarcodeLabelPage() {
             padding: 0;
           }
           
-          body {
+          html, body {
             margin: 0;
             padding: 0;
             background: white;
@@ -404,24 +404,56 @@ export default function PrintBarcodeLabelPage() {
             print-color-adjust: exact;
             width: ${labelSettings.label_width}mm;
             height: ${labelSettings.label_height}mm;
+            overflow: hidden;
           }
           
+          /* Uygulama kabuklarını gizle */
+          aside, nav, header, button, .sidebar, [data-sidebar] {
+            display: none !important;
+          }
+
           .print\\:hidden {
             display: none !important;
           }
+
+          .print-page {
+            padding: 0 !important;
+            margin: 0 !important;
+          }
           
-          /* Etiket ayrı sayfada - GPrinter GP1125D için */
-          div[style*="${labelSettings.label_width}mm"] {
-            page-break-after: always;
-            page-break-inside: avoid;
-            break-after: page;
-            break-inside: avoid;
-            margin: 0;
-            padding: 0;
+          /* Yazdırmada tek etiket */
+          .print-wrapper {
+            min-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: block !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: ${labelSettings.label_width}mm !important;
+            height: ${labelSettings.label_height}mm !important;
+          }
+
+          .print-label {
+            margin: 0 !important;
+            padding: ${labelSettings.label_padding}mm !important;
             width: ${labelSettings.label_width}mm !important;
             height: ${labelSettings.label_height}mm !important;
             max-width: ${labelSettings.label_width}mm !important;
             max-height: ${labelSettings.label_height}mm !important;
+            page-break-after: auto !important;
+            page-break-inside: avoid !important;
+            break-after: auto !important;
+            break-inside: avoid !important;
+            box-sizing: border-box !important;
+            overflow: visible !important;
+          }
+
+          .print-details {
+            font-size: 11px !important;
+            line-height: 1.1 !important;
           }
           
           /* GPrinter GP1125D için optimize edilmiş yazdırma */

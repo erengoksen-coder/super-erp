@@ -114,10 +114,12 @@ export default function PrintLabelPage() {
         {Array.from({ length: quantity }).map((_, index) => (
           <div
             key={index}
-            className="bg-white p-4 border-2 border-gray-300"
+            className="bg-white border-2 border-gray-300 print-label"
             style={{
               width: '100mm',
               height: '100mm',
+              padding: '3mm',
+              boxSizing: 'border-box',
               pageBreakInside: 'avoid',
               breakInside: 'avoid'
             }}
@@ -178,20 +180,27 @@ export default function PrintLabelPage() {
             margin: 0;
             padding: 0;
           }
+
+          .print-label {
+            width: 100mm !important;
+            height: 100mm !important;
+            box-sizing: border-box;
+            page-break-after: always;
+            page-break-inside: avoid;
+            overflow: hidden;
+          }
+
+          .print-label:last-child {
+            page-break-after: auto;
+          }
           
           .print\\:hidden {
             display: none !important;
           }
           
-          /* Her etiket ayrı sayfada */
-          div[style*="100mm"] {
-            page-break-after: always;
-            page-break-inside: avoid;
-          }
-          
-          /* Son etiket için page-break kaldır */
-          div[style*="100mm"]:last-child {
-            page-break-after: auto;
+          /* Printte sarmalamayı kapat */
+          .print\\:hidden + div {
+            display: block !important;
           }
         }
       `}</style>

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 
 // GET: ngrok URL'ini döndür (eğer varsa)
 // ngrok web interface'inden URL'i alır
-export async function GET() {
+export const GET = withAuth(async (request) => {
   try {
     // ngrok web interface'i genelde 127.0.0.1:4040'da çalışır
     const ngrokApiUrl = 'http://127.0.0.1:4040/api/tunnels'
@@ -45,6 +46,6 @@ export async function GET() {
       error: error.message 
     })
   }
-}
+})
 
 

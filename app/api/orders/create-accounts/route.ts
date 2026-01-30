@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
@@ -49,14 +50,14 @@ function createAccountIfNotExists(db: any, dealerName: string | null): { created
 }
 
 // POST: Mevcut siparişlerden cari hesaplar oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     
     // Tüm siparişlerden benzersiz bayi isimlerini al
     const orders = db.prepare(`
       SELECT DISTINCT dealer_name 
-      FROM orders 
+      FROM active_orders 
       WHERE dealer_name IS NOT NULL AND dealer_name != ''
       ORDER BY dealer_name
     `).all() as Array<{ dealer_name: string }>
@@ -95,4 +96,4 @@ export async function POST(request: NextRequest) {
       details: error.message 
     }, { status: 500 })
   }
-}
+})

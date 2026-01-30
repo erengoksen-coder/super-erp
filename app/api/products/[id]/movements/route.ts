@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Belirli bir ürünün stok hareket geçmişi
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
+    if (!productId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const db = getDatabase()
 
     const movements = db.prepare(`
@@ -27,7 +33,7 @@ export async function GET(
       WHERE sm.product_id = ?
       ORDER BY sm.created_at DESC
       LIMIT 100
-    `).all(resolvedParams.id) as any[]
+    `).all(productId) as any[]
 
     // Tarih formatını düzenle
     const formattedMovements = movements.map((movement) => {
@@ -62,6 +68,6 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 
 

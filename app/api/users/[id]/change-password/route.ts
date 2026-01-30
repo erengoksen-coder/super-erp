@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
@@ -16,10 +17,10 @@ const changePasswordSchema = z.object({
 })
 
 // PATCH: Kullanıcı şifresini değiştir
-export async function PATCH(
-  request: NextRequest,
+export const PATCH = withAuth(async (
+  request: NextRequest, user,
   { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
+) => {
   try {
     const resolvedParams = await Promise.resolve(params)
     const userId = resolvedParams.id
@@ -43,10 +44,8 @@ export async function PATCH(
     const body = await request.json()
     const parsed = changePasswordSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.errors[0]?.message || 'Geçersiz istek' },
-        { status: 400 }
-      )
+      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
+      return NextResponse.json({ error: message }, { status: 400 })
     }
 
     const { old_password, new_password, force_change } = parsed.data
@@ -91,5 +90,5 @@ export async function PATCH(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 

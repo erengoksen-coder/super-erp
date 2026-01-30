@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { createHash } from 'crypto'
 import { randomUUID } from 'crypto'
@@ -23,7 +24,7 @@ async function getActorId(request: NextRequest) {
 }
 
 // GET: Tüm kullanıcıları getir (sadece admin)
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     
@@ -67,10 +68,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Yeni kullanıcı oluştur (admin)
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { username, email, password, full_name, job_title, role, position, is_approved, permissions } = body
@@ -187,4 +188,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

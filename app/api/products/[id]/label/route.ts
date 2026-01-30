@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
+import { getDatabase } from '@/lib/database/db'
 
 type ProductLabel = {
   id: string
@@ -9,13 +11,14 @@ type ProductLabel = {
 }
 
 // GET: Ürün etiket bilgilerini getir
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
-    const { id } = await params
-    const productId = id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
 
     if (!productId) {
       return NextResponse.json(
@@ -24,10 +27,12 @@ export async function GET(
       )
     }
 
-    // Local database'den ürün bilgilerini al
-    const { localDB } = await import('@/lib/database/client')
-    const products = await localDB.getProducts() as ProductLabel[]
-    const product = products.find((p) => p.id === productId)
+    const db = getDatabase()
+    const product = db.prepare(`
+      SELECT id, name, sku
+      FROM active_products
+      WHERE id = ? AND deleted_at IS NULL
+    `).get(productId) as ProductLabel | undefined
 
     if (!product) {
       return NextResponse.json(
@@ -36,12 +41,23 @@ export async function GET(
       )
     }
 
+    const realStock = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM product_serial_numbers psn
+      LEFT JOIN production_orders po ON psn.production_order_id = po.id
+      WHERE psn.product_id = ?
+        AND psn.status = 'in_stock'
+        AND (psn.production_order_id IS NULL
+             OR po.status = 'completed'
+             OR (po.status IS NULL))
+    `).get(productId) as { count?: number } | undefined
+
     return NextResponse.json({
       id: product.id,
       name: product.name,
       sku: product.sku,
-      stock_amount: product.stock_amount || 0,
-      image_url: product.image_url || null
+      stock_amount: realStock?.count || 0,
+      image_url: null,
     })
   } catch (error: any) {
     console.error('Etiket bilgisi yüklenirken hata:', error)
@@ -50,6 +66,6 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+});
 
 

@@ -216,7 +216,7 @@ SELECT
         WHEN m.stock_amount >= b.quantity_required THEN true 
         ELSE false 
     END as is_available
-FROM products p
+FROM active_products p
 JOIN bom b ON p.id = b.product_id
 JOIN materials m ON b.material_id = m.id;
 
@@ -232,7 +232,7 @@ SELECT
     p.name as product_name,
     p.price
 FROM production_orders po
-JOIN products p ON po.product_id = p.id;
+JOIN active_products p ON po.product_id = p.id;
 
 -- ============================================
 -- 8. ÖRNEK VERİLER (Test için)
@@ -265,7 +265,7 @@ SELECT
         WHEN m.name = 'Orta Sertlik Sünger' THEN 1.0
         WHEN m.name = 'Ahşap Ayak' THEN 4.0
     END
-FROM products p, materials m
+FROM active_products p, materials m
 WHERE p.sku = 'KOL-001'
 AND m.name IN ('Kadife Kumaş', 'Orta Sertlik Sünger', 'Ahşap Ayak')
 ON CONFLICT (product_id, material_id) DO NOTHING;
@@ -280,7 +280,7 @@ SELECT
         WHEN m.name = 'Yumuşak Sünger' THEN 1.0
         WHEN m.name = 'Metal Ayak' THEN 4.0
     END
-FROM products p, materials m
+FROM active_products p, materials m
 WHERE p.sku = 'KOL-002'
 AND m.name IN ('Deri Kumaş', 'Yumuşak Sünger', 'Metal Ayak')
 ON CONFLICT (product_id, material_id) DO NOTHING;
@@ -326,7 +326,7 @@ UNION ALL
 SELECT 
     'products', 
     COUNT(*) 
-FROM products
+FROM active_products
 UNION ALL
 SELECT 
     'bom', 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import * as XLSX from 'xlsx'
 
 // GET: Tüm siparişleri Excel formatında export et
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
         o.status as "Durum",
         o.notes as "AÇIKLAMA",
         o.created_at as "Oluşturulma Tarihi"
-      FROM orders o
+      FROM active_orders o
       ORDER BY o.created_at DESC
     `).all() as any[]
     
@@ -147,7 +148,7 @@ export async function GET(request: NextRequest) {
     console.error('Excel export hatası:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 
 

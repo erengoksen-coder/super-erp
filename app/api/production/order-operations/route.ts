@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 
@@ -33,7 +34,7 @@ function diffMinutes(start?: string | null, end?: string | null) {
 }
 
 // GET: Üretim operasyonlarını listele
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productionOrderId = searchParams.get('production_order_id')
@@ -50,9 +51,9 @@ export async function GET(request: NextRequest) {
       FROM production_order_operations poo
       JOIN operations o ON poo.operation_id = o.id
       LEFT JOIN work_centers wc ON poo.work_center_id = wc.id
-      LEFT JOIN personnel p ON poo.personnel_id = p.id
+      LEFT JOIN hr_employees p ON poo.personnel_id = p.id
       LEFT JOIN production_orders po ON poo.production_order_id = po.id
-      LEFT JOIN products pr ON po.product_id = pr.id
+      LEFT JOIN active_products pr ON po.product_id = pr.id
       WHERE (? IS NULL OR poo.production_order_id = ?)
       ORDER BY poo.created_at DESC
     `).all(productionOrderId, productionOrderId) as OrderOperationRow[]
@@ -61,10 +62,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // POST: Üretim operasyonu kaydı oluştur
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const {
@@ -131,10 +132,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // PATCH: Üretim operasyonu güncelle
-export async function PATCH(request: NextRequest) {
+export const PATCH = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const {
@@ -203,10 +204,10 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
 // DELETE: Üretim operasyonu sil
-export async function DELETE(request: NextRequest) {
+export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -221,4 +222,4 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

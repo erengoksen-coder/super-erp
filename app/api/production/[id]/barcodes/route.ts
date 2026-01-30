@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 type ProductSerialRow = {
@@ -14,14 +15,18 @@ type ProductSerialRow = {
 }
 
 // GET: Üretim emrine ait barkodları getir
-export async function GET(
+export const GET = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+  _user,
+  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
-    const productionOrderId = id
+    const resolvedParams = await Promise.resolve(context?.params)
+    const productionOrderId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
+    if (!productionOrderId) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
 
     const barcodes = db.prepare(`
       SELECT 
@@ -29,7 +34,7 @@ export async function GET(
         p.name as product_name,
         p.sku as product_sku
       FROM product_serial_numbers psn
-      JOIN products p ON psn.product_id = p.id
+      JOIN active_products p ON psn.product_id = p.id
       WHERE psn.production_order_id = ?
       ORDER BY psn.created_at DESC
     `).all(productionOrderId) as ProductSerialRow[]
@@ -38,13 +43,14 @@ export async function GET(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 
 // POST: Barkodu sevk edilebilir olarak işaretle/kaldır
-export async function POST(
+export const POST = withAuth(async (
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+  _user,
+  _context?: { params?: { id?: string } | Promise<{ id?: string }> }
+) => {
   try {
     const body = await request.json()
     const { barcode, ready, customer_id } = body
@@ -84,6 +90,6 @@ export async function POST(
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+});
 
 

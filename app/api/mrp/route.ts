@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
@@ -42,7 +43,7 @@ function toNumber(value: unknown, fallback = 0) {
 
 function calculateMrp(db: ReturnType<typeof getDatabase>, productId: string, quantity: number) {
   const product = db
-    .prepare('SELECT id, name, sku FROM products WHERE id = ? AND deleted_at IS NULL')
+    .prepare('SELECT id, name, sku FROM active_products WHERE id = ? AND deleted_at IS NULL')
     .get(productId) as ProductInfo | undefined
 
   if (!product) {
@@ -169,7 +170,7 @@ function generateRequestNumber(db: ReturnType<typeof getDatabase>) {
   return `SAT-${todayStr}-${randomUUID().slice(0, 4)}`
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('product_id')
@@ -194,9 +195,9 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await request.json()
     const { product_id, quantity } = body || {}
@@ -270,4 +271,4 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+})

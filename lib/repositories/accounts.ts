@@ -146,7 +146,7 @@ export const accountsRepo = {
       .prepare('SELECT COUNT(*) as count FROM materials WHERE supplier_id = ?')
       .get(id) as CountRow | undefined
     const usedInOrders = db
-      .prepare('SELECT COUNT(*) as count FROM orders WHERE customer_code = ? OR dealer_name = ?')
+      .prepare('SELECT COUNT(*) as count FROM active_orders WHERE customer_code = ? OR dealer_name = ?')
       .get(id, name) as CountRow | undefined
     return {
       usedInMaterials: usedInMaterials?.count || 0,
