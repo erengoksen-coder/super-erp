@@ -269,9 +269,8 @@ export const PATCH = withAuth(async (request: NextRequest) => {
       })
     }
     
-    // Eğer item_index ve item_total varsa, bu bir kart tamamlanmasıdır
-    // Sadece bu kartı tamamla, tüm üretim emrini değil
-    // Eğer item_index/item_total yoksa ama quantity > 1 ise, hata ver (güvenlik)
+    // Kart bazlı takip - her zaman kart bazlı işlem yap
+    // Eğer item_index/item_total yoksa ama quantity > 1 ise, hata ver
     if (item_index === undefined || item_total === undefined) {
       if (order.quantity > 1) {
         return NextResponse.json({
@@ -279,12 +278,134 @@ export const PATCH = withAuth(async (request: NextRequest) => {
           requires_item_index: true
         }, { status: 400 })
       }
-      // quantity = 1 ise normal akışa devam et
-    } else {
-      // item_index ve item_total var, kart bazlı tamamlanma
+      // quantity = 1 ise, ilk (ve tek) kartı bul
+      const singleBarcode = db.prepare(`
+        SELECT id, barcode, serial_number
+        FROM product_serial_numbers
+        WHERE production_order_id = ?
+        ORDER BY created_at ASC
+        LIMIT 1
+      `).get(order_id) as { id: string; barcode: string; serial_number: string } | undefined
+      
+      if (!singleBarcode) {
+        return NextResponse.json({
+          error: 'Bu üretim emri için barkod bulunamadı'
+        }, { status: 404 })
+      }
+      
+      // Ürün bilgisini al (berjer kontrolü için)
+      const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
+      const isBerjer = product?.name && product.name.toLowerCase().includes('berjer')
+      
+      // Bir sonraki istasyonu belirle
+      let nextStation: string
+      if (currentStation === 'iskelet') {
+        nextStation = 'terzihane'
+      } else if (currentStation === 'terzihane') {
+        nextStation = isBerjer ? 'berjer' : 'döseme'
+      } else if (currentStation === 'döseme') {
+        nextStation = 'montaj'
+      } else if (currentStation === 'montaj') {
+        nextStation = 'completed'
+      } else if (currentStation === 'berjer') {
+        nextStation = 'completed'
+      } else {
+        return NextResponse.json(
+          { error: 'Geçersiz istasyon veya üretim tamamlandı' },
+          { status: 400 }
+        )
+      }
+      
+      const now = new Date().toISOString()
+      
+      // Bu kartın current_station'ını bir sonraki istasyona güncelle
+      db.prepare(`
+        UPDATE product_serial_numbers
+        SET current_station = ?, updated_at = ?
+        WHERE id = ?
+      `).run(nextStation, now, singleBarcode.id)
+      
       // Tamamlanan adet sayacını artır
       const completedCountColumn = `${currentStation}_completed_count`
-      const currentCompleted = order[completedCountColumn] || 0
+      const currentCompleted = Number(
+        (order as Record<string, number | null | undefined>)[completedCountColumn] || 0
+      )
+      const newCompleted = currentCompleted + 1
+      
+      // Sadece bu kartı tamamla
+      db.prepare(`UPDATE production_orders SET ${completedCountColumn} = ? WHERE id = ?`).run(newCompleted, order_id)
+      
+      // Tamamlanma zamanını kaydet
+      const completedAtColumn = `${currentStation}_completed_at`
+      db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
+      
+      // Üretim emrinin current_station'ını GÜNCELLEME - kart bağımsız ilerliyor
+      
+      return NextResponse.json({
+        success: true,
+        message: `Ürün ${nextStation} istasyonuna taşındı`,
+        completed_count: newCompleted,
+        total_quantity: order.quantity,
+        all_completed: true,
+        next_station: nextStation
+      })
+    } else {
+      // item_index ve item_total var, kart bazlı tamamlanma
+      // Bu kartın barkodunu bul
+      const barcodes = db.prepare(`
+        SELECT id, barcode, serial_number
+        FROM product_serial_numbers
+        WHERE production_order_id = ?
+        ORDER BY created_at ASC
+      `).all(order_id) as Array<{ id: string; barcode: string; serial_number: string }>
+      
+      // item_index 1'den başlıyor, array index 0'dan başlıyor
+      const barcodeIndex = item_index - 1
+      const cardBarcode = barcodes[barcodeIndex]
+      
+      if (!cardBarcode) {
+        return NextResponse.json({
+          error: `Kart ${item_index}/${item_total} için barkod bulunamadı`
+        }, { status: 404 })
+      }
+      
+      // Ürün bilgisini al (berjer kontrolü için)
+      const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
+      const isBerjer = product?.name && product.name.toLowerCase().includes('berjer')
+      
+      // Bir sonraki istasyonu belirle
+      let nextStation: string
+      if (currentStation === 'iskelet') {
+        nextStation = 'terzihane'
+      } else if (currentStation === 'terzihane') {
+        nextStation = isBerjer ? 'berjer' : 'döseme'
+      } else if (currentStation === 'döseme') {
+        nextStation = 'montaj'
+      } else if (currentStation === 'montaj') {
+        nextStation = 'completed'
+      } else if (currentStation === 'berjer') {
+        nextStation = 'completed'
+      } else {
+        return NextResponse.json(
+          { error: 'Geçersiz istasyon veya üretim tamamlandı' },
+          { status: 400 }
+        )
+      }
+      
+      const now = new Date().toISOString()
+      
+      // Bu kartın current_station'ını bir sonraki istasyona güncelle
+      db.prepare(`
+        UPDATE product_serial_numbers
+        SET current_station = ?, updated_at = ?
+        WHERE id = ?
+      `).run(nextStation, now, cardBarcode.id)
+      
+      // Tamamlanan adet sayacını artır
+      const completedCountColumn = `${currentStation}_completed_count`
+      const currentCompleted = Number(
+        (order as Record<string, number | null | undefined>)[completedCountColumn] || 0
+      )
       const newCompleted = currentCompleted + 1
       
       // Sadece bu kartı tamamla
@@ -292,332 +413,38 @@ export const PATCH = withAuth(async (request: NextRequest) => {
       
       // Tüm kartlar tamamlandı mı kontrol et
       if (newCompleted >= order.quantity) {
-        // Tüm kartlar tamamlandı, üretim emrini ilerlet
-        // İstasyon tamamlanma zamanını kaydet
+        // Tüm kartlar tamamlandı, sadece tamamlanma zamanını kaydet
+        // Üretim emrinin current_station'ını GÜNCELLEME - kartlar bağımsız ilerliyor
         const completedAtColumn = `${currentStation}_completed_at`
-        const now = new Date().toISOString()
-        db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ? WHERE id = ?`).run(now, order_id)
-        // Normal akışa devam et (aşağıdaki kod çalışacak)
-      } else {
-        // Henüz tamamlanmayan kartlar var, sadece bu kartı tamamla
+        db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
+        
         return NextResponse.json({
           success: true,
-          message: `Kart ${item_index}/${item_total} tamamlandı. Kalan: ${order.quantity - newCompleted} adet`,
+          message: `Tüm kartlar tamamlandı. Son kart ${nextStation} istasyonuna taşındı`,
           completed_count: newCompleted,
           total_quantity: order.quantity,
-          all_completed: false
+          all_completed: true,
+          next_station: nextStation
+        })
+      } else {
+        // Henüz tamamlanmayan kartlar var, sadece bu kartı bir sonraki istasyona taşı
+        // Diğer kartlar aynı terminalde kalacak
+        return NextResponse.json({
+          success: true,
+          message: `Kart ${item_index}/${item_total} tamamlandı ve ${nextStation} istasyonuna taşındı. Kalan ${order.quantity - newCompleted} adet ${currentStation} istasyonunda`,
+          completed_count: newCompleted,
+          total_quantity: order.quantity,
+          all_completed: false,
+          next_station: nextStation
         })
       }
     } // item_index ve item_total varsa buraya gelmez, early return yapıyor
     
-    // Ürün bilgisini al (berjer kontrolü için)
-    const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(order.product_id) as ProductNameRow | undefined
-    const isBerjer = product?.name && product.name.toLowerCase().includes('berjer')
-    
-    const stationOrder = ['iskelet', 'terzihane', 'döseme', 'montaj', 'berjer', 'sevkiyat', 'completed']
-    const currentIndex = stationOrder.indexOf(currentStation)
-    
-    // Berjer için özel akış
-    let nextIndex = currentIndex + 1
-    if (isBerjer && currentStation === 'terzihane') {
-      // Berjer ürünleri terzihane'den direkt berjer istasyonuna
-      nextIndex = stationOrder.indexOf('berjer')
-    } else if (isBerjer && currentStation === 'berjer') {
-      // Berjer istasyonundan direkt mamül depoya (completed)
-      nextIndex = stationOrder.indexOf('completed')
-    } else if (currentStation === 'montaj') {
-      // Montaj bitince direkt completed durumuna geç (sevkiyat'ı atla) ve mamül depoya al
-      nextIndex = stationOrder.indexOf('completed')
-    }
-
-    if (nextIndex >= stationOrder.length) {
-      return NextResponse.json(
-        { error: 'Üretim tamamlandı' },
-        { status: 400 }
-      )
-    }
-
-    const nextStation = stationOrder[nextIndex]
-    const now = new Date().toISOString()
-
-    // Barkod generator'ı üstte statik import edildi
-
-    db.transaction(() => {
-      // İstasyon geçişi
-      // Tüm kartlar tamamlandığında buraya geliyoruz
-      let updateQuery = `UPDATE production_orders SET current_station = ?, updated_at = ?`
-      const updateParams: Array<string | number | null> = [nextStation, now]
-
-      // Önceki istasyonu tamamla (zaten completed_at kaydedildi, ama başlangıç zamanını kontrol et)
-      if (currentStation === 'iskelet') {
-        if (!order.iskelet_started_at) {
-          updateQuery += `, iskelet_started_at = ?`
-          updateParams.push(now)
-        }
-      } else if (currentStation === 'terzihane') {
-        if (!order.terzihane_started_at) {
-          updateQuery += `, terzihane_started_at = ?`
-          updateParams.push(now)
-        }
-      } else if (currentStation === 'berjer') {
-        if (!order.berjer_started_at) {
-          updateQuery += `, berjer_started_at = ?`
-          updateParams.push(now)
-        }
-      } else if (currentStation === 'döseme') {
-        if (!order.döseme_started_at) {
-          updateQuery += `, döseme_started_at = ?`
-          updateParams.push(now)
-        }
-      } else if (currentStation === 'montaj') {
-        if (!order.montaj_started_at) {
-          updateQuery += `, montaj_started_at = ?`
-          updateParams.push(now)
-        }
-      }
-      
-      // Tamamlanan kart sayacını sıfırla (yeni istasyona geçildi)
-      const resetCountColumn = `${currentStation}_completed_count`
-      updateQuery += `, ${resetCountColumn} = 0`
-
-      // Sonraki istasyonu başlat
-      if (nextStation === 'terzihane' && !order.terzihane_started_at) {
-        updateQuery += `, terzihane_started_at = ?`
-        updateParams.push(now)
-      } else if (nextStation === 'berjer' && !order.berjer_started_at) {
-        updateQuery += `, berjer_started_at = ?`
-        updateParams.push(now)
-      } else if (nextStation === 'döseme' && !order.döseme_started_at) {
-        updateQuery += `, döseme_started_at = ?`
-        updateParams.push(now)
-      } else if (nextStation === 'montaj' && !order.montaj_started_at) {
-        updateQuery += `, montaj_started_at = ?`
-        updateParams.push(now)
-      } else if (nextStation === 'sevkiyat' && !order.sevkiyat_started_at) {
-        updateQuery += `, sevkiyat_started_at = ?`
-        updateParams.push(now)
-      } else if (nextStation === 'completed') {
-        updateQuery += `, status = 'completed', completed_at = ?`
-        updateParams.push(now)
-      }
-
-      updateQuery += ` WHERE id = ?`
-      updateParams.push(order_id)
-
-      db.prepare(updateQuery).run(...updateParams)
-
-      // Döşeme aşamasına geçildiğinde otomatik stok düşümü
-      if (nextStation === 'döseme' && order.stock_deducted === 0) {
-        const bom = db.prepare(`
-          SELECT 
-            b.material_id,
-            b.quantity_required,
-            b.unit as unit,
-            COALESCE(b.fire_percentage, 0) as fire_percentage,
-            m.name as material_name,
-            m.stock_amount,
-            m.unit as material_unit,
-            m.reserved_quantity
-          FROM bom b
-          JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
-          JOIN materials m ON b.material_id = m.id
-          WHERE b.product_id = ? AND b.deleted_at IS NULL
-        `).all(order.product_id)
-
-        // Her malzeme için stok düş
-        for (const item of bom) {
-          const firePercentage = item.fire_percentage || 0
-          const quantityWithFire = item.quantity_required * (1 + firePercentage / 100)
-          const fromUnit = (item.unit || item.material_unit || '').toString()
-          const toUnit = (item.material_unit || '').toString()
-          const factor = resolveUnitFactor(db, item.material_id || null, fromUnit, toUnit)
-          const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
-          const required = convertedQuantity * order.quantity
-
-          // Stok kontrolü
-          const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
-          if (available < required) {
-            // Stok yetersiz ama işlemi geri almayalım, sadece uyarı verelim
-            console.warn(`Stok yetersiz: ${item.material_name}`)
-          } else {
-            // Stoku düş
-            applyMaterialStockChange(db, item.material_id, -required)
-
-            // Stok hareketi kaydı (quantity pozitif olmalı, movement_type 'out' olduğu için otomatik düşecek)
-            const movementId = require('crypto').randomUUID()
-            db.prepare(`
-              INSERT INTO stock_movements 
-              (id, material_id, movement_type, quantity, reference_type, reference_id, notes, created_at)
-              VALUES (?, ?, 'out', ?, 'production', ?, ?, CURRENT_TIMESTAMP)
-            `).run(
-              movementId,
-              item.material_id,
-              required, // Pozitif değer (movement_type 'out' olduğu için trigger otomatik düşecek)
-              order_id,
-              `Üretim: ${order.order_number} - Döşeme aşaması (Fire: ${firePercentage}%)`
-            )
-          }
-        }
-
-        // Stok düşümü yapıldı işaretle
-        db.prepare('UPDATE production_orders SET stock_deducted = 1 WHERE id = ?').run(order_id)
-      }
-
-      // Berjer istasyonundan direkt mamül depoya ekle
-      if (currentStation === 'berjer' && nextStation === 'completed') {
-        // Mevcut stoku al
-      const currentStock = db
-        .prepare('SELECT stock_amount FROM active_products WHERE id = ?')
-        .get(order.product_id) as ProductStockRow | undefined
-        const newStock = (currentStock?.stock_amount || 0) + order.quantity
-        
-        // Ürün stokunu artır
-        db.prepare(`
-          UPDATE products
-          SET stock_amount = ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(newStock, order.product_id)
-
-        // Barkodlar oluştur (eğer yoksa) veya mevcut barkodları mamül depoya al
-      const existingBarcodes = db.prepare(`
-          SELECT id, status
-          FROM product_serial_numbers
-          WHERE production_order_id = ?
-        `).all(order_id) as SerialStatusRow[]
-
-        if (existingBarcodes.length === 0) {
-          // Her ürün için barkod oluştur
-          // Bugünkü barkod sayısını al
-          const todayCount = db.prepare(`
-            SELECT COUNT(*) as count
-            FROM product_serial_numbers
-            WHERE DATE(created_at) = DATE('now')
-          `).get() as BarcodeCountRow | undefined
-          const sequence = (todayCount?.count || 0) + 1
-
-          for (let i = 0; i < order.quantity; i++) {
-            const barcodeId = require('crypto').randomUUID()
-            const barcode = generateBarcode(order.product_id, sequence + i)
-            const serialNumber = generateSerialNumber(order.order_number, i + 1)
-
-            db.prepare(`
-              INSERT INTO product_serial_numbers 
-              (id, product_id, production_order_id, serial_number, barcode, status, created_at)
-              VALUES (?, ?, ?, ?, ?, 'available', CURRENT_TIMESTAMP)
-            `).run(barcodeId, order.product_id, order_id, serialNumber, barcode)
-          }
-        } else {
-          // Mevcut barkodların status'ünü 'available' yap (mamül depoya al)
-          db.prepare(`
-            UPDATE product_serial_numbers
-            SET status = 'available'
-            WHERE production_order_id = ? AND (status IS NULL OR status = 'in_stock' OR status = 'in_production')
-          `).run(order_id)
-        }
-
-        // Stok hareketi kaydı (mamül depo girişi) - opsiyonel
-        try {
-          const movementId = require('crypto').randomUUID()
-          db.prepare(`
-            INSERT INTO stock_movements 
-            (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_at)
-            VALUES (?, NULL, ?, 'in', ?, 'production', ?, ?, CURRENT_TIMESTAMP)
-          `).run(
-            movementId,
-            order.product_id,
-            order.quantity,
-            order_id,
-            `Üretim Tamamlandı: ${order.order_number} - Berjer bitince mamül depoya eklendi`
-          )
-        } catch (movementError) {
-          // stock_movements tablosunda product_id kolonu yoksa hata vermesin
-          console.warn('Stok hareketi kaydedilemedi (opsiyonel):', movementError)
-        }
-      }
-      
-      // Montaj tamamlandığında direkt mamül depoya ekle
-      if (currentStation === 'montaj' && nextStation === 'completed') {
-        // Mevcut stoku al
-        const currentStock = db
-          .prepare('SELECT stock_amount FROM active_products WHERE id = ?')
-          .get(order.product_id) as ProductStockRow | undefined
-        const newStock = (currentStock?.stock_amount || 0) + order.quantity
-        
-        // Ürün stokunu artır
-        db.prepare(`
-          UPDATE products
-          SET stock_amount = ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(newStock, order.product_id)
-
-        // Barkodlar oluştur (eğer yoksa) veya mevcut barkodları mamül depoya al
-        const existingBarcodes = db.prepare(`
-          SELECT id, status
-          FROM product_serial_numbers
-          WHERE production_order_id = ?
-          `).all(order_id) as SerialStatusRow[]
-
-        if (existingBarcodes.length === 0) {
-          // Her ürün için barkod oluştur
-          // Bugünkü barkod sayısını al
-          const todayCount = db.prepare(`
-            SELECT COUNT(*) as count
-            FROM product_serial_numbers
-            WHERE DATE(created_at) = DATE('now')
-          `).get() as BarcodeCountRow | undefined
-          const sequence = (todayCount?.count || 0) + 1
-
-          for (let i = 0; i < order.quantity; i++) {
-            const barcodeId = require('crypto').randomUUID()
-            const barcode = generateBarcode(order.product_id, sequence + i)
-            const serialNumber = generateSerialNumber(order.order_number, i + 1)
-
-            db.prepare(`
-              INSERT INTO product_serial_numbers 
-              (id, product_id, production_order_id, serial_number, barcode, status, created_at)
-              VALUES (?, ?, ?, ?, ?, 'available', CURRENT_TIMESTAMP)
-            `).run(barcodeId, order.product_id, order_id, serialNumber, barcode)
-          }
-        } else {
-          // Mevcut barkodların status'ünü 'available' yap (mamül depoya al)
-          db.prepare(`
-            UPDATE product_serial_numbers
-            SET status = 'available'
-            WHERE production_order_id = ? AND (status IS NULL OR status = 'in_stock' OR status = 'in_production')
-          `).run(order_id)
-        }
-
-        // Stok hareketi kaydı (mamül depo girişi) - opsiyonel
-        try {
-          const movementId = require('crypto').randomUUID()
-          db.prepare(`
-            INSERT INTO stock_movements 
-            (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_at)
-            VALUES (?, NULL, ?, 'in', ?, 'production', ?, ?, CURRENT_TIMESTAMP)
-          `).run(
-            movementId,
-            order.product_id,
-            order.quantity,
-            order_id,
-            `Üretim Tamamlandı: ${order.order_number} - Montaj bitince mamül depoya eklendi`
-          )
-        } catch (movementError) {
-          // stock_movements tablosunda product_id kolonu yoksa hata vermesin
-          console.warn('Stok hareketi kaydedilemedi (opsiyonel):', movementError)
-        }
-      }
-    })()
-
+    // Bu kısma gelmemeli - tüm durumlar yukarıda handle edildi
+    // Güvenlik için: Eğer buraya gelirse, hata ver
     return NextResponse.json({
-      success: true,
-      message: `Üretim emri ${nextStation} istasyonuna geçirildi`,
-      order: {
-        ...order,
-        current_station: nextStation,
-      },
-    })
+      error: 'Kart bazlı takip hatası: Bu durum handle edilmedi. Lütfen item_index ve item_total parametrelerini gönderin.'
+    }, { status: 500 })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
