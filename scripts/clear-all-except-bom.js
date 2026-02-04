@@ -1,92 +1,5 @@
 #!/usr/bin/env node
 
-const Database = require('better-sqlite3')
-const { join } = require('path')
-const { existsSync } = require('fs')
-const { Client } = require('pg')
-
-const SAFE_FLAG = String(process.env.ALLOW_DB_RESET || '').toLowerCase() === 'true'
-const MODE = process.argv.includes('--yes')
-
-if (!SAFE_FLAG || !MODE) {
-  console.error('Bu işlem veri silecektir. Devam etmek için: ALLOW_DB_RESET=true node scripts/clear-all-except-bom.js --yes')
-  process.exit(1)
-}
-
-async function clearSqlite() {
-  const dbPath = join(process.cwd(), 'data', 'erp.db')
-  if (!existsSync(dbPath)) {
-    console.warn('SQLite veritabanı bulunamadı:', dbPath)
-    return
-  }
-
-  const db = new Database(dbPath)
-  try {
-    db.pragma('foreign_keys = OFF')
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-      .all()
-      .map((row) => row.name)
-      .filter((name) => !['bom', 'bom_versions'].includes(name))
-
-    const deleteStmt = db.transaction(() => {
-      for (const name of tables) {
-        db.prepare(`DELETE FROM ${name}`).run()
-      }
-    })
-
-    deleteStmt()
-    console.log(`SQLite temizlendi. Silinen tablolar: ${tables.length}`)
-  } finally {
-    db.close()
-  }
-}
-
-async function clearSupabase() {
-  const connString = process.env.SUPABASE_DB_URL || process.env.SUPABASE_DATABASE_URL
-  if (!connString) {
-    console.warn('SUPABASE_DB_URL veya SUPABASE_DATABASE_URL yok, Supabase temizliği atlandı.')
-    return
-  }
-
-  const sslDisabled = String(process.env.SUPABASE_DB_SSL || '').toLowerCase() === 'false'
-  const client = new Client({
-    connectionString: connString,
-    ...(sslDisabled ? {} : { ssl: { rejectUnauthorized: false } }),
-  })
-
-  await client.connect()
-  try {
-    const { rows } = await client.query(`
-      SELECT tablename
-      FROM pg_tables
-      WHERE schemaname = 'public'
-    `)
-
-    const keep = new Set(['bom', 'bom_versions', 'supabase_migrations', 'schema_migrations'])
-    const tables = rows.map((r) => r.tablename).filter((name) => !keep.has(name))
-
-    if (tables.length === 0) {
-      console.log('Supabase: Silinecek tablo yok.')
-      return
-    }
-
-    await client.query(`TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE;`)
-    console.log(`Supabase temizlendi. Silinen tablolar: ${tables.length}`)
-  } finally {
-    await client.end()
-  }
-}
-
-async function run() {
-  await clearSqlite()
-  await clearSupabase()
-}
-
-run().catch((error) => {
-  console.error('Temizlik başarısız:', error.message)
-  process.exit(1)
-})
 /**
  * BOM Hariç Tüm Verileri Silme Scripti
  * BOM (Bill of Materials) korunur, diğer tüm veriler silinir
@@ -106,31 +19,31 @@ try {
   const result = db.transaction(() => {
     let deletedCounts = {};
     
-    // 1. Journal Entry Lines (Yevmiye Satırları)
+    // 1. Account Transactions (Cari Hesap İşlemleri)
     try {
-      const deleted = db.prepare('DELETE FROM journal_entry_lines').run();
-      deletedCounts.journal_entry_lines = deleted.changes;
-      console.log(`✓ ${deleted.changes} yevmiye satırı silindi`);
+      const deleted = db.prepare('DELETE FROM account_transactions').run();
+      deletedCounts.account_transactions = deleted.changes;
+      console.log(`✓ ${deleted.changes} cari hesap işlemi silindi`);
     } catch (e) {
-      console.warn(`⚠ journal_entry_lines: ${e.message}`);
+      console.warn(`⚠ account_transactions: ${e.message}`);
     }
     
-    // 2. General Ledger (Defter-i Kebir)
+    // 2. Invoice Items (Fatura Kalemleri)
     try {
-      const deleted = db.prepare('DELETE FROM general_ledger').run();
-      deletedCounts.general_ledger = deleted.changes;
-      console.log(`✓ ${deleted.changes} defter-i kebir kaydı silindi`);
+      const deleted = db.prepare('DELETE FROM invoice_items').run();
+      deletedCounts.invoice_items = deleted.changes;
+      console.log(`✓ ${deleted.changes} fatura kalemi silindi`);
     } catch (e) {
-      console.warn(`⚠ general_ledger: ${e.message}`);
+      console.warn(`⚠ invoice_items: ${e.message}`);
     }
     
-    // 3. Journal Entries (Yevmiye Kayıtları)
+    // 3. Invoices (Faturalar)
     try {
-      const deleted = db.prepare('DELETE FROM journal_entries').run();
-      deletedCounts.journal_entries = deleted.changes;
-      console.log(`✓ ${deleted.changes} yevmiye kaydı silindi`);
+      const deleted = db.prepare('DELETE FROM invoices').run();
+      deletedCounts.invoices = deleted.changes;
+      console.log(`✓ ${deleted.changes} fatura silindi`);
     } catch (e) {
-      console.warn(`⚠ journal_entries: ${e.message}`);
+      console.warn(`⚠ invoices: ${e.message}`);
     }
     
     // 4. Shipment Items (Sevkiyat Kalemleri)
@@ -189,7 +102,7 @@ try {
     
     // 10. Orders (Siparişler)
     try {
-      const deleted = db.prepare('DELETE FROM active_orders').run();
+      const deleted = db.prepare('DELETE FROM orders').run();
       deletedCounts.orders = deleted.changes;
       console.log(`✓ ${deleted.changes} sipariş silindi`);
     } catch (e) {
@@ -205,7 +118,52 @@ try {
       console.warn(`⚠ purchase_requests: ${e.message}`);
     }
     
-    // 12. Stok miktarlarını sıfırla (products ve materials)
+    // 12. Payments (Ödemeler)
+    try {
+      const deleted = db.prepare('DELETE FROM payments').run();
+      deletedCounts.payments = deleted.changes;
+      console.log(`✓ ${deleted.changes} ödeme silindi`);
+    } catch (e) {
+      console.warn(`⚠ payments: ${e.message}`);
+    }
+    
+    // 13. Notifications (Bildirimler)
+    try {
+      const deleted = db.prepare('DELETE FROM notifications').run();
+      deletedCounts.notifications = deleted.changes;
+      console.log(`✓ ${deleted.changes} bildirim silindi`);
+    } catch (e) {
+      console.warn(`⚠ notifications: ${e.message}`);
+    }
+    
+    // 14. Journal Entry Lines (Yevmiye Satırları)
+    try {
+      const deleted = db.prepare('DELETE FROM journal_entry_lines').run();
+      deletedCounts.journal_entry_lines = deleted.changes;
+      console.log(`✓ ${deleted.changes} yevmiye satırı silindi`);
+    } catch (e) {
+      console.warn(`⚠ journal_entry_lines: ${e.message}`);
+    }
+    
+    // 15. General Ledger (Defter-i Kebir)
+    try {
+      const deleted = db.prepare('DELETE FROM general_ledger').run();
+      deletedCounts.general_ledger = deleted.changes;
+      console.log(`✓ ${deleted.changes} defter-i kebir kaydı silindi`);
+    } catch (e) {
+      console.warn(`⚠ general_ledger: ${e.message}`);
+    }
+    
+    // 16. Journal Entries (Yevmiye Kayıtları)
+    try {
+      const deleted = db.prepare('DELETE FROM journal_entries').run();
+      deletedCounts.journal_entries = deleted.changes;
+      console.log(`✓ ${deleted.changes} yevmiye kaydı silindi`);
+    } catch (e) {
+      console.warn(`⚠ journal_entries: ${e.message}`);
+    }
+    
+    // 17. Stok miktarlarını sıfırla (products ve materials)
     try {
       const deleted = db.prepare('UPDATE products SET stock_amount = 0').run();
       deletedCounts.products_stock_reset = deleted.changes;
@@ -222,7 +180,7 @@ try {
       console.warn(`⚠ materials stock reset: ${e.message}`);
     }
     
-    // 13. Accounts bakiyelerini sıfırla
+    // 18. Accounts bakiyelerini sıfırla
     try {
       const deleted = db.prepare('UPDATE accounts SET balance = 0').run();
       deletedCounts.accounts_balance_reset = deleted.changes;
@@ -243,11 +201,15 @@ try {
   console.log('');
   console.log('Korunan Tablolar:');
   console.log('  - bom (Ürün Reçeteleri)');
+  console.log('  - bom_versions (BOM Versiyonları)');
   console.log('  - products (Ürünler)');
   console.log('  - materials (Malzemeler)');
   console.log('  - users (Kullanıcılar)');
   console.log('  - accounts (Cari Hesaplar)');
   console.log('  - chart_of_accounts (Hesap Planı)');
+  console.log('  - unit_conversions (Birim Dönüşümleri)');
+  console.log('  - operations (Operasyonlar)');
+  console.log('  - work_centers (İş Merkezleri)');
   console.log('');
   
   const totalDeleted = Object.values(result).reduce((sum, count) => sum + (count || 0), 0);
@@ -260,4 +222,3 @@ try {
   db.close();
   process.exit(1);
 }
-
