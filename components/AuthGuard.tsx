@@ -27,6 +27,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
+    // Eğer logout işlemi devam ediyorsa, session kontrolü yapma
+    if (typeof window !== 'undefined' && sessionStorage.getItem('logging_out') === 'true') {
+      setIsChecking(false)
+      return
+    }
+
     const verifySession = async () => {
       try {
         const data = await fetchApi('/api/auth/me')

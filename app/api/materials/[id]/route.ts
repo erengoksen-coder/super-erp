@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -66,7 +67,16 @@ export const PATCH = withAuth(async (
   context?: { params?: { id?: string } | Promise<{ id?: string }> }
 ) => {
   try {
-    const body = await request.json() as MaterialUpdateInput
+    const raw = await request.text()
+    let body: MaterialUpdateInput = {}
+    if (raw && raw.trim()) {
+      try {
+        body = JSON.parse(raw) as MaterialUpdateInput
+      } catch {
+        const params = new URLSearchParams(raw)
+        body = Object.fromEntries(params.entries()) as MaterialUpdateInput
+      }
+    }
     const { stock_amount, min_stock_level, name, code, unit, category, unit_price } = body
 
     const db = getDatabase()

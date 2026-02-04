@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Printer, ArrowLeft, Truck, Calendar, User, Package, CheckCircle, Edit, Save, X, AlertCircle, RotateCcw } from 'lucide-react'
+import { Printer, ArrowLeft, Truck, Calendar, User, Package, CheckCircle, Edit, Save, X, AlertCircle, RotateCcw, ShieldCheck } from 'lucide-react'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface Shipment {
   id: string
@@ -22,6 +23,15 @@ interface Shipment {
   final_amount?: number
   notes: string
   end_customer_name?: string | null
+  dealer_name?: string | null
+  approval_status?: string | null
+  approved_by?: string | null
+  approved_at?: string | null
+  approval_requested_at?: string | null
+  approved_by_name?: string | null
+  approved_by_username?: string | null
+  customer_risk_limit?: number | null
+  customer_balance?: number | null
   items: Array<{
     id: string
     product_name: string
@@ -35,11 +45,23 @@ interface Shipment {
 export default function ShipmentDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const user = useAuthStore((state) => state.user)
   const [shipment, setShipment] = useState<Shipment | null>(null)
   const [loading, setLoading] = useState(true)
+  const [approving, setApproving] = useState(false)
   const [editingStatus, setEditingStatus] = useState(false)
   const [selectedStatus, setSelectedStatus] = useState<string>('')
   const [cancelReason, setCancelReason] = useState<string>('')
+  
+  // Kullanıcının onay yetkisi var mı?
+  const userRole = (user?.role || '').toString().toLowerCase()
+  const hasApprovalPermission = 
+    userRole === 'admin' || 
+    userRole === 'manager' || 
+    userRole === 'muhasebe' ||
+    userRole.includes('muhasebe') ||
+    userRole.includes('yönetici') ||
+    userRole.includes('yonetici')
 
   useEffect(() => {
     const id = params?.id as string
@@ -103,6 +125,37 @@ export default function ShipmentDetailPage() {
     setEditingStatus(false)
     setSelectedStatus('')
     setCancelReason('')
+  }
+
+  async function handleApprove() {
+    if (!shipment) return
+    if (!confirm('Bu sevkiyatı onaylamak istediğinize emin misiniz? Risk limiti aşıldığı için onay gerekiyor.')) {
+      return
+    }
+    
+    setApproving(true)
+    try {
+      const response = await fetch(`/api/shipments/${shipment.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Onay işlemi başarısız')
+      }
+      
+      alert('✅ Sevkiyat başarıyla onaylandı!')
+      // Sevkiyatı yeniden yükle
+      const id = params?.id as string
+      if (id && id !== 'undefined') {
+        loadShipment(id)
+      }
+    } catch (error: any) {
+      alert('Hata: ' + error.message)
+    } finally {
+      setApproving(false)
+    }
   }
 
   async function saveStatus() {
@@ -184,6 +237,16 @@ export default function ShipmentDetailPage() {
             <span>← Geri</span>
           </button>
           <div className="flex items-center space-x-2">
+            {shipment.approval_status === 'pending' && hasApprovalPermission && (
+              <button
+                onClick={handleApprove}
+                disabled={approving}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center space-x-2 disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{approving ? 'Onaylanıyor...' : 'Onayla'}</span>
+              </button>
+            )}
             {shipment.status !== 'cancelled' && (
               <button
                 onClick={handleReturnShipment}
@@ -263,6 +326,37 @@ export default function ShipmentDetailPage() {
                     })()}
                   </span>
                 </div>
+                {shipment.approval_status === 'pending' && (
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">Onay Durumu:</span>
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500 text-white">
+                      Onay Bekliyor
+                    </span>
+                  </div>
+                )}
+                {shipment.approval_status === 'approved' && shipment.approved_by_name && (
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">Onaylandı:</span>
+                    <span className="text-sm font-semibold text-green-600">
+                      {shipment.approved_by_name} ({shipment.approved_by_username || 'Kullanıcı'})
+                      {shipment.approved_at && (
+                        <span className="text-gray-500 ml-2">
+                          - {new Date(shipment.approved_at).toLocaleString('tr-TR')}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {shipment.approval_status === 'pending' && shipment.customer_risk_limit && shipment.customer_balance && shipment.final_amount && (
+                  <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                    <div className="text-yellow-800 font-semibold mb-1">⚠️ Risk Limiti Aşıldı</div>
+                    <div className="text-yellow-700 space-y-1">
+                      <div>Risk Limiti: {shipment.customer_risk_limit.toFixed(2)} ₺</div>
+                      <div>Mevcut Bakiye: {shipment.customer_balance.toFixed(2)} ₺</div>
+                      <div>Yeni Bakiye: {(shipment.customer_balance + shipment.final_amount).toFixed(2)} ₺</div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Durum:</span>
                   {editingStatus ? (

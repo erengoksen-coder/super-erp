@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -20,6 +21,8 @@ export const GET = withAuth(async (request: NextRequest) => {
         p.sku,
         po.order_number as production_order_number,
         po.status as production_order_status,
+        COALESCE(psn.current_station, po.current_station) as current_station,
+        po.current_station as production_order_station,
         po.created_at as production_order_created_at,
         o.dealer_name,
         o.customer_name,
@@ -27,7 +30,8 @@ export const GET = withAuth(async (request: NextRequest) => {
         o.order_date as order_date,
         o.configuration,
         o.notes,
-        s.shipment_date as shipment_date
+        s.shipment_date as shipment_date,
+        s.shipment_number as shipment_number
       FROM product_serial_numbers psn
       JOIN active_products p ON psn.product_id = p.id
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
@@ -51,6 +55,12 @@ export const GET = withAuth(async (request: NextRequest) => {
       query += ' AND (psn.barcode = ? OR psn.serial_number = ?)'
       params.push(barcode, barcode)
     }
+    
+    // Sevk edilmiş ürünleri filtrele (shipment_id varsa hariç tut)
+    // Not: Bu filtreleme sadece sevkiyat ekranında kullanılmak üzere
+    // Eğer sevk edilmiş ürünlerin bilgilerine erişim gerekiyorsa, bu filtreyi kaldırabiliriz
+    // Ancak şu an için sevkiyat ekranında sevk edilmiş ürünlerin görünmemesi gerekiyor
+    // query += ' AND (psn.shipment_id IS NULL OR psn.shipment_id = \'\')'
 
     query += ' ORDER BY psn.created_at DESC'
 
@@ -58,7 +68,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     
     // Üretim emri tamamlanmamışsa status'u "in_production" olarak işaretle
     const processedBarcodes = barcodes.map(barcode => {
-      // Eğer production_order_id varsa ve üretim tamamlanmamışsa
+      // Eşer production_order_id varsa ve üretim tamamlanmamışsa
       if (barcode.production_order_id && barcode.production_order_status && barcode.production_order_status !== 'completed') {
         return {
           ...barcode,
@@ -77,7 +87,23 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni barkodlar oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await parseJsonBody(request)
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message || 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json(
+        { error: 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
     const { product_id, quantity, production_order_id, notes } = body
 
     if (!product_id || !quantity || quantity <= 0) {
@@ -89,10 +115,10 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const db = getDatabase()
 
-    // Ürün bilgisini al
+    // �Srün bilgisini al
     const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(product_id) as any
     if (!product) {
-      return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+      return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
     // Bugünkü barkod sayısını al (SQLite için tarih formatı)
@@ -146,7 +172,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           sku: product.sku,
         })
       } catch (error: any) {
-        // Eğer hala çakışma olursa, UUID ekleyerek tekrar dene
+        // Eşer hala çakışma olursa, UUID ekleyerek tekrar dene
         if (error.message && error.message.includes('UNIQUE')) {
           const uniqueId = randomUUID().slice(0, 8)
           const barcodeWithId = `${barcodeData.barcode}-${uniqueId}`
@@ -182,3 +208,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

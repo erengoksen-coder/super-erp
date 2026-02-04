@@ -33,6 +33,8 @@ interface ProductionOrder {
   item_index?: number // 1'den başlayan sıra numarası
   item_total?: number // Toplam adet
   display_quantity?: number // Her kart için gösterilecek miktar (her zaman 1)
+  barcode?: string | null // Barkod numarası
+  serial_number?: string | null // Seri numarası
 }
 
 const stationNames: Record<string, string> = {
@@ -94,6 +96,15 @@ export default function StationPage() {
 
     setProcessing(orderId)
     try {
+      console.log('[Frontend] Sending request:', {
+        order_id: orderId,
+        station: station,
+        item_index: itemIndex,
+        item_total: itemTotal,
+        barcode: order?.barcode,
+        serial_number: order?.serial_number
+      })
+      
       const response = await fetch('/api/production/station/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -102,15 +113,57 @@ export default function StationPage() {
           station: station,
           item_index: itemIndex,
           item_total: itemTotal,
+          barcode: order?.barcode || null,
+          serial_number: order?.serial_number || null,
         }),
       })
 
+      console.log('[Frontend] Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
+      })
+
+      // Response'u text olarak oku
+      let responseText: string
+      try {
+        responseText = await response.text()
+        console.log('[Frontend] Response text length:', responseText.length, 'First 500 chars:', responseText.substring(0, 500))
+      } catch (textError: any) {
+        console.error('[Frontend] Error reading response text:', textError)
+        throw new Error('Sunucu yanıtı okunamadı: ' + (textError.message || 'Bilinmeyen hata'))
+      }
+      
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'İşlem başarısız')
+        let errorData: any = {}
+        try {
+          if (responseText && responseText.trim()) {
+            errorData = JSON.parse(responseText)
+          } else {
+            errorData = { error: `HTTP ${response.status}: ${response.statusText}` }
+          }
+        } catch (e) {
+          console.error('[Frontend] Error parsing error response:', e, 'Response text:', responseText)
+          errorData = { error: `Sunucu hatası: ${response.status} ${response.statusText}. Yanıt: ${responseText.substring(0, 100)}` }
+        }
+        const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        console.error('[Frontend] Error from server:', errorMessage, 'Full error data:', errorData)
+        throw new Error(errorMessage)
       }
 
-      const result = await response.json()
+      // Başarılı response'u parse et
+      let result: any
+      try {
+        if (!responseText || responseText.trim() === '') {
+          throw new Error('Sunucudan boş yanıt alındı')
+        }
+        result = JSON.parse(responseText)
+        console.log('[Frontend] Success response:', result)
+      } catch (parseError: any) {
+        console.error('[Frontend] JSON parse error:', parseError, 'Response text:', responseText)
+        throw new Error('Sunucu yanıtı geçersiz format: ' + (parseError.message || 'Bilinmeyen hata') + '. Yanıt: ' + responseText.substring(0, 200))
+      }
       
       // Eğer tüm kartlar tamamlanmadıysa, sadece bu kart tamamlandı mesajı göster
       if (result.all_completed === false) {
@@ -166,9 +219,11 @@ export default function StationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           order_id: orderId,
-          station: previousStation, // Önceki istasyona gönder
+          station: station, // Mevcut istasyon (geri çevirme için)
           item_index: itemIndex,
           item_total: itemTotal,
+          barcode: order?.barcode || null,
+          serial_number: order?.serial_number || null,
           revert: true, // Geri çevirme işlemi
         }),
       })
@@ -253,13 +308,15 @@ export default function StationPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {orders.map((order) => {
+            {orders.map((order, index) => {
               const startTime = getStationTime(order, station)
               const isProcessing = processing === order.id
+              // Benzersiz key: order.id + item_index kombinasyonu
+              const uniqueKey = `${order.id}-${order.item_index || index}`
 
               return (
                 <div
-                  key={order.id}
+                  key={uniqueKey}
                   className="bg-gray-800 rounded-lg p-4 border border-gray-700"
                 >
                   <div className="flex justify-between items-start mb-3">
@@ -274,6 +331,19 @@ export default function StationPage() {
                         {order.order_product_name || order.product_name}
                       </h3>
                       <p className="text-sm text-gray-400 mb-2">{order.product_sku}</p>
+                      {/* Barkod Numarası */}
+                      {order.barcode && (
+                        <div className="mb-2 p-2 bg-gray-700/50 rounded border border-gray-600">
+                          <div className="text-xs text-purple-300">
+                            <span className="font-semibold">Barkod:</span> {order.barcode}
+                          </div>
+                          {order.serial_number && (
+                            <div className="text-xs text-purple-300 mt-1">
+                              <span className="font-semibold">Seri No:</span> {order.serial_number}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {/* Bayi ve Müşteri Bilgileri - Her zaman göster */}
                       <div className="mb-2 p-2 bg-gray-700/50 rounded border border-gray-600">
                         {order.dealer_name ? (

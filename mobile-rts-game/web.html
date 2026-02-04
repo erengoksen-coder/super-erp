@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Red Alert 2 - Mobile RTS Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        #game-container {
+            border: 2px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        
+        .info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 300px;
+        }
+        
+        .info h2 {
+            margin: 0 0 10px 0;
+            color: #4a90e2;
+        }
+        
+        .info p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+        }
+        
+        .controls h3 {
+            margin: 0 0 10px 0;
+            color: #50e3c2;
+        }
+        
+        .control-btn {
+            background: #4a90e2;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .control-btn:hover {
+            background: #50e3c2;
+        }
+        
+        .control-btn.danger {
+            background: #e24a4a;
+        }
+        
+        .control-btn.danger:hover {
+            background: #ff6b6b;
+        }
+        
+        .stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            min-width: 200px;
+        }
+        
+        .stats div {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    
+    <div class="info">
+        <h2>🎮 Red Alert 2 Mobile RTS</h2>
+        <p><strong>Status:</strong> <span id="status">Loading...</span></p>
+        <p><strong>Controls:</strong></p>
+        <p>👆 Tap unit to select</p>
+        <p>👆 Tap ground to move selected unit</p>
+        <p>🏗️ Use buttons below to build</p>
+        <p>⚔️ Units auto-attack enemies in range</p>
+        <p class="hidden" id="enemy-info"><strong>Enemies:</strong> <span id="enemy-count">0</span></p>
+    </div>
+    
+    <div class="stats">
+        <h3>Resources</h3>
+        <div>💰 Credits: <span id="credits">1000</span></div>
+        <div>⚡ Power: <span id="power">0/100</span></div>
+        <div>👥 Units: <span id="unit-count">0</span></div>
+        <div>🏠 Buildings: <span id="building-count">0</span></div>
+    </div>
+    
+    <div class="controls">
+        <h3>Buildings</h3>
+        <button class="control-btn" onclick="game.buildPowerPlant()">⚡ Power Plant ($100)</button>
+        <button class="control-btn" onclick="game.buildBarracks()">🏠 Barracks ($150)</button>
+        <button class="control-btn" onclick="game.buildWarFactory()">🏭 War Factory ($200)</button>
+        
+        <h3>Units</h3>
+        <button class="control-btn" onclick="game.createSoldier()">🚶 Soldier ($50)</button>
+        <button class="control-btn" onclick="game.createTank()">🚗 Tank ($200)</button>
+        
+        <h3>Game</h3>
+        <button class="control-btn danger" onclick="game.restart()">🔄 Restart</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.0/dist/phaser.min.js"></script>
+    <script>
+        class SimpleRTSGame {
+            constructor() {
+                this.scene = null;
+                this.units = [];
+                this.enemyUnits = [];
+                this.buildings = [];
+                this.enemyBuildings = [];
+                this.selectedUnit = null;
+                this.resources = {
+                    credits: 1000,
+                    power: 0,
+                    maxPower: 100
+                };
+                this.projectiles = [];
+            }
+            
+            init() {
+                const config = {
+                    type: Phaser.AUTO,
+                    width: 800,
+                    height: 600,
+                    parent: 'game-container',
+                    physics: {
+                        default: 'arcade',
+                        arcade: {
+                            gravity: { y: 0 },
+                            debug: false
+                        }
+                    },
+                    backgroundColor: '#2d5a2d',
+                    scene: {
+                        preload: this.preload.bind(this),
+                        create: this.create.bind(this),
+                        update: this.update.bind(this)
+                    }
+                };
+                
+                this.scene = new Phaser.Game(config);
+                this.game = this.scene;
+                
+                // Start AI
+                setInterval(() => this.updateAI(), 2000);
+                
+                // Start resource generation
+                setInterval(() => {
+                    this.resources.credits += 10;
+                    this.updateUI();
+                }, 1000);
+            }
+            
+            preload() {
+                // Create simple colored rectangles as placeholders
+                this.game.load.image('ground', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+            }
+            
+            create() {
+                // Create grid
+                for (let x = 0; x < 25; x++) {
+                    for (let y = 0; y < 19; y++) {
+                        this.game.add.rectangle(x * 32, y * 32, 32, 32, 0x3a5a3a);
+                    }
+                }
+                
+                // Create player base
+                this.createPlayerBase();
+                
+                // Create enemy base
+                this.createEnemyBase();
+                
+                // Setup input
+                this.game.input.on('pointerdown', (pointer) => {
+                    this.handleClick(pointer.worldX, pointer.worldY);
+                });
+            }
+            
+            createPlayerBase() {
+                // Player power plant
+                const powerPlant = this.game.add.rectangle(100, 300, 40, 40, 0x4a90e2);
+                this.buildings.push(powerPlant);
+                this.resources.power += 50;
+                this.resources.maxPower += 50;
+                
+                // Player barracks
+                const barracks = this.game.add.rectangle(150, 300, 40, 40, 0x50e3c2);
+                this.buildings.push(barracks);
+                this.resources.power -= 10;
+            }
+            
+            createEnemyBase() {
+                // Enemy base at opposite side
+                const enemyX = 600;
+                const enemyY = 100;
+                
+                // Enemy power plant
+                const enemyPower = this.game.add.rectangle(enemyX, enemyY, 40, 40, 0xff4444);
+                this.enemyBuildings.push(enemyPower);
+                
+                // Enemy barracks
+                const enemyBarracks = this.game.add.rectangle(enemyX + 60, enemyY, 40, 40, 0xff6666);
+                this.enemyBuildings.push(enemyBarracks);
+                
+                // Create initial enemy units
+                this.createEnemySoldier(enemyX, enemyY - 50);
+                this.createEnemySoldier(enemyX + 60, enemyY - 50);
+            }
+            
+            createEnemySoldier(x, y) {
+                const enemy = this.game.add.circle(x, y, 10, 0xff0000);
+                enemy.setData('type', 'soldier');
+                enemy.setData('health', 100);
+                this.enemyUnits.push(enemy);
+            }
+            
+            handleClick(x, y) {
+                // Check if clicking on a unit
+                const clickedUnit = this.units.find(unit => 
+                    Math.abs(unit.x - x) < 20 && Math.abs(unit.y - y) < 20
+                );
+                
+                if (clickedUnit) {
+                    this.selectUnit(clickedUnit);
+                } else if (this.selectedUnit) {
+                    // Move selected unit
+                    this.moveUnit(this.selectedUnit, x, y);
+                }
+            }
+            
+            selectUnit(unit) {
+                // Deselect previous
+                if (this.selectedUnit) {
+                    this.selectedUnit.setTint(0xffffff);
+                }
+                
+                this.selectedUnit = unit;
+                unit.setTint(0x00ff00); // Green highlight
+                document.getElementById('status').textContent = 'Unit selected!';
+            }
+            
+            moveUnit(unit, targetX, targetY) {
+                this.game.tweens.add({
+                    targets: unit,
+                    x: targetX,
+                    y: targetY,
+                    duration: 1000,
+                    ease: 'Linear'
+                });
+            }
+            
+            buildPowerPlant() {
+                if (this.resources.credits >= 100) {
+                    this.resources.credits -= 100;
+                    const building = this.game.add.rectangle(200, 200, 40, 40, 0x4a90e2);
+                    this.buildings.push(building);
+                    this.resources.maxPower += 50;
+                    this.resources.power += 50;
+                    this.updateUI();
+                }
+            }
+            
+            buildBarracks() {
+                if (this.resources.credits >= 150) {
+                    this.resources.credits -= 150;
+                    const building = this.game.add.rectangle(250, 200, 40, 40, 0x50e3c2);
+                    this.buildings.push(building);
+                    this.resources.power -= 10;
+                    this.updateUI();
+                }
+            }
+            
+            buildWarFactory() {
+                if (this.resources.credits >= 200) {
+                    this.resources.credits -= 200;
+                    const building = this.game.add.rectangle(300, 200, 60, 40, 0xe24a4a);
+                    this.buildings.push(building);
+                    this.resources.power -= 20;
+                    this.updateUI();
+                }
+            }
+            
+            createSoldier() {
+                if (this.resources.credits >= 50) {
+                    this.resources.credits -= 50;
+                    const unit = this.game.add.circle(100, 150, 10, 0x0066cc);
+                    unit.setInteractive();
+                    this.units.push(unit);
+                    this.updateUI();
+                }
+            }
+            
+            createTank() {
+                if (this.resources.credits >= 200) {
+                    this.resources.credits -= 200;
+                    const unit = this.game.add.rectangle(100, 150, 20, 15, 0x0066cc);
+                    unit.setInteractive();
+                    this.units.push(unit);
+                    this.updateUI();
+                }
+            }
+            
+            updateAI() {
+                this.enemyUnits.forEach(enemy => {
+                    // Find nearest player unit
+                    let nearestPlayerUnit = null;
+                    let minDistance = Infinity;
+                    
+                    this.units.forEach(unit => {
+                        const distance = Math.sqrt(
+                            Math.pow(unit.x - enemy.x, 2) + Math.pow(unit.y - enemy.y, 2)
+                        );
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestPlayerUnit = unit;
+                        }
+                    });
+                    
+                    if (nearestPlayerUnit && minDistance < 300) {
+                        // Attack if in range
+                        this.enemyAttack(nearestPlayerUnit, enemy);
+                    } else if (nearestPlayerUnit) {
+                        // Move towards player
+                        const angle = Math.atan2(nearestPlayerUnit.y - enemy.y, nearestPlayerUnit.x - enemy.x);
+                        const speed = 1;
+                        enemy.x += Math.cos(angle) * speed;
+                        enemy.y += Math.sin(angle) * speed;
+                    }
+                });
+            }
+            
+            enemyAttack(target, attacker) {
+                const range = 100;
+                const distance = Math.sqrt(
+                    Math.pow(target.x - attacker.x, 2) + Math.pow(target.y - attacker.y, 2)
+                );
+                
+                if (distance <= range) {
+                    // Create projectile
+                    const projectile = this.game.add.circle(attacker.x, attacker.y, 3, 0xffff00);
+                    projectile.setData('target', target);
+                    projectile.setData('damage', 10);
+                    this.projectiles.push(projectile);
+                    
+                    // Animate projectile
+                    this.game.tweens.add({
+                        targets: projectile,
+                        x: target.x,
+                        y: target.y,
+                        duration: 300,
+                        onComplete: () => {
+                            this.handleProjectileHit(projectile);
+                        }
+                    });
+                }
+            }
+            
+            handleProjectileHit(projectile) {
+                const target = projectile.getData('target');
+                
+                // Check if target is player unit
+                const unitIndex = this.units.findIndex(unit => unit === target);
+                if (unitIndex !== -1) {
+                    // Remove unit
+                    target.destroy();
+                    this.units.splice(unitIndex, 1);
+                    
+                    // Create explosion effect
+                    const explosion = this.game.add.circle(target.x, target.y, 20, 0xff6600, 0.8);
+                    this.game.tweens.add({
+                        targets: explosion,
+                        radius: 40,
+                        alpha: 0,
+                        duration: 500,
+                        onComplete: () => {
+                            explosion.destroy();
+                        }
+                    });
+                }
+                
+                // Remove projectile
+                projectile.destroy();
+                const projectileIndex = this.projectiles.indexOf(projectile);
+                if (projectileIndex !== -1) {
+                    this.projectiles.splice(projectileIndex, 1);
+                }
+            }
+            
+            update() {
+                // Update projectiles
+                this.projectiles.forEach((projectile, index) => {
+                    // Check collision with player units
+                    this.units.forEach(unit => {
+                        const distance = Math.sqrt(
+                            Math.pow(unit.x - projectile.x, 2) + Math.pow(unit.y - projectile.y, 2)
+                        );
+                        
+                        if (distance < 15) {
+                            this.handleProjectileHit(projectile);
+                        }
+                    });
+                });
+                
+                // Check win/lose conditions
+                if (this.units.length === 0 && this.buildings.length > 0) {
+                    document.getElementById('status').textContent = 'Game Over - Enemy Wins!';
+                    document.getElementById('enemy-info').classList.remove('hidden');
+                } else if (this.enemyUnits.length === 0 && this.enemyBuildings.length > 0) {
+                    document.getElementById('status').textContent = 'Victory - You Win!';
+                }
+            }
+            
+            updateUI() {
+                document.getElementById('credits').textContent = this.resources.credits;
+                document.getElementById('power').textContent = `${this.resources.power}/${this.resources.maxPower}`;
+                document.getElementById('unit-count').textContent = this.units.length;
+                document.getElementById('building-count').textContent = this.buildings.length;
+                document.getElementById('enemy-count').textContent = this.enemyUnits.length;
+            }
+            
+            restart() {
+                location.reload();
+            }
+        }
+        
+        // Initialize game when page loads
+        let game;
+        window.onload = function() {
+            game = new SimpleRTSGame();
+            game.init();
+        };
+    </script>
+</body>
+</html>

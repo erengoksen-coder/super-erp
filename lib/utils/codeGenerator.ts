@@ -44,12 +44,12 @@ export async function generateProductCode(): Promise<string> {
     const { localDB } = await import('@/lib/database/client')
     const products = await localDB.getProducts()
     
-    if (products.length === 0) {
+    if ((products as any).length === 0) {
       return generateNextCode(null, { prefix: 'KOL', padding: 3 })
     }
 
     // SKU'ları sırala ve son kodu al
-    const sorted = products
+    const sorted = (products as any)
       .map((p: any) => p.sku)
       .filter((sku: string) => sku.startsWith('KOL-'))
       .sort()
@@ -73,7 +73,7 @@ export async function generateInventoryCode(): Promise<string> {
     const { localDB } = await import('@/lib/database/client')
     const materials = await localDB.getMaterials()
     
-    if (materials.length === 0) {
+    if ((materials as any).length === 0) {
       return generateNextCode(null, { prefix: 'STK', padding: 3 })
     }
 
@@ -92,12 +92,12 @@ export async function generateMaterialCode(): Promise<string> {
     const { localDB } = await import('@/lib/database/client')
     const materials = await localDB.getMaterials()
     
-    if (materials.length === 0) {
+    if ((materials as any).length === 0) {
       return generateNextCode(null, { prefix: 'MAL', padding: 3 })
     }
 
     // Kodları sırala ve son kodu al
-    const sorted = materials
+    const sorted = (materials as any)
       .map((m: any) => m.code)
       .filter((code: string) => code && code.startsWith('MAL-'))
       .sort()

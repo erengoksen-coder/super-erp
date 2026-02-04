@@ -1,1 +1,1 @@
-export { GET, POST, PATCH, DELETE } from '../../../materials/route'
+export { GET, POST } from '../../materials/route'

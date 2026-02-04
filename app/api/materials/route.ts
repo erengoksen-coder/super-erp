@@ -1,20 +1,12 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { materialsRepo } from '@/lib/repositories/materials'
 import { getDatabase } from '@/lib/database/db'
-
-type MaterialInput = {
-  name: string
-  unit: string
-  stock_amount?: number
-  min_stock_level?: number
-  category?: string | null
-  code?: string | null
-  unit_price?: number
-}
+import { materialSchemas, validateRequest } from '@/lib/validation/schemas'
 
 // GET: Tüm hammaddeleri getir
 export const GET = withAuth(async () => {
@@ -29,22 +21,23 @@ export const GET = withAuth(async () => {
 // POST: Yeni hammadde ekle
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    let body: MaterialInput
+    let body: unknown
     try {
-      body = await request.json() as MaterialInput
+      body = await parseJsonBody(request)
     } catch {
       return fail('Geçersiz JSON', { status: 400 })
     }
-    const db = getDatabase()
     
-    const id = randomUUID()
-    const { name, unit, stock_amount = 0, min_stock_level = 0, category, code, unit_price = 0 } = body
-
-    if (!name || !unit) {
-      return fail('name ve unit gerekli', { status: 400 })
+    const validation = validateRequest(materialSchemas.create, body)
+    if (!validation.success) {
+      return fail(validation.error, { status: 400 })
     }
+    
+    const db = getDatabase()
+    const id = randomUUID()
+    const { name, unit, min_stock = 0, category, code, unit_cost = 0 } = validation.data
 
-    // Kod oluştur (eğer verilmemişse)
+    // Kod oluştur (eşer verilmemişse)
     let materialCode = code
     if (!materialCode) {
       const { generateMaterialCode } = await import('@/lib/utils/codeGenerator')
@@ -58,21 +51,21 @@ export const POST = withAuth(async (request: NextRequest) => {
         name,
         category: category || null,
         unit,
-        stock_amount,
-        min_stock_level,
-        unit_price,
+        stock_amount: min_stock || 0,
+        min_stock_level: min_stock,
+        unit_price: unit_cost,
       })
 
-      if (unit_price > 0) {
+      if (unit_cost > 0) {
         const priceId = randomUUID()
         db.prepare(`
           INSERT INTO material_prices (id, material_id, price, price_type, source_type, source_id)
           VALUES (?, ?, ?, 'purchase', 'material_create', ?)
-        `).run(priceId, id, unit_price, id)
+        `).run(priceId, id, unit_cost, id)
       }
 
-      // Eğer başlangıç stoku varsa, stok hareketi kaydı oluştur
-      if (stock_amount > 0) {
+      // Eşer başlangıç stoku varsa, stok hareketi kaydı oluştur
+      if (min_stock > 0) {
         const movementId = randomUUID()
         db.prepare(`
           INSERT INTO stock_movements 
@@ -81,15 +74,17 @@ export const POST = withAuth(async (request: NextRequest) => {
         `).run(
           movementId,
           id,
-          stock_amount,
+          min_stock,
           `Başlangıç stoku - ${new Date().toLocaleString('tr-TR')}`
         )
       }
     })()
 
-    return ok({ id, code: materialCode, ...body }, { status: 201 })
+    const responseData = { ...validation.data, id, code: materialCode }
+    return ok(responseData, { status: 201 })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
 })
+
 

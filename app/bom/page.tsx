@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Package, Plus, Edit, Trash2, Save, X, Factory } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { Button } from '@/components/ui/Button'
 import { fetchApi } from '@/lib/api/client'
 
 interface Product {
@@ -101,9 +103,9 @@ export default function BOMPage() {
     setLoading(true)
     try {
       const [bomData, productsData, materialsData] = await Promise.all([
-        fetchApi('/api/bom'),
-        fetchApi('/api/products'),
-        fetchApi('/api/materials'),
+        fetchApi<GroupedBOM[]>('/api/bom'),
+        fetchApi<Product[]>('/api/products'),
+        fetchApi<Material[]>('/api/materials'),
       ])
       setBomGroups(bomData)
       setProducts(productsData)
@@ -117,7 +119,7 @@ export default function BOMPage() {
 
   async function loadVersions(productId: string) {
     try {
-      const versions = await fetchApi(`/api/bom/versions?product_id=${productId}`)
+      const versions = await fetchApi<BomVersion[]>(`/api/bom/versions?product_id=${productId}`)
       setBomVersions(versions)
       const active = versions.find((v: BomVersion) => v.is_active === 1)
       setSelectedVersionId(active?.id || versions[0]?.id || '')
@@ -141,7 +143,7 @@ export default function BOMPage() {
       revision_reason: reason,
       copy_from_version_id: copyFrom || undefined,
     }
-    const response = await fetchApi('/api/bom/versions', {
+    const response = await fetchApi<{ id: string }>('/api/bom/versions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -237,15 +239,22 @@ export default function BOMPage() {
     if (!productId) {
       // Yeni ürün oluştur
       try {
-        const newProduct = await fetchApi('/api/products', {
+        const productPayload = {
+          name: productName.trim(),
+          sku: `PRD-${Date.now().toString().slice(-6)}`,
+          price: 0,
+          selling_price: 0,
+        }
+        const productParams = new URLSearchParams({
+          name: productPayload.name,
+          sku: productPayload.sku,
+          price: String(productPayload.price),
+          selling_price: String(productPayload.selling_price),
+        })
+        const newProduct = await fetchApi<{ id: string }>(`/api/products?${productParams.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: productName.trim(),
-            sku: `PRD-${Date.now().toString().slice(-6)}`,
-            price: 0,
-            selling_price: 0,
-          }),
+          body: JSON.stringify(productPayload),
         })
         productId = newProduct.id
         await ensureVersionId(productId)
@@ -254,8 +263,6 @@ export default function BOMPage() {
         return
       }
     }
-
-    const versionId = productId ? await ensureVersionId(productId) : selectedVersionId
 
     // Tüm malzemeleri kontrol et
     const validMaterials = materialList.filter(m => m.material_id && m.quantity && parseFloat(m.quantity) > 0)
@@ -266,10 +273,12 @@ export default function BOMPage() {
     }
 
     try {
+      const versionId = productId ? await ensureVersionId(productId) : selectedVersionId
+
       // Malzeme birim fiyatlarını güncelle
-      const updatePricePromises = validMaterials.map(material => {
+      const updatePricePromises = validMaterials.map((material) => {
         if (material.unit_price && parseFloat(material.unit_price) > 0) {
-          return fetch(`/api/materials/${material.material_id}`, {
+          return fetchApi(`/api/materials/${material.material_id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -277,35 +286,32 @@ export default function BOMPage() {
             }),
           })
         }
-        return Promise.resolve()
+        return Promise.resolve(null)
       })
       await Promise.all(updatePricePromises)
 
       // Tüm malzemeleri tek tek kaydet
-      const promises = validMaterials.map(material =>
-        fetch('/api/bom', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: productId,
-            version_id: versionId || undefined,
-            material_id: material.material_id,
-            quantity: parseFloat(material.quantity),
-            unit: material.unit || undefined,
-            fire_percentage: parseFloat(material.fire_percentage) || 0,
-          }),
+      const errors: string[] = []
+      await Promise.all(
+        validMaterials.map(async (material) => {
+          try {
+            await fetchApi('/api/bom', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                product_id: productId,
+                version_id: versionId || undefined,
+                material_id: material.material_id,
+                quantity: parseFloat(material.quantity),
+                unit: material.unit || undefined,
+                fire_percentage: parseFloat(material.fire_percentage) || 0,
+              }),
+            })
+          } catch (error: any) {
+            errors.push(error?.message || 'BOM kaydı oluşturulamadı')
+          }
         })
       )
-
-      const results = await Promise.all(promises)
-      const errors = []
-
-      for (let i = 0; i < results.length; i++) {
-        if (!results[i].ok) {
-          const error = await results[i].json()
-          errors.push(error.error || 'BOM kaydı oluşturulamadı')
-        }
-      }
 
       if (errors.length > 0) {
         throw new Error(errors.join(', '))
@@ -319,7 +325,7 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      alert('Hata: ' + (error?.message || 'BOM kaydı oluşturulamadı'))
     }
   }
 
@@ -433,7 +439,7 @@ export default function BOMPage() {
     try {
       // Malzeme birim fiyatını güncelle
       if (unitPrice && parseFloat(unitPrice) > 0) {
-        await fetch(`/api/materials/${selectedMaterial}`, {
+        await fetchApi(`/api/materials/${selectedMaterial}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -443,7 +449,7 @@ export default function BOMPage() {
       }
 
       const versionId = await ensureVersionId(selectedProduct)
-      const response = await fetch('/api/bom', {
+      await fetchApi('/api/bom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -455,11 +461,6 @@ export default function BOMPage() {
           fire_percentage: parseFloat(firePercentage) || 0,
         }),
       })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'BOM kaydı güncellenemedi')
-      }
 
       alert('✅ BOM kaydı güncellendi!')
       setShowAddForm(false)
@@ -473,7 +474,7 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      alert('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
     }
   }
 
@@ -494,57 +495,44 @@ export default function BOMPage() {
     try {
       // Ürün adını güncelle (eğer değiştirildiyse)
       if (productName && productName.trim()) {
-        const updateProductResponse = await fetch(`/api/products/${selectedProduct}`, {
+        await fetchApi(`/api/products/${selectedProduct}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: productName.trim(),
           }),
         })
-
-        if (!updateProductResponse.ok) {
-          const error = await updateProductResponse.json()
-          throw new Error(error.error || 'Ürün adı güncellenemedi')
-        }
       }
 
       // Önce mevcut BOM kayıtlarını sil
       const versionId = await ensureVersionId(selectedProduct)
-      const deleteResponse = await fetch(`/api/bom/product?product_id=${productId}&version_id=${versionId || ''}`, {
+      await fetchApi(`/api/bom/product?product_id=${productId}&version_id=${versionId || ''}`, {
         method: 'DELETE',
       })
 
-      if (!deleteResponse.ok) {
-        const error = await deleteResponse.json()
-        throw new Error(error.error || 'Eski BOM kayıtları silinemedi')
-      }
-
       // Yeni malzemeleri ekle
       const versionIdForSave = await ensureVersionId(selectedProduct)
-      const promises = validMaterials.map(material =>
-        fetch('/api/bom', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: selectedProduct,
-            version_id: versionIdForSave || undefined,
-            material_id: material.material_id,
-            quantity: parseFloat(material.quantity),
-            unit: material.unit || undefined,
-            fire_percentage: parseFloat(material.fire_percentage) || 0,
-          }),
+      const errors: string[] = []
+      await Promise.all(
+        validMaterials.map(async (material) => {
+          try {
+            await fetchApi('/api/bom', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                product_id: selectedProduct,
+                version_id: versionIdForSave || undefined,
+                material_id: material.material_id,
+                quantity: parseFloat(material.quantity),
+                unit: material.unit || undefined,
+                fire_percentage: parseFloat(material.fire_percentage) || 0,
+              }),
+            })
+          } catch (error: any) {
+            errors.push(error?.message || 'BOM kaydı oluşturulamadı')
+          }
         })
       )
-
-      const results = await Promise.all(promises)
-      const errors = []
-
-      for (let i = 0; i < results.length; i++) {
-        if (!results[i].ok) {
-          const error = await results[i].json()
-          errors.push(error.error || 'BOM kaydı oluşturulamadı')
-        }
-      }
 
       if (errors.length > 0) {
         throw new Error(errors.join(', '))
@@ -559,7 +547,7 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      alert('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
     }
   }
 

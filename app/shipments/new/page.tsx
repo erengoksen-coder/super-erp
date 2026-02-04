@@ -48,12 +48,14 @@ export default function NewShipmentPage() {
   const isUserAdmin = userRole === 'admin' || userRole === 'manager'
 
   useEffect(() => {
-    // URL parametresinden customerId'yi oku
+    // URL parametresinden customerId'yi oku (barcode otomatik işlenmez)
     const customerIdFromUrl = searchParams.get('customerId')
+    
     if (customerIdFromUrl) {
       setSelectedCustomerId(customerIdFromUrl)
     }
     
+    // Barcode otomatik okunmaz - kullanıcı elle veya cihazla okutmalı
   }, [searchParams])
 
   useEffect(() => {
@@ -138,6 +140,11 @@ export default function NewShipmentPage() {
             const items = await fallback.json()
             const info = Array.isArray(items) && items.length > 0 ? items[0] : null
             if (info) {
+              // Sevk edilmiş ürün kontrolü
+              if (info.shipment_id || info.shipment_date) {
+                setError(`Bu barkod zaten sevk edilmiş. Sevk numarası: ${info.shipment_number || 'Bilinmiyor'}`)
+                return
+              }
               const stage = info.status === 'in_stock' ? 'Depoda' : (info.status || 'Bilinmiyor')
               setError(`Bu barkod sevke hazır değil. Aşama: ${stage}`)
               return
@@ -219,6 +226,12 @@ export default function NewShipmentPage() {
 
     if (!selectedCustomerId) {
       errors.push('⚠️ Müşteri seçimi zorunludur!')
+    }
+
+    // Barkod kontrolü: En az bir barkod okutulmuş olmalı
+    const totalBarcodes = shipmentItems.reduce((sum, item) => sum + item.barcodes.length, 0)
+    if (totalBarcodes === 0) {
+      errors.push('⚠️ Sevk fişi kesmek için en az bir barkod okutmanız gerekmektedir!')
     }
 
     shipmentItems.forEach(item => {

@@ -39,7 +39,10 @@ export default function LoginPage() {
 
       router.push('/')
     } catch (error: any) {
-      setError(error.message)
+      // API'den gelen hata mesajını al
+      const errorMessage = error?.message || error?.error || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
+      setError(errorMessage)
+      console.error('Login error:', error)
     } finally {
       setLoading(false)
     }

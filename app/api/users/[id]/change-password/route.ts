@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { z } from 'zod'
@@ -19,10 +20,15 @@ const changePasswordSchema = z.object({
 // PATCH: Kullanıcı şifresini değiştir
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const userId = resolvedParams.id
     const limit = rateLimit(request, {
       keyPrefix: 'users:change-password',
@@ -41,14 +47,14 @@ export const PATCH = withAuth(async (
       )
     }
 
-    const body = await request.json()
-    const parsed = changePasswordSchema.safeParse(body)
-    if (!parsed.success) {
-      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
-      return NextResponse.json({ error: message }, { status: 400 })
+    let body: z.infer<typeof changePasswordSchema>
+    try {
+      body = await parseJsonBody(request, changePasswordSchema)
+    } catch (error: any) {
+      return NextResponse.json({ error: error.message || 'Geçersiz istek' }, { status: 400 })
     }
 
-    const { old_password, new_password, force_change } = parsed.data
+    const { old_password, new_password, force_change } = body
 
     if (!force_change && !old_password) {
       return NextResponse.json(

@@ -6,11 +6,18 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { LogoWithBackground } from '@/components/Logo'
 
+interface StationDetail {
+  order_number: string
+  count: number
+  product_name: string
+}
+
 interface StationInfo {
   station: string
   station_name: string
   count: number
   total_quantity: number
+  details?: StationDetail[]
 }
 
 const stationNames: Record<string, string> = {
@@ -20,6 +27,7 @@ const stationNames: Record<string, string> = {
   döseme: 'Döşeme',
   montaj: 'Montaj',
   sevkiyat: 'Sevkiyat',
+  completed: 'Mamül Depo',
 }
 
 interface ReadyProduct {
@@ -69,7 +77,10 @@ function ReadyProductsSection() {
     )
   }
 
-  if (!readyData || readyData.customers.length === 0) {
+  const customers = Array.isArray(readyData?.customers) ? readyData?.customers : []
+  const totalReady = typeof readyData?.total_ready === 'number' ? readyData?.total_ready : 0
+
+  if (!readyData || customers.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <LogoWithBackground size="md" className="mb-4" />
@@ -81,9 +92,9 @@ function ReadyProductsSection() {
   return (
     <div className="space-y-3">
       <div className="text-sm text-gray-400 mb-2">
-        Toplam: <span className="text-white font-semibold">{readyData.total_ready} adet</span> sevk edilebilir
+        Toplam: <span className="text-white font-semibold">{totalReady} adet</span> sevk edilebilir
       </div>
-      {readyData.customers.slice(0, 5).map((customer) => (
+      {customers.slice(0, 5).map((customer) => (
         <div key={customer.customer_id} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
           <div className="flex justify-between items-start mb-2">
             <div>
@@ -111,12 +122,12 @@ function ReadyProductsSection() {
           </div>
         </div>
       ))}
-      {readyData.customers.length > 5 && (
+      {customers.length > 5 && (
         <Link
           href="/shipments?filterStatus=ready"
           className="block text-center text-sm text-blue-400 hover:text-blue-300 mt-2"
         >
-          Tümünü Gör ({readyData.customers.length} müşteri)
+          Tümünü Gör ({customers.length} müşteri)
         </Link>
       )}
     </div>

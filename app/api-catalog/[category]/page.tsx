@@ -38,16 +38,6 @@ const apiMap: Record<string, Array<{ method: string; path: string; desc: string 
     { method: 'GET', path: '/api/work-orders', desc: 'İş emirleri' },
     { method: 'GET', path: '/api/operations', desc: 'Operasyonlar' },
   ],
-  hr: [
-    { method: 'GET', path: '/api/hr/employees', desc: 'Çalışanlar' },
-    { method: 'GET', path: '/api/hr/departments', desc: 'Departmanlar' },
-    { method: 'GET', path: '/api/hr/teams', desc: 'Ekipler' },
-    { method: 'GET', path: '/api/hr/workplaces', desc: 'İşyerleri' },
-    { method: 'GET', path: '/api/hr/timeoff/requests', desc: 'İzin talepleri' },
-    { method: 'GET', path: '/api/hr/attendance/records', desc: 'Puantaj kayıtları' },
-    { method: 'GET', path: '/api/hr/payrolls', desc: 'Bordrolar' },
-    { method: 'GET', path: '/api/hr/holidays', desc: 'Tatiller' },
-  ],
 }
 
 const titles: Record<string, string> = {
@@ -56,7 +46,6 @@ const titles: Record<string, string> = {
   procurement: 'Satın Alma API',
   inventory: 'Stok API',
   production: 'Üretim API',
-  hr: 'İK API',
 }
 
 export default function ApiCatalogCategoryPage() {

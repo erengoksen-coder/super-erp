@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -6,7 +7,7 @@ import { randomUUID } from 'crypto'
 // POST: Faturayı e-fatura entegratörüne gönder (stub)
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as { invoice_id?: string }
+    const body = await parseJsonBody(request) as { invoice_id?: string }
     const invoiceId = body.invoice_id
 
     if (!invoiceId) {
@@ -48,3 +49,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { Button } from '@/components/ui/Button'
 import { fetchApi, useApi } from '@/lib/api/client'
 
 interface Order {
@@ -95,7 +97,7 @@ export default function OrdersPage() {
   async function loadAccounts() {
     try {
       const data = await fetchApi('/api/accounts?type=customer')
-      const sorted = [...data].sort((a, b) => {
+      const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => {
         const codeA = a.code || ''
         const codeB = b.code || ''
         return codeA.localeCompare(codeB, 'tr', { numeric: true })
@@ -153,7 +155,7 @@ export default function OrdersPage() {
             name: newOrder.dealer_name,
             type: 'customer'
           })
-        })
+        }) as any
         dealerAccountId = data.id
         const newAccount: Account = {
           id: data.id,
@@ -172,8 +174,8 @@ export default function OrdersPage() {
     if (!customerCode) {
       // Tüm müşteri kodlarını al ve numaraları çıkar
       const customerCodes = orders
-        .filter(o => o.customer_code && o.customer_code.startsWith('MUS-'))
-        .map(o => parseInt(o.customer_code.replace(/[^0-9]/g, '')) || 0)
+        .filter(o => o.customer_code?.startsWith('MUS-'))
+        .map((o: any) => parseInt(o.customer_code?.replace(/[^0-9]/g, '') || '') || 0)
         .filter(num => num > 0)
         .sort((a, b) => a - b)
       
@@ -254,12 +256,12 @@ export default function OrdersPage() {
       const reader = new FileReader()
       reader.onload = async (e) => {
         try {
-          const base64 = (e.target?.result as string).split(',')[1]
-          
+          const formData = new FormData()
+          formData.append('file', file)
+
           const response = await fetch('/api/orders/import', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file: base64 })
+            body: formData
           })
 
           if (!response.ok) {
@@ -270,7 +272,11 @@ export default function OrdersPage() {
             } catch {
               error = { error: errorText || 'Dosya yüklenemedi' }
             }
-            throw new Error(error.error || error.details || 'Dosya yüklenemedi')
+            const details =
+              error.details && error.details !== error.error
+                ? `: ${error.details}`
+                : ''
+            throw new Error(`${error.error || 'Dosya yüklenemedi'}${details}`)
           }
 
           const result = await response.json()
@@ -351,15 +357,18 @@ export default function OrdersPage() {
   const inProductionCount = orders.filter(o => o.status === 'in_production').length
   const completedCount = orders.filter(o => o.status === 'completed').length
 
+  const normalize = (value: unknown) => String(value ?? '').toLowerCase()
+  const normalizeNotes = (value: unknown) => String(value ?? '')
+
   const filteredOrders = orders.filter(order => {
     if (searchTerm) {
-      const search = searchTerm.toLowerCase()
+      const search = normalize(searchTerm)
       return (
-        order.order_number?.toLowerCase().includes(search) ||
-        order.dealer_name?.toLowerCase().includes(search) ||
-        order.customer_name?.toLowerCase().includes(search) ||
-        order.product_name?.toLowerCase().includes(search) ||
-        order.product_sku?.toLowerCase().includes(search)
+        normalize(order.order_number).includes(search) ||
+        normalize(order.dealer_name).includes(search) ||
+        normalize(order.customer_name).includes(search) ||
+        normalize(order.product_name).includes(search) ||
+        normalize(order.product_sku).includes(search)
       )
     }
     return true
@@ -380,47 +389,54 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 lg:p-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <div className="flex items-center space-x-4 mb-4 md:mb-0">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white flex items-center space-x-2">
-            <FileSpreadsheet className="w-6 h-6 md:w-8 md:h-8" />
-            <span>Siparişler</span>
-          </h1>
-          <LogoWithBackground size="sm" />
-        </div>
+    <AppDashboardLayout
+      title="Siparişler"
+      subtitle={`Toplam ${filteredOrders.length} sipariş`}
+      icon={FileSpreadsheet}
+      actions={
         <div className="flex flex-wrap gap-2">
-          <button
+          <Button
+            variant="solid"
+            color="primary"
+            size="sm"
             onClick={() => setShowCreateModal(true)}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center space-x-2"
           >
-            <Plus className="w-4 h-4" />
-            <span>Yeni Sipariş</span>
-          </button>
-          <label className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition cursor-pointer inline-flex items-center space-x-2 disabled:opacity-50">
-            <Upload className="w-4 h-4" />
-            <span>{uploading ? 'Yükleniyor...' : 'Excel Yükle'}</span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="hidden"
-              disabled={uploading}
-            />
-          </label>
+            <Plus className="w-4 h-4 mr-2" />
+            Yeni Sipariş
+          </Button>
+          <Button
+            variant="solid"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            {uploading ? 'Yükleniyor...' : 'Excel Yükle'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleFileUpload}
+            className="hidden"
+            disabled={uploading}
+          />
           {selectedOrders.size > 0 && (
-            <button
+            <Button
+              variant="solid"
+              color="success"
+              size="sm"
               onClick={convertToProduction}
               disabled={converting}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center space-x-2 disabled:opacity-50"
             >
-              <Factory className="w-4 h-4" />
-              <span>{converting ? 'Dönüştürülüyor...' : `Üretim Emrine Dönüştür (${selectedOrders.size})`}</span>
-            </button>
+              <Factory className="w-4 h-4 mr-2" />
+              {converting ? 'Dönüştürülüyor...' : `Üretim Emrine Dönüştür (${selectedOrders.size})`}
+            </Button>
           )}
           {orders.length > 0 && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={async () => {
                 try {
                   const response = await fetch('/api/orders/export')
@@ -441,14 +457,14 @@ export default function OrdersPage() {
                   alert('Hata: ' + error.message)
                 }
               }}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition inline-flex items-center space-x-2"
             >
-              <FileDown className="w-4 h-4" />
-              <span>Excel'e Aktar</span>
-            </button>
+              <FileDown className="w-4 h-4 mr-2" />
+              Excel'e Aktar
+            </Button>
           )}
         </div>
-      </div>
+      }
+    >
 
       {/* İstatistikler */}
       <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -539,7 +555,7 @@ export default function OrdersPage() {
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                  <div className="text-white text-sm">{order.configuration || '-'}</div>
+                  <div className="text-white text-sm">{(order as any).configuration || '-'}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">Durum</div>
@@ -563,8 +579,9 @@ export default function OrdersPage() {
                   <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
                   <div className="text-white text-sm">
                     {(() => {
-                      if (!order.notes) return '-'
-                      const fabricMatch = order.notes.match(/Kumaş:\s*([^|]+)/i)
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
                       return fabricMatch ? fabricMatch[1].trim() : '-'
                     })()}
                   </div>
@@ -590,8 +607,9 @@ export default function OrdersPage() {
                   <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
                   <div className="text-white text-sm break-words whitespace-normal">
                     {(() => {
-                      if (!order.notes) return '-'
-                      let desc = order.notes
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      let desc = notesText
                         .replace(/Kumaş:\s*[^|]+/gi, '')
                         .replace(/Kasa:\s*[^|]+/gi, '')
                         .replace(/Ayak:\s*[^|]+/gi, '')
@@ -611,8 +629,9 @@ export default function OrdersPage() {
                   <div className="text-xs text-gray-400 mb-1">KASA</div>
                   <div className="text-white text-sm">
                     {(() => {
-                      if (!order.notes) return '-'
-                      const caseMatch = order.notes.match(/Kasa:\s*([^|]+)/i)
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
                       return caseMatch ? caseMatch[1].trim() : '-'
                     })()}
                   </div>
@@ -674,8 +693,9 @@ export default function OrdersPage() {
                   <div className="text-xs text-gray-400 mb-1">AYAK</div>
                   <div className="text-white text-sm">
                     {(() => {
-                      if (!order.notes) return '-'
-                      const legMatch = order.notes.match(/Ayak:\s*([^|]+)/i)
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
                       return legMatch ? legMatch[1].trim() : '-'
                     })()}
                   </div>
@@ -796,9 +816,9 @@ export default function OrdersPage() {
                       let newCustomerCode = newOrder.customer_code
                       if (customerName.trim() && !newOrder.customer_code.trim()) {
                         // Tüm müşteri kodlarını al ve numaraları çıkar
-                        const customerCodes = orders
-                          .filter(o => o.customer_code && o.customer_code.startsWith('MUS-'))
-                          .map(o => parseInt(o.customer_code.replace(/[^0-9]/g, '')) || 0)
+      const customerCodes = orders
+        .filter((o: any) => o.customer_code?.startsWith('MUS-'))
+        .map((o: any) => parseInt(o.customer_code!.replace(/[^0-9]/g, '') || '') || 0)
                           .filter(num => num > 0)
                           .sort((a, b) => a - b)
                         
@@ -1017,7 +1037,7 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppDashboardLayout>
   )
 }
 

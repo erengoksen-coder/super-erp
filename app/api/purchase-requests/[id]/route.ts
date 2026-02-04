@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { logAudit as logAuditEntry } from '@/lib/audit/logger'
@@ -6,11 +7,16 @@ import { logAudit as logAuditEntry } from '@/lib/audit/logger'
 // PATCH: Satın alma talebi durumunu güncelle
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
-    const body = await request.json()
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
+    const body = await parseJsonBody(request)
     const { status, requested_quantity, unit_price, supplier_name } = body
 
     const db = getDatabase()
@@ -93,10 +99,15 @@ export const PATCH = withAuth(async (
 // DELETE: Satın alma talebini sil
 export const DELETE = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const db = getDatabase()
 
     // Talebi bul

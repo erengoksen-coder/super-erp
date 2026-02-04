@@ -19,6 +19,9 @@ export default function NewAccountPage() {
     email: '',
     address: '',
     risk_limit: '',
+    discount_rate: '',
+    authorized_person_name: '',
+    authorized_person_phone: '',
   })
 
   async function handleSubmit(e: React.FormEvent) {
@@ -27,19 +30,34 @@ export default function NewAccountPage() {
 
     try {
       const riskLimitValue = formData.risk_limit.trim() === '' ? null : Number(formData.risk_limit)
+      const discountRateValue = formData.discount_rate.trim() === '' ? null : Number(formData.discount_rate)
       await fetchApi('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
           risk_limit: Number.isFinite(riskLimitValue as number) ? riskLimitValue : null,
+          discount_rate: Number.isFinite(discountRateValue as number) ? discountRateValue : null,
+          authorized_person_name: formData.authorized_person_name.trim() || null,
+          authorized_person_phone: formData.authorized_person_phone.trim() || null,
           created_by: userId
         }),
       })
 
       router.push('/accounts')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      let errorMessage = error.message || 'Bilinmeyen hata'
+      // Hata mesajını Türkçe'ye çevir
+      if (errorMessage.includes('no such column')) {
+        errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+      } else if (errorMessage.includes('UNIQUE constraint')) {
+        errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+      } else if (errorMessage.includes('FOREIGN KEY')) {
+        errorMessage = 'İlişkili kayıt bulunamadı.'
+      } else if (errorMessage.includes('NOT NULL')) {
+        errorMessage = 'Zorunlu alanlar eksik.'
+      }
+      alert('Hata: ' + errorMessage)
     } finally {
       setLoading(false)
     }
@@ -149,6 +167,48 @@ export default function NewAccountPage() {
             rows={3}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Adres bilgisi"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            İskonto Oranı (%)
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={formData.discount_rate}
+            onChange={(e) => setFormData({ ...formData, discount_rate: e.target.value })}
+            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Örn: 5.00"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Yetkili Kişi Adı
+          </label>
+          <input
+            type="text"
+            value={formData.authorized_person_name}
+            onChange={(e) => setFormData({ ...formData, authorized_person_name: e.target.value })}
+            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Yetkili kişi adı"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Yetkili Kişi Telefonu
+          </label>
+          <input
+            type="tel"
+            value={formData.authorized_person_phone}
+            onChange={(e) => setFormData({ ...formData, authorized_person_phone: e.target.value })}
+            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Yetkili kişi telefonu"
           />
         </div>
 

@@ -1,1 +1,1 @@
-export { GET } from '../../../stock-alerts/route'
+export { GET } from '../../stock-alerts/route'

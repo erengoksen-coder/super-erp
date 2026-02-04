@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
@@ -51,18 +52,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let body: unknown
+    let body: z.infer<typeof loginSchema>
     try {
-      body = await request.json()
-    } catch {
-      return fail('Geçersiz JSON', { status: 400 })
+      body = await parseJsonBody(request, loginSchema)
+    } catch (error: any) {
+      return NextResponse.json({ error: error.message || 'Geçersiz istek' }, { status: 400 })
     }
-    const parsed = loginSchema.safeParse(body)
-    if (!parsed.success) {
-      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
-      return NextResponse.json({ error: message }, { status: 400 })
-    }
-    const { username, password } = parsed.data
+    const { username, password } = body
 
     const db = getDatabase()
 
@@ -138,8 +134,11 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error: any) {
     console.error('Login hatası:', error?.message || error, error?.stack)
-    return fail(error.message, { status: 500 })
+    const errorMessage = error?.message || error?.toString() || 'Sunucu hatası oluştu. Lütfen tekrar deneyin.'
+    return fail(errorMessage, { status: 500 })
   }
 }
+
+
 
 

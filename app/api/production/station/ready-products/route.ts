@@ -41,7 +41,7 @@ export const GET = withAuth(async (request) => {
         stock_amount
       FROM active_products
       ORDER BY sku
-    `).all()
+    `).all() as Array<{ id: string; stock_amount: number | null }>
 
     // Müşterilere göre grupla
     const grouped: Record<string, any> = {}

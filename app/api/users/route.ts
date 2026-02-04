@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
-import { createHash } from 'crypto'
+import { hashPassword } from '@/lib/auth/password'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
 import { getAuthUserId } from '@/lib/auth/session'
@@ -73,7 +74,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni kullanıcı oluştur (admin)
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { username, email, password, full_name, job_title, role, position, is_approved, permissions } = body
 
     if (!username || !password) {
@@ -91,7 +92,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     }
 
     const db = getDatabase()
-    const passwordHash = createHash('sha256').update(password).digest('hex')
+    const passwordHash = hashPassword(password)
     const userId = randomUUID()
 
     // Kullanıcı adı kontrolü
@@ -189,3 +190,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

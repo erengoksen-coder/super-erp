@@ -1,1 +1,1 @@
-export { GET, PATCH, DELETE } from '../../../../accounts/[id]/route'
+export { GET, PUT, DELETE } from '../../../accounts/[id]/route'

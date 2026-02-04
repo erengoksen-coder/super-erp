@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase, DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -28,7 +29,7 @@ export const GET = withAuth(async (request) => {
 // POST: Depo oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as WarehouseInput
+    const body = await parseJsonBody(request) as WarehouseInput
     const { code, name } = body
 
     if (!code || !name) {
@@ -63,3 +64,4 @@ export const DELETE = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

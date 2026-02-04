@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -49,7 +50,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Rezervasyon oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as ReservationInput
+    const body = await parseJsonBody(request) as ReservationInput
     const { material_id, customer_id, reference_type, reference_id, quantity, notes } = body
 
     if (!material_id || !quantity || quantity <= 0) {
@@ -124,3 +125,4 @@ export const DELETE = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

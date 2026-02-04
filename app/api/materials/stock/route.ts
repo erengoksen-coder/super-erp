@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -17,12 +18,29 @@ type StockUpdateInput = {
   movement_type?: 'in' | 'out'
   notes?: string
   unit?: string
+  warehouse_id?: string
 }
 
 // POST: Stok giriş/çıkış işlemi
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as StockUpdateInput
+    let body: StockUpdateInput
+    try {
+      body = await parseJsonBody(request) as StockUpdateInput
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message || 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json(
+        { error: 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
     const { material_id, quantity, movement_type, notes, unit, warehouse_id } = body
 
     if (!material_id || quantity === undefined) {
@@ -52,7 +70,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const factor = resolveUnitFactor(db, material_id, unit, baseUnit)
       if (!factor) {
         return NextResponse.json(
-          { error: `Birim dönüşümü bulunamadı (${unit} → ${baseUnit})` },
+          { error: `Birim dönüşümü bulunamadı (${unit} �  ${baseUnit})` },
           { status: 400 }
         )
       }
@@ -61,6 +79,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     // Stoku güncelle (optimistic)
     applyMaterialStockChange(db, material_id, normalizedQuantity)
+    const newStock = Number(material.stock_amount || 0) + normalizedQuantity
 
     db.prepare(`
       INSERT INTO material_stocks (id, material_id, warehouse_id, quantity)
@@ -86,7 +105,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       movement_type || (normalizedQuantity > 0 ? 'in' : 'out'),
       Math.abs(normalizedQuantity),
       null,
-      notes || `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} → ${normalizedQuantity} ${baseUnit}] ` : ''}Mobil stok ${normalizedQuantity > 0 ? 'girişi' : 'çıkışı'}`,
+      notes || `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} �  ${normalizedQuantity} ${baseUnit}] ` : ''}Mobil stok ${normalizedQuantity > 0 ? 'girişi' : 'çıkışı'}`,
       targetWarehouseId,
       normalizedQuantity < 0 ? targetWarehouseId : null,
       normalizedQuantity > 0 ? targetWarehouseId : null
@@ -105,5 +124,6 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 
 

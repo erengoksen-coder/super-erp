@@ -56,11 +56,25 @@ export const GET = withAuth(
         a.code as customer_code,
         a.address as customer_address,
         a.phone as customer_phone,
-        a.email as customer_email
+        a.email as customer_email,
+        a.risk_limit as customer_risk_limit,
+        a.balance as customer_balance,
+        u.full_name as approved_by_name,
+        u.username as approved_by_username
       FROM shipments s
       JOIN accounts a ON s.customer_id = a.id
+      LEFT JOIN users u ON s.approved_by = u.id
       WHERE s.id = ? AND s.deleted_at IS NULL
-    `).get(shipmentId) as ShipmentRow | undefined
+    `).get(shipmentId) as ShipmentRow & {
+      customer_risk_limit?: number | null
+      customer_balance?: number | null
+      approved_by_name?: string | null
+      approved_by_username?: string | null
+      approval_status?: string | null
+      approved_by?: string | null
+      approved_at?: string | null
+      approval_requested_at?: string | null
+    } | undefined
 
     if (!shipment) {
       return fail('Sevkiyat bulunamadı', { status: 404 })
@@ -95,26 +109,34 @@ export const GET = withAuth(
     })
 
     const endCustomerRows = db.prepare(`
-      SELECT DISTINCT o.customer_name
+      SELECT DISTINCT o.customer_name, o.dealer_name
       FROM product_serial_numbers psn
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       LEFT JOIN active_orders o ON o.production_order_id = po.id
       WHERE psn.shipment_id = ?
-        AND o.customer_name IS NOT NULL
-        AND o.customer_name != ''
-    `).all(shipmentId) as Array<{ customer_name?: string | null }>
+        AND (o.customer_name IS NOT NULL OR o.dealer_name IS NOT NULL)
+    `).all(shipmentId) as Array<{ customer_name?: string | null; dealer_name?: string | null }>
 
     const endCustomerNames = endCustomerRows
       .map((row) => (row.customer_name || '').trim())
+      .filter((name) => name.length > 0)
+
+    const dealerNames = endCustomerRows
+      .map((row) => (row.dealer_name || '').trim())
       .filter((name) => name.length > 0)
 
     const endCustomerName = endCustomerNames.length > 0
       ? Array.from(new Set(endCustomerNames)).join(', ')
       : null
 
+    const dealerName = dealerNames.length > 0
+      ? Array.from(new Set(dealerNames)).join(', ')
+      : null
+
     return ok({
       ...shipment,
       end_customer_name: endCustomerName,
+      dealer_name: dealerName,
       items: itemsWithParsedSerials,
     })
     } catch (error: any) {

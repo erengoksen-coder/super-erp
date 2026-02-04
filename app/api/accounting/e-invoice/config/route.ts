@@ -1,1 +1,1 @@
-export { GET, POST, PATCH } from '../../../../e-invoice/config/route'
+export { GET, POST, PATCH } from '../../../e-invoice/config/route'

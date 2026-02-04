@@ -1,5 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
+import { logger } from '@/lib/utils/logger'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Yevmiye kayıtlarını listele
@@ -29,9 +33,15 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     const entries = db.prepare(query).all(...params)
 
-    return NextResponse.json(entries)
+    return ok(entries, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[Journal Entries API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
 
@@ -40,26 +50,29 @@ export const POST = withAuth(async (request: NextRequest) => {
   try {
     let body: any
     try {
-      body = await request.json()
+      body = await parseJsonBody(request)
     } catch {
-      return NextResponse.json({ error: 'Geçersiz JSON' }, { status: 400 })
+      return fail('Geçersiz JSON', { status: 400 })
     }
     const { createJournalEntry } = await import('@/lib/utils/accounting')
 
     if (!body || !Array.isArray(body.lines) || body.lines.length === 0) {
-      return NextResponse.json({ error: 'Yevmiye satırları gerekli' }, { status: 400 })
+      return fail('Yevmiye satırları gerekli', { status: 400 })
     }
 
     const entryId = await createJournalEntry(body)
     
-    return NextResponse.json({ 
-      success: true, 
-      id: entryId,
-      message: 'Yevmiye kaydı oluşturuldu' 
-    }, { status: 201 })
+    return ok({ id: entryId }, { message: 'Yevmiye kaydı oluşturuldu', status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[Journal Entries API] POST failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
+
 
 

@@ -1,1 +1,1 @@
-export { GET } from '../../../../../products/[id]/label/route'
+export { GET } from '../../../../products/[id]/label/route'

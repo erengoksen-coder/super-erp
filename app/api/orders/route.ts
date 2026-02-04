@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
+import { parseJsonBody } from '@/lib/api/validate'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
@@ -71,7 +72,7 @@ type OrderStatusRow = {
   order_number: string
 }
 
-// Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
+// Bayi isminden otomatik cari hesap oluştur (eşer yoksa)
 function createAccountIfNotExists(db: Db, dealerName: string | null): void {
   if (!dealerName || dealerName.trim() === '') {
     return
@@ -123,6 +124,66 @@ function createAccountIfNotExists(db: Db, dealerName: string | null): void {
   }
 }
 
+function createMaterialIfNotExists(db: Db, fabricCode: string | null, unit?: string | null): void {
+  if (!fabricCode || fabricCode.trim() === '') {
+    return
+  }
+
+  const trimmedCode = fabricCode.trim()
+  const name = `Kumaş ${trimmedCode}`
+  const existingMaterial = db
+    .prepare('SELECT id, unit FROM materials WHERE name = ? COLLATE NOCASE')
+    .all(name) as Array<{ id: string; unit: string | null }>
+
+  if (existingMaterial.length > 0) {
+    const hasMetre = existingMaterial.some((row) => (row.unit || '').toLowerCase() === 'metre')
+    if (hasMetre) {
+      db.prepare('DELETE FROM materials WHERE name = ? COLLATE NOCASE AND LOWER(COALESCE(unit, \"\")) != \"metre\"')
+        .run(name)
+    }
+    console.warn(`Hammadde aynı isimle kayıtlı: ${name}`)
+    return
+  }
+
+  try {
+    const id = `mat-${Date.now()}-${Math.random().toString(36).substring(7)}`
+    const materialUnit = 'metre'
+
+    db.prepare(`
+      INSERT INTO materials (
+        id, code, name, category, unit, stock_amount, min_stock_level, purchase_price,
+        company_id, branch_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(
+      id,
+      trimmedCode,
+      name,
+      'Kumaş',
+      materialUnit,
+      0,
+      0,
+      0,
+      DEFAULT_COMPANY_ID,
+      DEFAULT_BRANCH_ID
+    )
+
+    db.prepare(`
+      INSERT OR IGNORE INTO material_stocks (id, material_id, warehouse_id, quantity, created_at, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(
+      `mstock-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      id,
+      DEFAULT_WAREHOUSE_ID,
+      0
+    )
+  } catch (error: any) {
+    console.error(`Hammadde oluşturulamadı (${trimmedCode}):`, {
+      error: error.message,
+      stack: error.stack,
+    })
+  }
+}
+
 // GET: Tüm siparişleri getir
 export const GET = withAuth(async (request) => {
   try {
@@ -135,13 +196,28 @@ export const GET = withAuth(async (request) => {
 
     // Pending status için özel sorgu - production_order_id olmayanları getir
     if (status === 'pending') {
-      // ÇOK SIKI sorgu: Sadece status='pending' ve production_order_id NULL veya boş olanları getir
+      // �!OK SIKI sorgu: Sadece status='pending' ve production_order_id NULL veya boş olanları getir
       // Ayrıca status='in_production' olanları da hariç tut
       const query = `
         SELECT 
           o.*,
           p.name as matched_product_name,
-          p.sku as matched_product_sku
+          p.sku as matched_product_sku,
+          CASE 
+            WHEN o.production_order_id IS NOT NULL AND o.production_order_id != '' THEN
+              CASE 
+                WHEN EXISTS (
+                  SELECT 1 
+                  FROM production_orders po
+                  JOIN product_serial_numbers psn ON po.id = psn.production_order_id
+                  WHERE po.id = o.production_order_id
+                    AND psn.shipment_id IS NOT NULL
+                    AND psn.shipment_id != ''
+                ) THEN 'shipped'
+                ELSE o.status
+              END
+            ELSE o.status
+          END as display_status
         FROM active_orders o
         LEFT JOIN active_products p ON o.product_id = p.id
         WHERE o.status = 'pending'
@@ -152,17 +228,17 @@ export const GET = withAuth(async (request) => {
           AND o.deleted_at IS NULL
         ORDER BY COALESCE(o.order_date, o.created_at) ASC
       `
-      const orders = db.prepare(query).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as OrderRow[]
+      const orders = db.prepare(query).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as (OrderRow & { display_status?: string })[]
       
-      // ÇOK SIKI filtreleme: JavaScript tarafında da filtrele
+      // �!OK SIKI filtreleme: JavaScript tarafında da filtrele
       const filteredOrders = orders.filter(order => {
-        // Status kontrolü - ÇOK SIKI
+        // Status kontrolü - �!OK SIKI
         if (order.status !== 'pending') {
           logger.debug(`[Orders API - Pending] Sipariş ${order.order_number} filtrelendi (status: ${order.status})`)
           return false
         }
         
-        // Production order ID kontrolü - ÇOK SIKI
+        // Production order ID kontrolü - �!OK SIKI
         const prodId = order.production_order_id
         if (prodId === null || prodId === undefined) {
           return true
@@ -179,7 +255,7 @@ export const GET = withAuth(async (request) => {
       
       logger.info(`[Orders API - Pending] SQL'den gelen: ${orders.length}, JavaScript filtrelenmiş: ${filteredOrders.length}`)
       
-      // Eğer SQL'den gelen ile filtrelenmiş arasında fark varsa, logla
+      // Eşer SQL'den gelen ile filtrelenmiş arasında fark varsa, logla
       if (orders.length !== filteredOrders.length) {
         const diff = orders.filter(o => {
           const prodId = o.production_order_id
@@ -243,10 +319,16 @@ export const GET = withAuth(async (request) => {
 
     const orders = db.prepare(query).all(...params) as OrderRow[]
     
-    // Status pending değilse normal filtreleme
+    // Status pending deşilse normal filtreleme
     return ok(orders, { headers: CACHE_HEADERS_LIST })
   } catch (error: any) {
     console.error('Siparişler yüklenirken hata:', error)
+    try {
+      await logger.error('[Orders API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
     return fail(error.message, { status: 500 })
   }
 }, ['admin', 'manager', 'sales'])
@@ -254,7 +336,17 @@ export const GET = withAuth(async (request) => {
 // POST: Manuel sipariş oluştur
 export const POST = withAuth(async (request, user) => {
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await parseJsonBody(request)
+    } catch (error: any) {
+      return fail(error?.message || 'Geçersiz JSON', { status: 400 })
+    }
+
+    if (!body || typeof body !== 'object') {
+      return fail('Geçersiz istek verisi', { status: 400 })
+    }
+
     ;(body as { created_by?: string }).created_by = user.userId
     const { orders: manualOrders } = body as { orders?: ManualOrderInput[] }
 
@@ -290,7 +382,7 @@ export const POST = withAuth(async (request, user) => {
           combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${order.unit}`
         }
 
-        // Ürünü bul (SKU veya isim ile)
+        // �Srünü bul (SKU veya isim ile)
         let productId: string | null = order.product_id || null
         if (!productId && order.product_sku) {
           const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(order.product_sku) as ProductIdRow | undefined
@@ -305,8 +397,10 @@ export const POST = withAuth(async (request, user) => {
           }
         }
 
-        // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
-        createAccountIfNotExists(db, order.dealer_name)
+        // Bayi/Müşteri isminden otomatik cari hesap oluştur (eğer yoksa)
+        createAccountIfNotExists(db, order.dealer_name ?? null)
+        // Kumaş kodu varsa hammaddeye ekle
+        createMaterialIfNotExists(db, order.fabric_code ?? null, order.unit ?? null)
 
         db.prepare(`
         INSERT INTO orders (
@@ -375,7 +469,7 @@ export const POST = withAuth(async (request, user) => {
 // PATCH: Sipariş durumunu güncelle (ör. iptal)
 export const PATCH = withAuth(async (request: NextRequest, user) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const orderId = body?.orderId || body?.id
     const status = body?.status
     const cancelReason = typeof body?.cancel_reason === 'string' ? body.cancel_reason.trim() : ''
@@ -494,3 +588,4 @@ export const DELETE = withAuth(async (request: NextRequest, user) => {
     return fail('Siparişler silinemedi', { status: 500, details: error.message })
   }
 }, ['admin'])
+

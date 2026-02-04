@@ -5,7 +5,7 @@ import { getAccessTokenFromRequest } from '@/lib/auth/session'
 import { verifyAccessToken } from '@/lib/auth/jwt'
 import { loadUserPermissions } from '@/lib/auth/permissions'
 
-// GET: Mevcut kullanÄ±cÄ± bilgileri
+// GET: Mevcut kullanıcı bilgileri
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const token = getAccessTokenFromRequest(request)
@@ -15,7 +15,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     const payload = await verifyAccessToken(token).catch(() => null)
     if (!payload?.userId) {
-      return NextResponse.json({ error: 'GeÃ§ersiz token' }, { status: 401 })
+      return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
     }
 
     const db = getDatabase()
@@ -29,7 +29,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     if (!user) {
       return NextResponse.json(
-        { error: 'KullanÄ±cÄ± bulunamadÄ± veya onaylanmamÄ±ÅŸ' },
+        { error: 'Kullanıcı bulunamadı veya onaylanmamış' },
         { status: 401 }
       )
     }

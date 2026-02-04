@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -96,7 +97,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { production_order_id, planned_start_date, planned_end_date, notes, stations } = body || {}
 
     if (!production_order_id) {
@@ -165,7 +166,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       userId: actorId,
       companyId: DEFAULT_COMPANY_ID,
       branchId: DEFAULT_BRANCH_ID,
-      afterData: {
+      after: {
         id: workOrderId,
         production_order_id,
         work_order_number: workOrderNumber,
@@ -181,3 +182,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

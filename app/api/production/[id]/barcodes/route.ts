@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
@@ -52,7 +53,7 @@ export const POST = withAuth(async (
   _context?: { params?: { id?: string } | Promise<{ id?: string }> }
 ) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { barcode, ready, customer_id } = body
 
     if (!barcode) {

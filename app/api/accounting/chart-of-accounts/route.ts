@@ -1,10 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
+import { logger } from '@/lib/utils/logger'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Hesap planını getir
-export const GET = withAuth(async (request) => {
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
     const accounts = db.prepare(`
@@ -15,41 +19,55 @@ export const GET = withAuth(async (request) => {
       ORDER BY coa.code ASC
     `).all()
 
-    return NextResponse.json(accounts)
+    return ok(accounts, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[Chart of Accounts API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
+
+type ChartAccountInput = {
+  code?: string
+  name?: string
+  account_type?: string
+  parent_id?: string | null
+}
 
 // POST: Hesap planına yeni hesap ekle
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as {
-      code?: string
-      name?: string
-      account_type?: string
-      parent_id?: string | null
+    let body: ChartAccountInput
+    try {
+      body = await parseJsonBody(request) as ChartAccountInput
+    } catch {
+      return fail('Geçersiz JSON', { status: 400 })
     }
+
     const { code, name, account_type, parent_id } = body
 
     if (!code?.trim() || !name?.trim()) {
-      return NextResponse.json({ error: 'Kod ve hesap adı zorunludur' }, { status: 400 })
+      return fail('Kod ve hesap adı zorunludur', { status: 400 })
     }
     if (!account_type?.trim()) {
-      return NextResponse.json({ error: 'Hesap tipi zorunludur' }, { status: 400 })
+      return fail('Hesap tipi zorunludur', { status: 400 })
     }
 
     const db = getDatabase()
 
     const existing = db.prepare('SELECT id FROM chart_of_accounts WHERE code = ?').get(code.trim()) as { id: string } | undefined
     if (existing) {
-      return NextResponse.json({ error: 'Bu hesap kodu zaten kullanılıyor' }, { status: 409 })
+      return fail('Bu hesap kodu zaten kullanılıyor', { status: 409 })
     }
 
     if (parent_id) {
       const parent = db.prepare('SELECT id FROM chart_of_accounts WHERE id = ?').get(parent_id) as { id: string } | undefined
       if (!parent) {
-        return NextResponse.json({ error: 'Üst hesap bulunamadı' }, { status: 404 })
+        return fail('Üst hesap bulunamadı', { status: 404 })
       }
     }
 
@@ -67,10 +85,14 @@ export const POST = withAuth(async (request: NextRequest) => {
       parent_id || null
     )
 
-    return NextResponse.json({ id, message: 'Hesap oluşturuldu' }, { status: 201 })
+    return ok({ id }, { message: 'Hesap oluşturuldu', status: 201 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[Chart of Accounts API] POST failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
-
-

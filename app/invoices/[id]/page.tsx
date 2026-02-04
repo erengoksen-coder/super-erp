@@ -26,10 +26,13 @@ type InvoiceDetail = {
   customer_code: string
   shipment_number?: string | null
   total_amount: number
+  discount_rate?: number
+  discount_amount?: number
   tax_rate: number
   tax_amount: number
   final_amount: number
   notes?: string | null
+  end_customer_name?: string | null
   items: InvoiceItem[]
 }
 
@@ -177,7 +180,16 @@ export default function InvoiceDetailPage() {
             {invoice.items.map((item) => (
               <tr key={item.id} className="border-b border-gray-800">
                 <td className="py-2 px-3 text-xs text-gray-300">
-                  {item.product_name} {item.product_sku ? `(${item.product_sku})` : ''}
+                  <div>
+                    {item.product_name} {item.product_sku ? (
+                      <span className="text-yellow-400">({item.product_sku})</span>
+                    ) : ''}
+                  </div>
+                  {(invoice.end_customer_name || invoice.customer_name) && (
+                    <div className="text-yellow-400 text-xs mt-1">
+                      Müşteri: {invoice.end_customer_name || invoice.customer_name}
+                    </div>
+                  )}
                 </td>
                 <td className="py-2 px-3 text-xs text-gray-300 text-right">{item.quantity}</td>
                 <td className="py-2 px-3 text-xs text-gray-300 text-right">
@@ -194,6 +206,11 @@ export default function InvoiceDetailPage() {
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-sm text-right text-white">
         <div>Ara Toplam: {invoice.total_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+        {invoice.discount_rate && invoice.discount_rate > 0 && invoice.discount_amount && invoice.discount_amount > 0 && (
+          <div className="text-yellow-400">
+            İskonto (%{invoice.discount_rate.toFixed(2)}): -{invoice.discount_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+          </div>
+        )}
         <div>KDV: {invoice.tax_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
         <div className="text-lg font-semibold">Genel Toplam: {invoice.final_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
       </div>

@@ -34,7 +34,7 @@ export default function OperationsPage() {
     setLoading(true)
     try {
       const data = await fetchApi('/api/operations')
-      setOperations(data || [])
+      setOperations(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Operasyonlar yüklenemedi:', error)
       setOperations([])

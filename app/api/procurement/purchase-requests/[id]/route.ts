@@ -1,1 +1,1 @@
-export { DELETE } from '../../../../purchase-requests/[id]/route'
+export { PATCH, DELETE } from '../../../purchase-requests/[id]/route'

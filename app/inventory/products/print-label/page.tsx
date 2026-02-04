@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { QRCodeSVG } from 'qrcode.react'
 import { LogoWithBackground } from '@/components/Logo'
 import { Printer, ArrowLeft } from 'lucide-react'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { Button } from '@/components/ui/Button'
+import { Card, CardBody } from '@/components/ui/Card'
+import { fetchApi } from '@/lib/api/client'
 
 interface Product {
   id: string
@@ -18,38 +22,78 @@ export default function PrintLabelPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const productId = searchParams.get('productId')
-  const quantity = parseInt(searchParams.get('quantity') || '1')
-  
+  const initialQuantity = Number.parseInt(searchParams.get('quantity') || '1', 10)
+  const quantity = Number.isFinite(initialQuantity) && initialQuantity > 0 ? initialQuantity : 1
+
   const [product, setProduct] = useState<Product | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [selectedProductId, setSelectedProductId] = useState<string>(productId || '')
+  const [selectedQuantity, setSelectedQuantity] = useState<number>(quantity)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (productId) {
-      loadProduct()
-    }
-  }, [productId])
+  const hasProductId = Boolean(productId)
 
-  async function loadProduct() {
-    try {
-      const db = await import('@/lib/database/client')
-      const data = await db.localDB.getProducts()
-      const foundProduct = data.find((p: any) => p.id === productId)
-      
-      if (foundProduct) {
-        setProduct({
-          id: foundProduct.id,
-          name: foundProduct.name,
-          sku: foundProduct.sku,
-          stock_amount: foundProduct.stock_amount || 0,
-          image_url: foundProduct.image_url || null
-        })
+  useEffect(() => {
+    setSelectedProductId(productId || '')
+    setSelectedQuantity(quantity)
+  }, [productId, quantity])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProducts() {
+      try {
+        const data = await fetchApi<Product[]>('/api/inventory/products')
+        if (!cancelled) {
+          setProducts(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Ürün listesi yüklenemedi:', error)
+        }
       }
-    } catch (error) {
-      console.error('Ürün yüklenirken hata:', error)
-    } finally {
-      setLoading(false)
     }
-  }
+
+    if (!hasProductId) {
+      loadProducts()
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasProductId])
+
+  useEffect(() => {
+    if (!hasProductId) {
+      setProduct(null)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    async function loadProduct() {
+      try {
+        const data = await fetchApi<Product>(`/api/inventory/products/${productId}`)
+        if (!cancelled) {
+          setProduct(data ?? null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Ürün yüklenirken hata:', error)
+          setProduct(null)
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadProduct()
+    return () => {
+      cancelled = true
+    }
+  }, [hasProductId, productId])
 
   function handlePrint() {
     window.print()
@@ -63,6 +107,63 @@ export default function PrintLabelPage() {
           <p className="mt-2 text-gray-400">Yükleniyor...</p>
         </div>
       </div>
+    )
+  }
+
+  if (!hasProductId) {
+    return (
+      <AppDashboardLayout
+        title="Etiket Yazdır"
+        subtitle="Mamül seçip etiket oluşturun"
+      >
+        <Card>
+          <CardBody className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Ürün</label>
+              <select
+                className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2"
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+              >
+                <option value="">Ürün seçin</option>
+                {products.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.sku} - {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Adet</label>
+              <input
+                type="number"
+                min={1}
+                className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2"
+                value={selectedQuantity}
+                onChange={(e) => setSelectedQuantity(Math.max(1, Number.parseInt(e.target.value || '1', 10)))}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Button variant="outline" size="sm" onClick={() => router.back()}>
+                <ArrowLeft size={16} className="mr-2" />
+                Geri Dön
+              </Button>
+              <Button
+                variant="solid"
+                color="primary"
+                size="sm"
+                disabled={!selectedProductId}
+                onClick={() => {
+                  if (!selectedProductId) return
+                  router.push(`/inventory/products/print-label?productId=${encodeURIComponent(selectedProductId)}&quantity=${selectedQuantity}`)
+                }}
+              >
+                Etiketi Aç
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      </AppDashboardLayout>
     )
   }
 
@@ -111,7 +212,7 @@ export default function PrintLabelPage() {
 
       {/* Etiketler - Her biri 100x100mm */}
       <div className="flex flex-wrap gap-4 justify-center">
-        {Array.from({ length: quantity }).map((_, index) => (
+        {Array.from({ length: selectedQuantity }).map((_, index) => (
           <div
             key={index}
             className="bg-white border-2 border-gray-300 print-label"

@@ -34,7 +34,7 @@ export default function WorkCentersPage() {
     setLoading(true)
     try {
       const data = await fetchApi('/api/work-centers')
-      setCenters(data || [])
+      setCenters(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('İstasyonlar yüklenemedi:', error)
       setCenters([])

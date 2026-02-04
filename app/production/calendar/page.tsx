@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { KanbanBoard } from '@/components/production/KanbanBoard'
 
 interface ProductionOrder {
   id: string
@@ -23,6 +25,7 @@ interface ProductionOrder {
 }
 
 export default function ProductionCalendarPage() {
+  const router = useRouter()
   const [orders, setOrders] = useState<ProductionOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -183,6 +186,10 @@ export default function ProductionCalendarPage() {
   const days = viewMode === 'week' ? getWeekDays(new Date(currentDate)) : getMonthDays(new Date(currentDate))
   const weekDays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz']
 
+  const handleOrderClick = (order: ProductionOrder) => {
+    router.push(`/production/${order.id}`)
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -194,6 +201,8 @@ export default function ProductionCalendarPage() {
           <p className="text-gray-400">Üretim emirlerinin zaman çizelgesi ve durumu</p>
         </div>
       </div>
+
+      <KanbanBoard orders={filteredOrders} onOrderClick={handleOrderClick} />
 
       {/* Kontroller */}
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-6">

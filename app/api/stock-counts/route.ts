@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase, DEFAULT_WAREHOUSE_ID } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -33,7 +34,7 @@ export const GET = withAuth(async (request) => {
 // POST: Yeni stok sayımı oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as StockCountInput
+    const body = await parseJsonBody(request) as StockCountInput
     const warehouseId = body.warehouse_id || DEFAULT_WAREHOUSE_ID
 
     const db = getDatabase()
@@ -90,3 +91,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

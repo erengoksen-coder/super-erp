@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import { 
@@ -10,14 +10,16 @@ import {
   Filter, 
   Grid, 
   List, 
-  Plus, 
+  Plus,
   AlertTriangle,
   TrendingUp,
   ArrowRight,
   MoreHorizontal,
   Edit,
   Trash2,
-  Download
+  Download,
+  Printer,
+  Truck
 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
@@ -26,6 +28,132 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { cn } from '@/lib/cn'
+
+// Barkod ve QR Kod Component
+function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip }: { 
+  barcode: string; 
+  serialNumber: string; 
+  barcodeId: string; 
+  entryDate: string;
+  onPrintLabel: () => void;
+  onShip: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [barcodeLoaded, setBarcodeLoaded] = useState(false)
+
+  useEffect(() => {
+    if (canvasRef.current && typeof window !== 'undefined' && !barcodeLoaded) {
+      const canvas = canvasRef.current
+      const barcodeValue = barcode.replace(/[^0-9]/g, '') || barcode
+      
+      import('jsbarcode').then((JsBarcodeModule) => {
+        const JsBarcode = JsBarcodeModule.default || JsBarcodeModule
+        
+        canvas.width = 200
+        canvas.height = 50
+        
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+        }
+        
+        try {
+          const options = {
+            width: 1,
+            height: 40,
+            displayValue: true,
+            fontSize: 10,
+            margin: 5,
+            background: '#ffffff',
+            lineColor: '#000000',
+            textAlign: 'center' as const,
+            textPosition: 'bottom' as const,
+            textMargin: 2,
+          }
+
+          if (barcodeValue.length === 13) {
+            JsBarcode(canvas, barcodeValue, { ...options, format: 'EAN13' })
+          } else {
+            JsBarcode(canvas, barcodeValue, { ...options, format: 'CODE128' })
+          }
+          setBarcodeLoaded(true)
+        } catch (error) {
+          console.error('Barkod oluşturma hatası:', error)
+        }
+      }).catch((error) => {
+        console.error('jsbarcode yükleme hatası:', error)
+      })
+    }
+  }, [barcode, barcodeLoaded])
+
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(barcode)}`
+
+  return (
+    <div className="mb-2 p-2 bg-gray-700/50 rounded border border-gray-600">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1">
+          {/* Barkod Görseli */}
+          <div className="flex-shrink-0">
+            <div className="text-xs text-gray-400 mb-1">Barkod</div>
+            <div className="bg-white p-1 rounded border border-gray-600">
+              <canvas ref={canvasRef} className="max-w-full h-auto" style={{ maxWidth: '150px', height: 'auto' }} />
+            </div>
+          </div>
+          {/* QR Kod */}
+          <div className="flex-shrink-0">
+            <div className="text-xs text-gray-400 mb-1">QR Kod</div>
+            <div className="bg-white p-1 rounded border border-gray-600 inline-block">
+              <img 
+                src={qrCodeUrl}
+                alt="QR Code" 
+                className="w-14 h-14"
+              />
+            </div>
+          </div>
+        </div>
+        {/* Depoya Giriş Tarihi */}
+        <div className="flex-shrink-0 text-right px-3 py-2 bg-gray-700/50 rounded border border-gray-600">
+          <div className="text-xs text-gray-400 mb-1">DEPOYA GİRİŞ TARİHİ</div>
+          <div className="text-white text-xs font-semibold">{entryDate || '-'}</div>
+        </div>
+        {/* Butonlar */}
+        <div className="flex-shrink-0 flex flex-col gap-2">
+          <Button
+            variant="solid"
+            color="primary"
+            size="sm"
+            onClick={onPrintLabel}
+            className="flex items-center justify-center space-x-2 !bg-blue-600 hover:!bg-blue-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Etiket Yazdır</span>
+          </Button>
+          <Button
+            variant="solid"
+            color="success"
+            size="sm"
+            onClick={onShip}
+            className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+          >
+            <Truck className="w-4 h-4" />
+            <span>Sevk Et</span>
+          </Button>
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-4 text-xs">
+        <div className="text-purple-300">
+          <span className="font-semibold">Barkod:</span> {barcode}
+        </div>
+        {serialNumber && (
+          <div className="text-purple-300">
+            <span className="font-semibold">Seri No:</span> {serialNumber}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 import StockRealtime from '@/app/_components/stock-realtime'
 
 interface MaterialItem {
@@ -61,9 +189,7 @@ type ViewMode = 'grid' | 'list'
 export function InventoryPage() {
   const router = useRouter()
   const pathname = usePathname()
-  const [activeTab, setActiveTab] = useState<InventoryType>(
-    pathname?.includes('/inventory/products') ? 'products' : 'materials'
-  )
+  const [activeTab, setActiveTab] = useState<InventoryType>('products')
   const [materials, setMaterials] = useState<MaterialItem[]>([])
   const [products, setProducts] = useState<ProductItem[]>([])
   const [warehouseItems, setWarehouseItems] = useState<any[]>([])
@@ -72,17 +198,80 @@ export function InventoryPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [selectedDealerTab, setSelectedDealerTab] = useState<string>('all') // 'all' = tümü, '' = boş, 'dealerName' = seçili cari
+
+  // Bayi adından account ID bul veya oluştur
+  const findOrCreateAccountByDealerName = useCallback(async (dealerName: string | null | undefined): Promise<string | null> => {
+    if (!dealerName || dealerName.trim() === '') {
+      return null
+    }
+
+    const trimmedName = dealerName.trim()
+    
+    // Önce accounts listesinde ara
+    const existingAccount = accounts.find(acc => 
+      acc.name && acc.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    )
+    
+    if (existingAccount) {
+      return existingAccount.id
+    }
+
+    // Bulunamazsa API'den ara veya oluştur
+    try {
+      // Önce accounts API'sinden tüm müşterileri al
+      const allAccounts = await fetchApi('/api/accounts?type=customer')
+      const foundAccount = Array.isArray(allAccounts) 
+        ? allAccounts.find((acc: any) => acc.name && acc.name.trim().toLowerCase() === trimmedName.toLowerCase())
+        : null
+      
+      if (foundAccount) {
+        setAccounts(prev => [...prev, foundAccount])
+        return foundAccount.id
+      }
+
+      // Hala bulunamazsa yeni account oluştur
+      const newAccount = await fetchApi('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          type: 'customer'
+        })
+      })
+      
+      if (newAccount && newAccount.id) {
+        setAccounts(prev => [...prev, { id: newAccount.id, code: newAccount.code, name: trimmedName, type: 'customer' }])
+        return newAccount.id
+      }
+    } catch (error) {
+      console.error('Account bulunamadı veya oluşturulamadı:', error)
+    }
+
+    return null
+  }, [accounts])
 
   const loadInventory = useCallback(async () => {
     try {
-      const [materialsData, productsData, warehouseData] = await Promise.all([
+      const [materialsData, productsData, warehouseData, accountsData] = await Promise.all([
         fetchApi('/api/inventory/materials'),
         fetchApi('/api/inventory/products'),
-        fetchApi('/api/inventory/products/warehouse').catch(() => []) // Mamül depo verileri
+        fetchApi('/api/inventory/products/warehouse').catch((err) => {
+          console.error('Warehouse API error:', err)
+          return []
+        }), // Mamül depo verileri
+        fetchApi('/api/accounts?type=customer').catch((err) => {
+          console.error('Accounts API error:', err)
+          return []
+        }) // Müşteri hesapları
       ])
       setMaterials(Array.isArray(materialsData) ? materialsData : [])
       setProducts(Array.isArray(productsData) ? productsData : [])
-      setWarehouseItems(Array.isArray(warehouseData) ? warehouseData : [])
+      const warehouseArray = Array.isArray(warehouseData) ? warehouseData : []
+      console.log('Warehouse items loaded:', warehouseArray.length, warehouseArray)
+      setWarehouseItems(warehouseArray)
+      setAccounts(Array.isArray(accountsData) ? accountsData : [])
     } catch (error) {
       console.error('Error loading inventory:', error)
     } finally {
@@ -95,8 +284,33 @@ export function InventoryPage() {
   }, [loadInventory])
 
   useEffect(() => {
-    setActiveTab(pathname?.includes('/inventory/products') ? 'products' : 'materials')
+    setActiveTab('products')
   }, [pathname])
+
+  // Arama yapıldığında sekmeyi 'all' yap ve kartları göster
+  useEffect(() => {
+    if (searchTerm) {
+      setSelectedDealerTab('all')
+    }
+  }, [searchTerm])
+
+  // Boşluğa tıklandığında CARİ sekmesini kapat
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      // Eğer tıklanan alan boşluk veya card dışındaysa sekmeyi kapat
+      if (target.classList.contains('space-y-4') || 
+          (target.tagName === 'DIV' && !target.closest('.bg-gray-800') && 
+           !target.closest('.cursor-pointer') && 
+           !target.closest('button') &&
+           !target.closest('input'))) {
+        setSelectedDealerTab('all')
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
 
   const currentItems = activeTab === 'materials' ? materials : products
   const categories = [...new Set(currentItems.map(item => item.category).filter(Boolean))]
@@ -265,36 +479,24 @@ export function InventoryPage() {
             <Download className="w-4 h-4 mr-2" />
             Excel İndir
           </Button>
-          <Button
-            variant="solid"
-            color="primary"
-            size="sm"
-            onClick={() => router.push(`/inventory/${activeTab}/new`)}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Yeni {activeTab === 'materials' ? 'Hammadde' : 'Mamül'}
-          </Button>
+          {activeTab === 'products' && (
+            <Button
+              variant="solid"
+              color="primary"
+              size="sm"
+              onClick={() => router.push('/products/new')}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Yeni Mamül
+            </Button>
+          )}
         </>
       }
     >
       <StockRealtime onUpdate={loadInventory} />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card variant="flat">
-          <CardBody className="p-4">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Package className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Toplam Hammadde</p>
-                <p className="text-lg font-semibold text-gray-900">{materials.length}</p>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card variant="flat">
           <CardBody className="p-4">
             <div className="flex items-center space-x-3">
@@ -303,7 +505,7 @@ export function InventoryPage() {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Toplam Mamül</p>
-                <p className="text-lg font-semibold text-gray-900">{products.length}</p>
+                <p className="text-lg font-semibold text-gray-900">{warehouseItems.length}</p>
               </div>
             </div>
           </CardBody>
@@ -340,58 +542,34 @@ export function InventoryPage() {
         </Card>
       </div>
 
-      {/* Tab Navigation */}
+      {/* Arama Filtresi */}
       <Card>
-        <CardBody className="p-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0">
-            <div className="flex items-center space-x-1">
+        <CardBody className="p-3">
+          <div className="flex items-center space-x-3">
+            <Input
+              placeholder="Müşteri, cari, ürün, takip no, SKU ara..."
+              leftIcon={<Search className="w-4 h-4" />}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-1 max-w-md"
+            />
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
               <Button
-                variant={activeTab === 'materials' ? 'solid' : 'ghost'}
-                color="primary"
+                variant={viewMode === 'grid' ? 'solid' : 'ghost'}
                 size="sm"
-                onClick={() => setActiveTab('materials')}
+                className="h-8 w-8 p-0"
+                onClick={() => setViewMode('grid')}
               >
-                <Package className="w-4 h-4 mr-2" />
-                Hammadde ({materials.length})
+                <Grid className="w-4 h-4" />
               </Button>
               <Button
-                variant={activeTab === 'products' ? 'solid' : 'ghost'}
-                color="primary"
+                variant={viewMode === 'list' ? 'solid' : 'ghost'}
                 size="sm"
-                onClick={() => setActiveTab('products')}
+                className="h-8 w-8 p-0"
+                onClick={() => setViewMode('list')}
               >
-                <Factory className="w-4 h-4 mr-2" />
-                Mamül ({products.length})
+                <List className="w-4 h-4" />
               </Button>
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <Input
-                placeholder={`${activeTab === 'materials' ? 'Hammadde' : 'Mamül'} ara...`}
-                leftIcon={<Search className="w-4 h-4" />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-64"
-              />
-              
-              <div className="flex items-center bg-gray-100 rounded-lg p-1">
-                <Button
-                  variant={viewMode === 'grid' ? 'solid' : 'ghost'}
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setViewMode('grid')}
-                >
-                  <Grid className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={viewMode === 'list' ? 'solid' : 'ghost'}
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setViewMode('list')}
-                >
-                  <List className="w-4 h-4" />
-                </Button>
-              </div>
             </div>
           </div>
         </CardBody>
@@ -429,7 +607,17 @@ export function InventoryPage() {
 
       {/* Mamül Depo - Sipariş Kartları Görünümü */}
       {activeTab === 'products' ? (
-        <div className="space-y-4">
+        <div 
+          className="space-y-4"
+          onClick={(e) => {
+            const target = e.target as HTMLElement
+            // Boşluğa veya card dışına tıklandığında sekmeleri kapat
+            if (target.classList.contains('space-y-4') || 
+                (target.tagName === 'DIV' && !target.closest('.bg-gray-800') && !target.closest('.filter-dropdown-container') && !target.closest('.cursor-pointer'))) {
+              setSelectedDealerTab('all')
+            }
+          }}
+        >
           {loading ? (
             <Card>
               <CardBody className="p-12 text-center">
@@ -437,158 +625,356 @@ export function InventoryPage() {
                 <p className="mt-2 text-gray-500">Yükleniyor...</p>
               </CardBody>
             </Card>
-          ) : warehouseItems.length === 0 ? (
+          ) : (() => {
+            console.log('Rendering products tab:', { 
+              loading, 
+              warehouseItemsLength: warehouseItems.length, 
+              productsLength: products.length,
+              warehouseItems: warehouseItems.slice(0, 3), // İlk 3 item'ı göster
+              activeTab 
+            })
+            
+            // Ürünleri filtrele
+            const filteredItems = warehouseItems.filter((item) => {
+              if (!searchTerm) return true
+              const search = searchTerm.toLowerCase()
+              return (
+                item.product_name?.toLowerCase().includes(search) ||
+                item.product_sku?.toLowerCase().includes(search) ||
+                item.barcode?.toLowerCase().includes(search) ||
+                item.serial_number?.toLowerCase().includes(search) ||
+                item.production_order_number?.toLowerCase().includes(search) ||
+                item.customer_order_number?.toLowerCase().includes(search) ||
+                item.customer_name?.toLowerCase().includes(search) ||
+                item.dealer_name?.toLowerCase().includes(search)
+              )
+            })
+
+            // CARİ ADI'ları grupla
+            const dealerGroups = filteredItems.reduce((acc: Record<string, typeof filteredItems>, item) => {
+              const dealerName = item.dealer_name || 'Belirtilmemiş'
+              if (!acc[dealerName]) {
+                acc[dealerName] = []
+              }
+              acc[dealerName].push(item)
+              return acc
+            }, {})
+
+            const dealerNames = Object.keys(dealerGroups).sort()
+
+            return filteredItems.length === 0 ? (
             <Card>
               <CardBody className="p-12 text-center">
                 <div className="text-gray-500">
-                  Mamül depoda ürün bulunmamaktadır.
+                  {searchTerm ? `"${searchTerm}" araması için sonuç bulunamadı.` : 'Mamül depoda ürün bulunmamaktadır.'}
                 </div>
               </CardBody>
             </Card>
           ) : (
-            warehouseItems
-              .filter((item) => {
-                if (!searchTerm) return true
-                const search = searchTerm.toLowerCase()
+            <div className="space-y-4">
+              {/* Arama Sonuç Bilgisi */}
+              {searchTerm && (
+                <Card>
+                  <CardBody className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-600">
+                        <span className="font-semibold">"{searchTerm}"</span> araması için <span className="font-semibold text-blue-600">{filteredItems.length}</span> adet mamül bulundu.
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Toplam: <span className="font-semibold">{filteredItems.length} adet</span>
+                      </div>
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+              
+              {/* CARİ ADI Sekmeleri */}
+              <Card>
+                <CardBody className="p-3">
+                  <div className="flex items-center justify-between">
+                    <div 
+                      className="flex items-center space-x-2 flex-wrap gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Badge
+                        variant={selectedDealerTab === 'all' ? 'solid' : 'outline'}
+                        color="primary"
+                        className="cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedDealerTab('all')
+                        }}
+                      >
+                        Tümü ({filteredItems.length})
+                      </Badge>
+                      {dealerNames.map((dealerName) => (
+                        <Badge
+                          key={dealerName}
+                          variant={selectedDealerTab === dealerName ? 'solid' : 'outline'}
+                          color="primary"
+                          className="cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Eğer zaten seçiliyse boş yap (hiçbir şey gösterme), değilse aç
+                            setSelectedDealerTab(selectedDealerTab === dealerName ? '' : dealerName)
+                          }}
+                        >
+                          {dealerName} ({dealerGroups[dealerName].length})
+                        </Badge>
+                      ))}
+                    </div>
+                    {/* CARİ sekmesi seçiliyse tüm mamülleri sevk et butonu */}
+                    {selectedDealerTab !== 'all' && selectedDealerTab !== '' && dealerGroups[selectedDealerTab] && (
+                      <Button
+                        variant="solid"
+                        color="success"
+                        size="sm"
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          try {
+                            const items = dealerGroups[selectedDealerTab]
+                            if (!items || items.length === 0) {
+                              alert('Bu cariye ait mamül bulunamadı')
+                              return
+                            }
+                            
+                            if (!confirm(`${items.length} adet mamülü sevk edilebilir olarak işaretlemek istediğinize emin misiniz?`)) {
+                              return
+                            }
+
+                            let successCount = 0
+                            let errorCount = 0
+                            const errors: string[] = []
+
+                            for (const item of items) {
+                              try {
+                                let targetCustomerId = item.customer_id
+                                
+                                if (!targetCustomerId && item.dealer_name) {
+                                  targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
+                                }
+                                
+                                if (!item.barcode) {
+                                  errorCount++
+                                  errors.push(`${item.product_name || 'Ürün'}: Barkod bulunamadı`)
+                                  continue
+                                }
+                                
+                                // fetchApi başarılıysa data döndürür, hata varsa exception fırlatır
+                                await fetchApi('/api/shipments/ready-items', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    barcode: item.barcode,
+                                    customer_id: targetCustomerId,
+                                    ready: true
+                                  })
+                                })
+                                
+                                // Başarılı (exception fırlatılmadıysa)
+                                successCount++
+                              } catch (error: any) {
+                                console.error(`Sevk et hatası (${item.barcode || 'Bilinmeyen'}):`, error)
+                                errorCount++
+                                const errorMsg = error?.message || 'Bilinmeyen hata'
+                                errors.push(`${item.barcode || item.product_name || 'Ürün'}: ${errorMsg}`)
+                              }
+                            }
+
+                            if (successCount > 0) {
+                              alert(`✅ ${successCount} adet mamül sevk edilebilir olarak işaretlendi ve sevkiyata gönderildi.${errorCount > 0 ? ` ${errorCount} adet mamülde hata oluştu.` : ''}`)
+                              loadInventory()
+                            } else {
+                              alert(`Hata: Hiçbir mamül sevk edilebilir olarak işaretlenemedi. Hatalar: ${errors.slice(0, 3).join(', ')}`)
+                            }
+                          } catch (error: any) {
+                            console.error('Toplu sevk et hatası:', error)
+                            alert('Hata: ' + (error.message || 'Toplu sevk işlemi sırasında bir hata oluştu'))
+                          }
+                        }}
+                        className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white"
+                      >
+                        <Truck className="w-4 h-4" />
+                        <span>Tümünü Sevk Et ({dealerGroups[selectedDealerTab]?.length || 0})</span>
+                      </Button>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+
+              {/* Seçili CARİ ADI'na göre ürünleri göster */}
+              {selectedDealerTab !== '' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(selectedDealerTab === 'all' ? filteredItems : dealerGroups[selectedDealerTab] || [])
+                    .map((item) => {
+                const notesText = item.order_notes || ''
+                const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                const cleanedNotes = notesText
+                  .replace(/Kumaş:\s*[^|]+/gi, '')
+                  .replace(/Kasa:\s*[^|]+/gi, '')
+                  .replace(/Ayak:\s*[^|]+/gi, '')
+                  .replace(/Birim:\s*[^|]+/gi, '')
+                  .replace(/\|\s*\|\s*/g, '|')
+                  .replace(/^\|\s*|\s*\|$/g, '')
+                  .trim()
+                const quantityUnit = (unitMatch?.[1] || 'ADET').toString().trim()
+
                 return (
-                  item.product_name?.toLowerCase().includes(search) ||
-                  item.product_sku?.toLowerCase().includes(search) ||
-                  item.barcode?.toLowerCase().includes(search) ||
-                  item.serial_number?.toLowerCase().includes(search) ||
-                  item.production_order_number?.toLowerCase().includes(search) ||
-                  item.customer_order_number?.toLowerCase().includes(search) ||
-                  item.customer_name?.toLowerCase().includes(search) ||
-                  item.dealer_name?.toLowerCase().includes(search)
+                  <div
+                    key={item.barcode_id}
+                    className="bg-gray-800 rounded-lg p-2 border border-gray-700"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                        <div className="text-white text-sm">{item.dealer_name || '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                        <div className="text-white text-sm">{item.product_name || '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                        <div className="text-white text-sm">{item.configuration || '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Durum</div>
+                        <div>
+                          <span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">
+                            Mamül Depoda
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
+                        <div className="text-white text-sm">{item.production_order_number || '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
+                        <div className="text-white text-sm">{item.customer_name || '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
+                        <div className="text-white text-sm">
+                          {fabricMatch ? fabricMatch[1].trim() : '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                        <div className="text-white text-sm break-words whitespace-normal">
+                          {cleanedNotes || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
+                        <div className="text-white text-sm">1 {quantityUnit}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">KASA</div>
+                        <div className="text-white text-sm">
+                          {caseMatch ? caseMatch[1].trim() : '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
+                        <div className="text-white text-sm">
+                          {item.order_date
+                            ? new Date(item.order_date).toLocaleDateString('tr-TR')
+                            : '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">AYAK</div>
+                        <div className="text-white text-sm">
+                          {legMatch ? legMatch[1].trim() : '-'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Barkod ve QR Kod */}
+                    {item.barcode && (
+                      <BarcodeAndQRCode 
+                        barcode={item.barcode} 
+                        serialNumber={item.serial_number || ''}
+                        barcodeId={item.barcode_id}
+                        entryDate={
+                          item.production_order_completed_at
+                            ? new Date(item.production_order_completed_at).toLocaleDateString('tr-TR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : item.barcode_created_at
+                            ? new Date(item.barcode_created_at).toLocaleDateString('tr-TR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : '-'
+                        }
+                        onPrintLabel={() => {
+                          window.open(`/inventory/products/print-barcode-label?barcodeId=${item.barcode}`, '_blank')
+                        }}
+                        onShip={async () => {
+                          try {
+                            // Önce customer_id varsa onu kullan
+                            let targetCustomerId = item.customer_id
+                            
+                            // Eğer customer_id yoksa ama dealer_name varsa, bayi adından account bul veya oluştur
+                            if (!targetCustomerId && item.dealer_name) {
+                              targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
+                            }
+                            
+                            // Ürünü sevk edilebilir olarak işaretle (barkod otomatik okunmuş olarak eklenmez)
+                            if (item.barcode) {
+                              await fetchApi('/api/shipments/ready-items', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  barcode: item.barcode,
+                                  customer_id: targetCustomerId,
+                                  ready: true
+                                })
+                              })
+                              
+                              alert('✅ Ürün sevk edilebilir olarak işaretlendi. Sevkiyat sayfasından barkod okutarak sevk edebilirsiniz.')
+                              
+                              // Sayfayı yenile (sevk edilebilir ürünler listesini güncellemek için)
+                              loadInventory()
+                            }
+                          } catch (error: any) {
+                            console.error('Sevk et hatası:', error)
+                            alert('Hata: ' + (error.message || 'Sevk edilebilir olarak işaretlenirken bir hata oluştu'))
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
                 )
-              })
-              .map((item) => {
-                const notes = item.order_notes || ''
-                const fabricMatch = notes.match(/Kumaş:\s*([^|]+)/i)
-                const caseMatch = notes.match(/Kasa:\s*([^|]+)/i)
-                const legMatch = notes.match(/Ayak:\s*([^|]+)/i)
-                const fabricCode = fabricMatch ? fabricMatch[1].trim() : null
-                const caseInfo = caseMatch ? caseMatch[1].trim() : null
-                const legInfo = legMatch ? legMatch[1].trim() : null
-
-                return (
-                  <Card key={item.barcode_id} className="bg-gray-900 border border-gray-800">
-                    <CardBody className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="font-mono text-sm text-blue-400">
-                              {item.production_order_number || '-'}
-                            </span>
-                            {item.production_order_created_at && (
-                              <span className="text-xs text-gray-500">
-                                {new Date(item.production_order_created_at).toLocaleDateString('tr-TR')}
-                              </span>
-                            )}
-                          </div>
-                          <h3 className="text-lg font-semibold text-white mb-1">
-                            {item.product_name}
-                          </h3>
-                          <div className="text-sm text-gray-400 mb-2">
-                            {item.product_sku}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Barkod Detayları */}
-                      <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-700">
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Barkod</div>
-                            <div className="text-white font-mono">{item.barcode}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Seri No</div>
-                            <div className="text-white font-mono">{item.serial_number}</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sipariş Bilgileri */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
-                        {item.dealer_name && (
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Bayi</div>
-                            <div className="text-white">{item.dealer_name}</div>
-                          </div>
-                        )}
-                        {item.customer_name && (
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Müşteri</div>
-                            <div className="text-white">{item.customer_name}</div>
-                          </div>
-                        )}
-                        {item.customer_order_number && (
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Sipariş No</div>
-                            <div className="text-white">{item.customer_order_number}</div>
-                          </div>
-                        )}
-                        {item.configuration && (
-                          <div>
-                            <div className="text-xs text-gray-400 mb-1">Konfigürasyon</div>
-                            <div className="text-white">{item.configuration}</div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Ürün Detayları (Kumaş, Ayak, Kasa) */}
-                      {(fabricCode || legInfo || caseInfo) && (
-                        <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-700">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                            {fabricCode && (
-                              <div>
-                                <div className="text-xs text-gray-400 mb-1">KUMAŞ</div>
-                                <div className="text-white">{fabricCode}</div>
-                              </div>
-                            )}
-                            {legInfo && (
-                              <div>
-                                <div className="text-xs text-gray-400 mb-1">AYAK</div>
-                                <div className="text-white">{legInfo}</div>
-                              </div>
-                            )}
-                            {caseInfo && (
-                              <div>
-                                <div className="text-xs text-gray-400 mb-1">KASA</div>
-                                <div className="text-white">{caseInfo}</div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Açıklama */}
-                      {item.order_notes && (
-                        <div className="mb-4">
-                          <div className="text-xs text-gray-400 mb-1">Açıklama</div>
-                          <div className="text-sm text-gray-300 break-words whitespace-normal">
-                            {item.order_notes}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Tamamlanma Tarihi */}
-                      {item.production_order_completed_at && (
-                        <div className="text-xs text-gray-500">
-                          Tamamlanma: {new Date(item.production_order_completed_at).toLocaleDateString('tr-TR', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
-                      )}
-                    </CardBody>
-                  </Card>
-                )
-              })
-          )}
+              })}
+                </div>
+              )}
+              {selectedDealerTab === '' && (
+                <Card>
+                  <CardBody className="p-12 text-center">
+                    <div className="text-gray-500">
+                      Bir CARİ seçin veya "Tümü"ne tıklayın.
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+            </div>
+          )
+          })()}
         </div>
       ) : filteredItems.length === 0 ? (
         <Card>

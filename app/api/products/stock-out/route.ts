@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -6,12 +7,12 @@ import { randomUUID } from 'crypto'
 // POST: Mamül stok çıkışı
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { product_id, quantity, customer_id, notes, user_id } = body
 
       if (!product_id || quantity === undefined || quantity <= 0) {
         return NextResponse.json(
-          { error: 'Ürün ve miktar (pozitif değer) gerekli' },
+          { error: '�Srün ve miktar (pozitif deşer) gerekli' },
           { status: 400 }
         )
       }
@@ -25,10 +26,10 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const db = getDatabase()
 
-    // Ürün bilgisini al
+    // �Srün bilgisini al
     const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(product_id) as any
     if (!product) {
-      return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+      return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
     // Müşteri bilgisini al (transaction'dan önce)
@@ -70,7 +71,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       )
     })()
 
-    // Çıkan ürünlerin barkodlarını sevk edilebilir olarak işaretle
+    // �!ıkan ürünlerin barkodlarını sevk edilebilir olarak işaretle
     // En eski barkodlardan başlayarak quantity kadarını işaretle
     // Sadece production_order tamamlanmış ürünleri seç
     const availableBarcodes = db.prepare(`
@@ -129,4 +130,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

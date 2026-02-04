@@ -1,1 +1,1 @@
-export { GET, POST, PATCH, DELETE } from '../../../orders/route'
+export { GET, POST, PATCH, DELETE } from '../../orders/route'

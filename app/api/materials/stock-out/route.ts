@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -8,12 +9,12 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
 // POST: Hammadde stok çıkışı
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { material_id, quantity, unit, warehouse_id, notes, user_id } = body
 
     if (!material_id || !quantity || quantity <= 0) {
       return NextResponse.json(
-        { error: 'Malzeme ve miktar (pozitif değer) gerekli' },
+        { error: 'Malzeme ve miktar (pozitif deşer) gerekli' },
         { status: 400 }
       )
     }
@@ -39,7 +40,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const factor = resolveUnitFactor(db, material_id, unit, baseUnit)
       if (!factor) {
         return NextResponse.json(
-          { error: `Birim dönüşümü bulunamadı (${unit} → ${baseUnit})` },
+          { error: `Birim dönüşümü bulunamadı (${unit} �  ${baseUnit})` },
           { status: 400 }
         )
       }
@@ -48,14 +49,16 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     // Mevcut stok miktarını al
     const currentStock = material.stock_amount || 0
+    const reservedQuantity = material.reserved_quantity || 0
+    const availableStock = currentStock - reservedQuantity
 
-    // Negatif stoka izin ver (kullanıcı uyarısı için)
-    // if (newStock < 0) {
-    //   return NextResponse.json(
-    //     { error: `Stok yetersiz. Mevcut: ${currentStock}, İstenen: ${quantity}` },
-    //     { status: 400 }
-    //   )
-    // }
+    // Çıkış stoğu depo stoğundan fazla olamaz
+    if (normalizedQuantity > availableStock) {
+      return NextResponse.json(
+        { error: `Çıkış stoğu depo stoğundan fazla olamaz. Mevcut stok: ${currentStock.toLocaleString('tr-TR')}, Rezerve: ${reservedQuantity.toLocaleString('tr-TR')}, Kullanılabilir: ${availableStock.toLocaleString('tr-TR')}, İstenen: ${normalizedQuantity.toLocaleString('tr-TR')}` },
+        { status: 400 }
+      )
+    }
 
     db.transaction(() => {
       // Stoku güncelle (optimistic)
@@ -83,7 +86,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         movementId,
         material_id,
         normalizedQuantity,
-        notes || `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} → ${normalizedQuantity} ${baseUnit}] ` : ''}Manuel stok çıkışı - ${new Date().toLocaleString('tr-TR')}`,
+        notes || `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} �  ${normalizedQuantity} ${baseUnit}] ` : ''}Manuel stok çıkışı - ${new Date().toLocaleString('tr-TR')}`,
         user_id || null,
         targetWarehouseId,
         targetWarehouseId
@@ -104,5 +107,6 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 
 

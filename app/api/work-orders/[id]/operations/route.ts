@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { logAudit } from '@/lib/audit'
@@ -14,7 +15,7 @@ export const PATCH = withAuth(async (request: NextRequest, user, context?: { par
     const id =
       resolvedParams?.id ??
       new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { station, status, notes } = body || {}
 
     if (!station) {
@@ -57,8 +58,8 @@ export const PATCH = withAuth(async (request: NextRequest, user, context?: { par
       userId: actorId,
       companyId: DEFAULT_COMPANY_ID,
       branchId: DEFAULT_BRANCH_ID,
-      beforeData: operation,
-      afterData: {
+      before: operation,
+      after: {
         status,
         started_at: startedAt,
         completed_at: completedAt,

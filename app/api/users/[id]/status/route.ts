@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // PATCH: Kullanıcı durumunu güncelle (onaylama/reddetme)
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const userId = resolvedParams.id
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { status, approved_by } = body
 
     if (!status) {

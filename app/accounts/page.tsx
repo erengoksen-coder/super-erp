@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Plus, Search, Users, Building2, Edit, Trash2, X } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { Button } from '@/components/ui/Button'
 import { useApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
 
@@ -19,6 +21,9 @@ interface Account {
   address?: string
   balance: number
   risk_limit?: number | null
+  discount_rate?: number | null
+  authorized_person_name?: string | null
+  authorized_person_phone?: string | null
   created_at: string
   updated_at?: string
   created_by?: string
@@ -42,7 +47,10 @@ export default function AccountsPage() {
     phone: '',
     email: '',
     address: '',
-    risk_limit: ''
+    risk_limit: '',
+    discount_rate: '',
+    authorized_person_name: '',
+    authorized_person_phone: ''
   })
 
   const accountsUrl = useMemo(() => (
@@ -85,7 +93,10 @@ export default function AccountsPage() {
       phone: account.phone || '',
       email: account.email || '',
       address: account.address || '',
-      risk_limit: account.risk_limit ? String(account.risk_limit) : ''
+      risk_limit: account.risk_limit ? String(account.risk_limit) : '',
+      discount_rate: account.discount_rate ? String(account.discount_rate) : '',
+      authorized_person_name: account.authorized_person_name || '',
+      authorized_person_phone: account.authorized_person_phone || ''
     })
     setShowEditModal(true)
   }
@@ -100,13 +111,27 @@ export default function AccountsPage() {
         body: JSON.stringify({
           ...editForm,
           risk_limit: editForm.risk_limit.trim() === '' ? null : Number(editForm.risk_limit),
+          discount_rate: editForm.discount_rate.trim() === '' ? null : Number(editForm.discount_rate),
+          authorized_person_name: editForm.authorized_person_name.trim() || null,
+          authorized_person_phone: editForm.authorized_person_phone.trim() || null,
           updated_by: userId
         })
       })
       
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || 'Güncelleme başarısız')
+        let errorMessage = error.error || 'Güncelleme başarısız'
+        // Hata mesajını Türkçe'ye çevir
+        if (errorMessage.includes('no such column')) {
+          errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+        } else if (errorMessage.includes('UNIQUE constraint')) {
+          errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+        } else if (errorMessage.includes('FOREIGN KEY')) {
+          errorMessage = 'İlişkili kayıt bulunamadı.'
+        } else if (errorMessage.includes('NOT NULL')) {
+          errorMessage = 'Zorunlu alanlar eksik.'
+        }
+        throw new Error(errorMessage)
       }
       
       alert('✅ Cari hesap başarıyla güncellendi')
@@ -114,7 +139,18 @@ export default function AccountsPage() {
       setEditingAccount(null)
       await mutate()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      let errorMessage = error.message || 'Bilinmeyen hata'
+      // Hata mesajını Türkçe'ye çevir
+      if (errorMessage.includes('no such column')) {
+        errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+      } else if (errorMessage.includes('UNIQUE constraint')) {
+        errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+      } else if (errorMessage.includes('FOREIGN KEY')) {
+        errorMessage = 'İlişkili kayıt bulunamadı.'
+      } else if (errorMessage.includes('NOT NULL')) {
+        errorMessage = 'Zorunlu alanlar eksik.'
+      }
+      alert('Hata: ' + errorMessage)
     }
   }
 
@@ -136,7 +172,18 @@ export default function AccountsPage() {
       
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || 'Silme başarısız')
+        let errorMessage = error.error || 'Silme başarısız'
+        // Hata mesajını Türkçe'ye çevir
+        if (errorMessage.includes('no such column')) {
+          errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+        } else if (errorMessage.includes('kullanılıyor')) {
+          errorMessage = 'Bu cari hesap kullanılıyor, silinemez'
+        } else if (errorMessage.includes('UNIQUE constraint')) {
+          errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+        } else if (errorMessage.includes('FOREIGN KEY')) {
+          errorMessage = 'İlişkili kayıt bulunamadı.'
+        }
+        throw new Error(errorMessage)
       }
       
       // State'ten hemen kaldır (optimistic update)
@@ -150,7 +197,18 @@ export default function AccountsPage() {
       // Veritabanından tekrar yükle (senkronizasyon için)
       await mutate()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      let errorMessage = error.message || 'Bilinmeyen hata'
+      // Hata mesajını Türkçe'ye çevir
+      if (errorMessage.includes('no such column')) {
+        errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+      } else if (errorMessage.includes('kullanılıyor')) {
+        errorMessage = 'Bu cari hesap kullanılıyor, silinemez'
+      } else if (errorMessage.includes('UNIQUE constraint')) {
+        errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+      } else if (errorMessage.includes('FOREIGN KEY')) {
+        errorMessage = 'İlişkili kayıt bulunamadı.'
+      }
+      alert('Hata: ' + errorMessage)
       // Hata durumunda tekrar yükle
       await mutate()
     }
@@ -415,6 +473,21 @@ export default function AccountsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
+                  İskonto Oranı (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={editForm.discount_rate}
+                  onChange={(e) => setEditForm({ ...editForm, discount_rate: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="Örn: 5.00"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
                   Adres
                 </label>
                 <textarea
@@ -422,6 +495,30 @@ export default function AccountsPage() {
                   onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                   rows={3}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Yetkili Kişi Adı
+                </label>
+                <input
+                  type="text"
+                  value={editForm.authorized_person_name}
+                  onChange={(e) => setEditForm({ ...editForm, authorized_person_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="Yetkili kişi adı"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Yetkili Kişi Telefonu
+                </label>
+                <input
+                  type="tel"
+                  value={editForm.authorized_person_phone}
+                  onChange={(e) => setEditForm({ ...editForm, authorized_person_phone: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="Yetkili kişi telefonu"
                 />
               </div>
               <div className="flex justify-end space-x-3 pt-4">

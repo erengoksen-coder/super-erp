@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --surface: #1e293b;
+  --surface-light: #334155;
+  --primary: #6366f1;
+  --border: #334155;
 }
 
 @theme inline {
@@ -12,10 +16,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html, body {
+  scroll-behavior: auto;
+  scroll-padding-top: 0;
+  overflow-anchor: none;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+#app-main {
+  overflow-anchor: none;
 }
 
 /* Scrollbar styling for dark theme */

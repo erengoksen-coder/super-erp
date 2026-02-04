@@ -12,8 +12,8 @@ const { networkInterfaces } = require('os')
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = '0.0.0.0'
-const httpsPort = 3443
-const httpPort = 3000
+const httpsPort = 3444
+const httpPort = 3001
 
 // IP adresini otomatik algıla
 function getLocalIP() {
@@ -134,8 +134,8 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
 const app = next({ dev })
 const handle = app.getRequestHandler()
 
-const publicPagePaths = new Set(['/auth/login', '/auth/register'])
-const publicApiPrefixes = ['/api/auth/login', '/api/auth/refresh', '/api/auth/logout']
+ const publicPagePaths = new Set(['/auth/login', '/auth/register'])
+ const publicApiPrefixes = ['/api/auth/login', '/api/auth/refresh', '/api/auth/logout', '/api/health', '/api/financial']
 const adminPagePrefixes = ['/users']
 const adminApiPrefixes = ['/api/users', '/api/admin']
 const apiPermissionMap = new Map([
@@ -253,9 +253,41 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret)
 }
 
+function setSecurityHeaders(res) {
+  const supabaseOrigins = []
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (supabaseUrl) {
+    try {
+      const parsed = new URL(supabaseUrl)
+      supabaseOrigins.push(parsed.origin)
+      if (parsed.protocol === 'https:') {
+        supabaseOrigins.push(`wss://${parsed.host}`)
+      } else if (parsed.protocol === 'http:') {
+        supabaseOrigins.push(`ws://${parsed.host}`)
+      }
+    } catch {
+      // ignore invalid URL
+    }
+  }
+
+  const connectSrc = ["'self'", ...supabaseOrigins].join(' ')
+
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-XSS-Protection', '1; mode=block')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader(
+    'Content-Security-Policy',
+    `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none';`
+  )
+}
+
 async function authorizeRequest(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
   const pathname = url.pathname
+
+  // Set security headers for all requests
+  setSecurityHeaders(res)
 
   if (isPublicPath(pathname)) {
     return true

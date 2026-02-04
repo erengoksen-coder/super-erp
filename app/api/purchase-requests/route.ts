@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
+import { logger } from '@/lib/utils/logger'
 
 // GET: Tüm satın alma taleplerini getir
 export const GET = withAuth(async (request: NextRequest) => {
@@ -48,6 +50,12 @@ export const GET = withAuth(async (request: NextRequest) => {
     const requests = db.prepare(query).all(...params)
     return NextResponse.json(requests)
   } catch (error: any) {
+    try {
+      await logger.error('[Purchase Requests API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
@@ -55,7 +63,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni satın alma talebi oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { material_id, requested_quantity, unit_price, supplier_name, notes } = body
 
     if (!material_id || !requested_quantity || requested_quantity <= 0) {
@@ -90,7 +98,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     let sequence = (todayCount?.count || 0) + 1
     let requestNumber = `SAT-${todayStr}-${String(sequence).padStart(4, '0')}`
     
-    // Unique kontrolü - eğer varsa sequence artır
+    // Unique kontrolü - eşer varsa sequence artır
     let attempts = 0
     while (attempts < 100) {
       const existing = db.prepare('SELECT id FROM purchase_requests WHERE request_number = ? AND deleted_at IS NULL').get(requestNumber) as any
@@ -121,7 +129,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         message: 'Satın alma talebi oluşturuldu',
       }, { status: 201 })
     } catch (dbError: any) {
-      // Eğer unique constraint hatası varsa, request_number'ı tekrar oluştur
+      // Eşer unique constraint hatası varsa, request_number'ı tekrar oluştur
       if (dbError.message && dbError.message.includes('UNIQUE')) {
         sequence++
         requestNumber = `SAT-${todayStr}-${String(sequence).padStart(4, '0')}`
@@ -146,4 +154,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

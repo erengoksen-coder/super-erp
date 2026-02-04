@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
@@ -18,7 +19,7 @@ type SubscriptionBody = {
 
 export const POST = withAuth(async (request: NextRequest) => {
   return handleApi(async () => {
-    const body = await request.json() as SubscriptionBody
+    const body = await parseJsonBody(request) as SubscriptionBody
     const subscription = body.subscription
     if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
       return fail('Geçersiz abonelik verisi', { status: 400 })
@@ -38,3 +39,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return ok({ subscribed: true })
   })
 })
+

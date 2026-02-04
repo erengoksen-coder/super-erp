@@ -1,1 +1,1 @@
-export { GET } from '../../../../materials/price-history/route'
+export { GET } from '../../../materials/price-history/route'

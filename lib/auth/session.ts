@@ -20,7 +20,9 @@ export function hashToken(token: string) {
 export function getAccessTokenFromRequest(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-  return bearer || request.cookies.get(AUTH_COOKIE)?.value || request.cookies.get(ACCESS_COOKIE)?.value || null
+  
+  // Prioritize HttpOnly cookie over localStorage token for security
+  return request.cookies.get(AUTH_COOKIE)?.value || bearer || null
 }
 
 export function getRefreshTokenFromRequest(request: NextRequest) {
@@ -45,23 +47,21 @@ export function setAuthCookies(
   accessMaxAgeSeconds: number,
   refreshMaxAgeSeconds: number
 ) {
+  const isSecure = process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true'
+  
+  // Set primary HttpOnly cookie with access token
   response.cookies.set(AUTH_COOKIE, accessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax',
     path: '/',
     maxAge: accessMaxAgeSeconds,
   })
-  response.cookies.set(ACCESS_COOKIE, accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: accessMaxAgeSeconds,
-  })
+  
+  // Set refresh token in HttpOnly cookie
   response.cookies.set(REFRESH_COOKIE, refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax',
     path: '/',
     maxAge: refreshMaxAgeSeconds,
@@ -69,23 +69,28 @@ export function setAuthCookies(
 }
 
 export function clearAuthCookies(response: NextResponse) {
+  const isSecure = process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true'
+  
   response.cookies.set(AUTH_COOKIE, '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax',
     path: '/',
     maxAge: 0,
   })
+  
+  // Clear any remaining access token cookie
   response.cookies.set(ACCESS_COOKIE, '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax',
     path: '/',
     maxAge: 0,
   })
+  
   response.cookies.set(REFRESH_COOKIE, '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax',
     path: '/',
     maxAge: 0,

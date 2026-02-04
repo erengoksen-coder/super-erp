@@ -16,6 +16,12 @@ export function hashPassword(password: string) {
 }
 
 export function verifyPassword(password: string, hash: string) {
+  if (typeof password !== 'string' || typeof hash !== 'string') {
+    return false
+  }
+  if (!password || !hash) {
+    return false
+  }
   if (isLegacySha256Hash(hash)) {
     return sha256(password) === hash
   }

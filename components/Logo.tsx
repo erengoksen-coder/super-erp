@@ -17,7 +17,7 @@ export function LogoWithBackground({ className = '', size = 'md' }: LogoProps) {
 
   // Use logo.png from public folder
   return (
-    <div className={`${size === 'label' ? 'w-full' : sizeClasses[size]} ${className} flex items-center justify-center`}>
+    <div className={`${size === 'label' ? 'w-full' : (sizeClasses as any)[size]} ${className} flex items-center justify-center`}>
       <img 
         src="/logo.png" 
         alt="LIVA SOFA Logo" 
@@ -28,7 +28,7 @@ export function LogoWithBackground({ className = '', size = 'md' }: LogoProps) {
           WebkitImageRendering: size === 'label' ? '-webkit-optimize-contrast' : 'auto',
           msInterpolationMode: size === 'label' ? 'bicubic' : 'auto',
           filter: size === 'label' ? 'contrast(1.15) brightness(1.05)' : 'none'
-        }}
+        } as any}
       />
     </div>
   )
@@ -36,14 +36,14 @@ export function LogoWithBackground({ className = '', size = 'md' }: LogoProps) {
 
 // SVG Logo (backup)
 export default function Logo({ className = '', size = 'md' }: LogoProps) {
-  const sizeClasses = {
+  const sizeClasses: Record<string, string> = {
     sm: 'h-6',
     md: 'h-8',
     lg: 'h-12',
   }
 
   return (
-    <div className={`${sizeClasses[size]} ${className}`}>
+    <div className={`${sizeClasses[size] || sizeClasses.md} ${className}`}>
       <svg
         viewBox="0 0 350 70"
         fill="none"

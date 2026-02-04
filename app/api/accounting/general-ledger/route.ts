@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
+import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
+import { logger } from '@/lib/utils/logger'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Defter-i Kebir kayıtlarını getir
@@ -45,9 +48,15 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     const entries = db.prepare(query).all(...params)
 
-    return NextResponse.json(entries)
+    return ok(entries, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[General Ledger API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
 

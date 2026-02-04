@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -35,7 +36,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Fiili harcanan miktarı kaydet
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { production_order_id, material_id, actual_quantity, actual_usage, scrap_reason } = body
 
     const resolvedActual = actual_usage !== undefined ? actual_usage : actual_quantity
@@ -113,4 +114,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

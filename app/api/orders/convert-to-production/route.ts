@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
@@ -9,9 +10,9 @@ import { logger } from '@/lib/utils/logger'
 
 // POST: Siparişleri üretim emrine dönüştür
 export const POST = withAuth(async (request: NextRequest) => {
-  logger.info('[BAŞLANGIÇ] Sipariş dönüştürme API çağrıldı')
+  logger.info('[BAŞLANGI�!] Sipariş dönüştürme API çaşrıldı')
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { order_ids, due_date } = body
 
     logger.info('[1/5] İstek alındı', { order_ids, order_count: order_ids?.length || 0 })
@@ -22,7 +23,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     }
 
     const db = getDatabase()
-    logger.info('[2/5] Veritabanı bağlantısı alındı')
+    logger.info('[2/5] Veritabanı başlantısı alındı')
     const { generateBarcode, generateSerialNumber } = await import('@/lib/utils/barcodeGenerator')
     const convertedOrders: any[] = []
     const errors: string[] = []
@@ -38,12 +39,27 @@ export const POST = withAuth(async (request: NextRequest) => {
     return convertedQuantity * orderQty
   }
 
-    // ÖNCE: Tüm siparişler için BOM ve stok kontrolü yap
+  function findBomProductIdByName(db: ReturnType<typeof getDatabase>, name: string, excludeId: string) {
+    if (!name) return null
+    const row = db.prepare(`
+      SELECT p.id as id
+      FROM active_products p
+      JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+      JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+      WHERE p.name = ? AND p.id != ?
+      GROUP BY p.id
+      ORDER BY COUNT(b.id) DESC
+      LIMIT 1
+    `).get(name, excludeId) as { id: string } | undefined
+    return row?.id || null
+  }
+
+    // �NCE: Tüm siparişler için BOM ve stok kontrolü yap
     const ordersToConvert: any[] = []
     
     for (const orderId of order_ids) {
       // Siparişi al
-      const order = db.prepare('SELECT * FROM active_orders WHERE id = ?').get(orderId) as any
+      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any
       if (!order) {
         errors.push(`Sipariş bulunamadı: ${orderId}`)
         continue
@@ -65,12 +81,12 @@ export const POST = withAuth(async (request: NextRequest) => {
         continue
       }
 
-      // Ürün ID'sini belirle veya doğrula
+      // �Srün ID'sini belirle veya doşrula
       let productId = order.product_id
       
-      // Eğer product_id varsa, ürünün konfigürasyonla uyuşup uyuşmadığını kontrol et
+      // Eşer product_id varsa, ürünün konfigürasyonla uyuşup uyuşmadışını kontrol et
       if (productId && order.configuration) {
-        const product = db.prepare('SELECT name FROM active_products WHERE id = ?').get(productId) as any
+        const product = db.prepare('SELECT name FROM products WHERE id = ?').get(productId) as any
         if (product && product.name) {
           const productNameLower = (product.name || '').toLowerCase()
           const configLower = (order.configuration || '').toLowerCase().trim()
@@ -87,30 +103,30 @@ export const POST = withAuth(async (request: NextRequest) => {
             configKeyword = 'ikili'
           }
           
-          // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
+          // �Srün adının konfigürasyonla uyuşup uyuşmadışını kontrol et
           if (configKeyword) {
             const otherConfigs = ['berjer', 'üçlü', 'köşe', 'ikili'].filter(c => c !== configKeyword)
             const hasConfigKeyword = productNameLower.includes(configKeyword)
             const hasOtherConfig = otherConfigs.some(c => productNameLower.includes(c))
             
-            // Eğer ürün adı seçilen konfigürasyonu içermiyorsa VEYA başka konfigürasyon içeriyorsa, yeniden eşleştirme yap
+            // Eşer ürün adı seçilen konfigürasyonu içermiyorsa VEYA başka konfigürasyon içeriyorsa, yeniden eşleştirme yap
             if (!hasConfigKeyword || hasOtherConfig) {
-              logger.warn(`[ÜRÜN DOĞRULAMA] Mevcut product_id (${productId}) yanlış ürünü işaret ediyor: "${product.name}" (sipariş: ${order.configuration}), yeniden eşleştirme yapılıyor...`)
+              logger.warn(`[�SR�SN DOĞRULAMA] Mevcut product_id (${productId}) yanlış ürünü işaret ediyor: "${product.name}" (sipariş: ${order.configuration}), yeniden eşleştirme yapılıyor...`)
               productId = null // product_id'yi sıfırla, yeniden eşleştirme yapılacak
             } else {
-              logger.info(`[ÜRÜN DOĞRULAMA] Mevcut product_id (${productId}) doğru: "${product.name}" (sipariş: ${order.configuration})`)
+              logger.info(`[�SR�SN DOĞRULAMA] Mevcut product_id (${productId}) doşru: "${product.name}" (sipariş: ${order.configuration})`)
             }
           }
         }
       }
       
-      // Eğer product_id yoksa veya doğrulanamadıysa, ürünü bul
+      // Eşer product_id yoksa veya doşrulanamadıysa, ürünü bul
       if (!productId) {
-        // Ürün eşleştirilmemiş, ürünü bul
+        // �Srün eşleştirilmemiş, ürünü bul
         if (order.product_sku) {
-          const existingProduct = db.prepare('SELECT id, name FROM active_products WHERE sku = ?').get(order.product_sku) as any
+          const existingProduct = db.prepare('SELECT id, name FROM products WHERE sku = ?').get(order.product_sku) as any
           if (existingProduct) {
-            // SKU ile bulunan ürünün konfigürasyonla uyuşup uyuşmadığını kontrol et
+            // SKU ile bulunan ürünün konfigürasyonla uyuşup uyuşmadışını kontrol et
             if (order.configuration) {
               const productNameLower = (existingProduct.name || '').toLowerCase()
               const configLower = (order.configuration || '').toLowerCase().trim()
@@ -133,9 +149,9 @@ export const POST = withAuth(async (request: NextRequest) => {
                 
                 if (hasConfigKeyword && !hasOtherConfig) {
                   productId = existingProduct.id
-                  logger.info(`[ÜRÜN EŞLEŞTİRME] product_sku ile bulundu: "${existingProduct.name}" (ID: ${productId})`)
+                  logger.info(`[�SR�SN EŞLEŞTİRME] product_sku ile bulundu: "${existingProduct.name}" (ID: ${productId})`)
                 } else {
-                  logger.warn(`[ÜRÜN EŞLEŞTİRME] product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${existingProduct.name}" (sipariş: ${order.configuration})`)
+                  logger.warn(`[�SR�SN EŞLEŞTİRME] product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${existingProduct.name}" (sipariş: ${order.configuration})`)
                 }
               } else {
                 productId = existingProduct.id
@@ -146,12 +162,12 @@ export const POST = withAuth(async (request: NextRequest) => {
           }
         }
 
-        // ÖNEMLİ: Ürün adı + konfigürasyon kombinasyonuna göre bul (frontend'deki gibi)
+        // �NEMLİ: �Srün adı + konfigürasyon kombinasyonuna göre bul (frontend'deki gibi)
         if (!productId && order.product_name && order.configuration) {
           const productNameLower = (order.product_name || '').toLowerCase().trim()
           const configLower = (order.configuration || '').toLowerCase().trim()
           
-          // Ürün adından parantez içindeki kısmı kaldır ve ilk kelimeyi al (örn: "GALATA (BERJER)" → "galata")
+          // �Srün adından parantez içindeki kısmı kaldır ve ilk kelimeyi al (örn: "GALATA (BERJER)" �  "galata")
           const productBaseName = productNameLower
             .replace(/\([^)]*\)/g, '') // Parantez içindeki kısmı kaldır
             .trim()
@@ -174,9 +190,9 @@ export const POST = withAuth(async (request: NextRequest) => {
             const expectedProductName = `${productBaseName} ${configKeyword}`.toLowerCase()
             const otherConfigs = ['berjer', 'üçlü', 'köşe', 'ikili'].filter(c => c !== configKeyword)
             
-            // Önce tam eşleşme dene
+            // �nce tam eşleşme dene
             const exactMatch = db.prepare(`
-              SELECT id, name FROM active_products 
+              SELECT id, name FROM products 
               WHERE LOWER(TRIM(name)) = ?
             `).get(expectedProductName) as any
             
@@ -187,15 +203,15 @@ export const POST = withAuth(async (request: NextRequest) => {
               
               if (!hasOtherConfig) {
                 productId = exactMatch.id
-                logger.info(`[ÜRÜN EŞLEŞTİRME] Tam eşleşme: "${order.product_name}" (${order.configuration}) → "${exactMatch.name}" (ID: ${productId})`)
+                logger.info(`[�SR�SN EŞLEŞTİRME] Tam eşleşme: "${order.product_name}" (${order.configuration}) �  "${exactMatch.name}" (ID: ${productId})`)
               }
             }
             
             // Tam eşleşme yoksa, kısmi eşleşme dene
             if (!productId) {
-              const allProducts = db.prepare('SELECT id, name, sku FROM active_products').all() as any[]
+              const allProducts = db.prepare('SELECT id, name, sku FROM products').all() as any[]
               
-              // Önce tüm eşleşen ürünleri bul
+              // �nce tüm eşleşen ürünleri bul
               const matchingProducts = allProducts.filter(p => {
                 const pNameLower = (p.name || '').toLowerCase().trim()
                 const hasBaseName = pNameLower.includes(productBaseName)
@@ -204,7 +220,7 @@ export const POST = withAuth(async (request: NextRequest) => {
                 return hasBaseName && hasConfigKeyword && !hasOtherConfig
               })
               
-              // Eğer birden fazla eşleşen ürün varsa, SKU'ya göre sırala (daha yüksek numaralı SKU'yu tercih et)
+              // Eşer birden fazla eşleşen ürün varsa, SKU'ya göre sırala (daha yüksek numaralı SKU'yu tercih et)
               if (matchingProducts.length > 1) {
                 matchingProducts.sort((a: any, b: any) => {
                   const aNum = parseInt((a.sku || '').replace(/[^0-9]/g, '')) || 0
@@ -212,10 +228,10 @@ export const POST = withAuth(async (request: NextRequest) => {
                   return bNum - aNum // Ters sıralama - en yüksek numara önce
                 })
                 productId = matchingProducts[0].id
-                logger.info(`[ÜRÜN EŞLEŞTİRME] Kısmi eşleşme (${matchingProducts.length} adet bulundu, en yüksek SKU seçildi): "${order.product_name}" (${order.configuration}) → "${matchingProducts[0].name}" (SKU: ${matchingProducts[0].sku}, ID: ${productId})`)
+                logger.info(`[�SR�SN EŞLEŞTİRME] Kısmi eşleşme (${matchingProducts.length} adet bulundu, en yüksek SKU seçildi): "${order.product_name}" (${order.configuration}) �  "${matchingProducts[0].name}" (SKU: ${matchingProducts[0].sku}, ID: ${productId})`)
               } else if (matchingProducts.length === 1) {
                 productId = matchingProducts[0].id
-                logger.info(`[ÜRÜN EŞLEŞTİRME] Kısmi eşleşme: "${order.product_name}" (${order.configuration}) → "${matchingProducts[0].name}" (ID: ${productId})`)
+                logger.info(`[�SR�SN EŞLEŞTİRME] Kısmi eşleşme: "${order.product_name}" (${order.configuration}) �  "${matchingProducts[0].name}" (ID: ${productId})`)
               }
             }
           }
@@ -226,13 +242,13 @@ export const POST = withAuth(async (request: NextRequest) => {
         if (!productId && order.product_name) {
           const productNameClean = (order.product_name || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').trim().split(' ')[0]
           const existingProduct = db.prepare(`
-            SELECT id, name FROM active_products 
+            SELECT id, name FROM products 
             WHERE LOWER(TRIM(name)) LIKE ?
             LIMIT 1
           `).get(`%${productNameClean}%`) as any
           if (existingProduct) {
             productId = existingProduct.id
-            logger.warn(`[ÜRÜN EŞLEŞTİRME] Son çare (sadece ürün adı): "${order.product_name}" → "${existingProduct.name}" (ID: ${productId}) - Konfigürasyon eşleştirmesi başarısız!`)
+            logger.warn(`[�SR�SN EŞLEŞTİRME] Son çare (sadece ürün adı): "${order.product_name}" �  "${existingProduct.name}" (ID: ${productId}) - Konfigürasyon eşleştirmesi başarısız!`)
           }
         }
 
@@ -246,20 +262,21 @@ export const POST = withAuth(async (request: NextRequest) => {
         order.product_id = productId
       }
 
-      // Ürün bilgisini al
-      const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(order.product_id) as any
+      // �Srün bilgisini al
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(order.product_id) as any
       if (!product) {
-        logger.error(`[ÜRÜN BULUNAMADI] Sipariş ${order.order_number} için product_id: ${order.product_id} bulunamadı`)
+        logger.error(`[�SR�SN BULUNAMADI] Sipariş ${order.order_number} için product_id: ${order.product_id} bulunamadı`)
         // product_id geçersiz, siparişteki product_id'yi temizle ve tekrar ürün eşleştirmesi yap
         db.prepare('UPDATE orders SET product_id = NULL WHERE id = ?').run(orderId)
-        errors.push(`Sipariş ${order.order_number} için ürün bulunamadı (Ürün ID'si geçersiz: ${order.product_id}). Lütfen siparişi kontrol edin ve doğru ürünü seçin.`)
+        errors.push(`Sipariş ${order.order_number} için ürün bulunamadı (�Srün ID'si geçersiz: ${order.product_id}). Lütfen siparişi kontrol edin ve doşru ürünü seçin.`)
         continue
       }
 
-      logger.info(`[BOM KONTROLÜ] Sipariş: ${order.order_number}, Ürün: ${product.name} (ID: ${order.product_id}, SKU: ${product.sku}), Konfigürasyon: ${order.configuration}`)
+      logger.info(`[BOM KONTROL�S] Sipariş: ${order.order_number}, �Srün: ${product.name} (ID: ${order.product_id}, SKU: ${product.sku}), Konfigürasyon: ${order.configuration}`)
 
       // BOM kontrolü
-      const bom = db.prepare(`
+      let bomProductId = order.product_id
+      let bom = db.prepare(`
         SELECT 
           b.material_id,
           b.quantity_required,
@@ -275,39 +292,72 @@ export const POST = withAuth(async (request: NextRequest) => {
         JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
         WHERE b.product_id = ? AND b.deleted_at IS NULL
-      `).all(order.product_id) as any[]
+      `).all(bomProductId) as any[]
 
-      logger.info(`[BOM KONTROLÜ] Sipariş: ${order.order_number}, Ürün: ${product.name}, Bulunan BOM sayısı: ${bom.length}`)
+      if (bom.length === 0) {
+        const fallbackId = findBomProductIdByName(db, product.name, order.product_id)
+        if (fallbackId) {
+          bomProductId = fallbackId
+          bom = db.prepare(`
+            SELECT 
+              b.material_id,
+              b.quantity_required,
+              b.unit as unit,
+              m.name as material_name,
+              m.code as material_code,
+              m.category as material_category,
+              m.stock_amount,
+              m.unit as material_unit,
+              m.reserved_quantity,
+              COALESCE(b.fire_percentage, 0) as fire_percentage
+            FROM bom b
+            JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+            JOIN materials m ON b.material_id = m.id
+            WHERE b.product_id = ? AND b.deleted_at IS NULL
+          `).all(bomProductId) as any[]
+
+          if (bom.length > 0) {
+            logger.info('[BOM KONTROLÜ] İsim eşleşmesi ile BOM bulundu', {
+              order_number: order.order_number,
+              product_id: order.product_id,
+              fallback_product_id: bomProductId,
+              product_name: product.name,
+            })
+          }
+        }
+      }
+
+      logger.info(`[BOM KONTROL�S] Sipariş: ${order.order_number}, �Srün: ${product.name}, Bulunan BOM sayısı: ${bom.length}`)
       
       if (bom.length === 0) {
         // Hangi ürünler için BOM var kontrol et (debug için)
         const allBomProducts = db.prepare(`
           SELECT DISTINCT p.id, p.name, p.sku, COUNT(bv.id) as bom_count
-          FROM active_products p
+          FROM products p
           LEFT JOIN bom b ON p.id = b.product_id
           LEFT JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
           WHERE p.name LIKE ?
           GROUP BY p.id, p.name, p.sku
         `).all(`%galata%`) as any[]
         
-        logger.warn(`[BOM KONTROLÜ] Sipariş: ${order.order_number}, Ürün: ${product.name} (ID: ${order.product_id}) için BOM bulunamadı. Galata ürünleri ve BOM sayıları:`, allBomProducts)
+        logger.warn(`[BOM KONTROL�S] Sipariş: ${order.order_number}, �Srün: ${product.name} (ID: ${order.product_id}) için BOM bulunamadı. Galata ürünleri ve BOM sayıları:`, allBomProducts)
         
         errors.push(`Sipariş ${order.order_number} için ürün reçetesi (BOM) bulunamadı: ${product.name || product.sku} (ID: ${order.product_id})`)
         continue
       }
 
-      // Stok yeterliliğini kontrol et - DETAYLI KONTROL (Kumaş kodu kontrolü ile)
+      // Stok yeterlilişini kontrol et - DETAYLI KONTROL (Kumaş kodu kontrolü ile)
       // Siparişteki kumaş kodunu çıkar
       let orderFabricCode: string | null = null
       if (order.notes) {
         const fabricMatch = order.notes.match(/Kumaş:\s*([^|]+)/i)
         if (fabricMatch) {
           orderFabricCode = fabricMatch[1].trim()
-          logger.info(`[STOK KONTROLÜ] Siparişteki kumaş kodu: ${orderFabricCode}`, { order_number: order.order_number })
+          logger.info(`[STOK KONTROL�S] Siparişteki kumaş kodu: ${orderFabricCode}`, { order_number: order.order_number })
         }
       }
       
-      logger.info(`[STOK KONTROLÜ] Sipariş ${order.order_number} için stok kontrolü başlıyor`, {
+      logger.info(`[STOK KONTROL�S] Sipariş ${order.order_number} için stok kontrolü başlıyor`, {
         order_id: orderId,
         product_id: order.product_id,
         product_name: product.name,
@@ -336,7 +386,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         ) as any
         
         if (orderFabricMaterial) {
-          logger.info(`[KUMAŞ KONTROLÜ] Siparişteki kumaş kodu için hammadde bulundu: ${orderFabricMaterial.code || orderFabricMaterial.name} (ID: ${orderFabricMaterial.id})`, {
+          logger.info(`[KUMAŞ KONTROL�S] Siparişteki kumaş kodu için hammadde bulundu: ${orderFabricMaterial.code || orderFabricMaterial.name} (ID: ${orderFabricMaterial.id})`, {
             order_fabric_code: orderFabricCode,
             material_id: orderFabricMaterial.id,
             material_name: orderFabricMaterial.name,
@@ -344,7 +394,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             stock_amount: orderFabricMaterial.stock_amount
           })
         } else {
-          logger.warn(`[KUMAŞ KONTROLÜ] Siparişteki kumaş kodu için hammadde bulunamadı: ${orderFabricCode}`)
+          logger.warn(`[KUMAŞ KONTROL�S] Siparişteki kumaş kodu için hammadde bulunamadı: ${orderFabricCode}`)
         }
       }
       
@@ -352,7 +402,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       for (const item of bom) {
         const materialCategory = (item as any).material_category
         
-        // Eğer malzeme kumaş kategorisindeyse, siparişteki kumaş koduna göre kontrol yap
+        // Eşer malzeme kumaş kategorisindeyse, siparişteki kumaş koduna göre kontrol yap
         if (materialCategory && materialCategory.toLowerCase() === 'kumaş' && orderFabricCode) {
           // BOM'daki kumaş malzemesini atla, siparişteki kumaş koduna göre hammadde depodan kontrol yap
           if (orderFabricMaterial) {
@@ -365,7 +415,7 @@ export const POST = withAuth(async (request: NextRequest) => {
               }, order.quantity)
               const available = (orderFabricMaterial.stock_amount || 0) - (orderFabricMaterial.reserved_quantity || 0)
               
-              logger.info(`[STOK KONTROLÜ] Kumaş stok kontrolü (siparişteki kumaş koduna göre)`, {
+              logger.info(`[STOK KONTROL�S] Kumaş stok kontrolü (siparişteki kumaş koduna göre)`, {
                 order_fabric_code: orderFabricCode,
                 material_id: orderFabricMaterial.id,
                 material_name: orderFabricMaterial.name,
@@ -386,7 +436,7 @@ export const POST = withAuth(async (request: NextRequest) => {
                   `(Gereken: ${required.toFixed(2)} ${orderFabricMaterial.unit}, Mevcut: ${available.toFixed(2)} ${orderFabricMaterial.unit}, Eksik: ${shortage.toFixed(2)} ${orderFabricMaterial.unit})`
                 stockErrors.push(errorMsg)
                 errors.push(errorMsg)
-                logger.error(`[STOK KONTROLÜ] Kumaş stok yetersiz (siparişteki kumaş koduna göre)`, {
+                logger.error(`[STOK KONTROL�S] Kumaş stok yetersiz (siparişteki kumaş koduna göre)`, {
                   material_name: orderFabricMaterial.name,
                   required: required,
                   available: available,
@@ -399,7 +449,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             const errorMsg = `Sipariş ${order.order_number} için kumaş kodu "${orderFabricCode}" hammadde depoda bulunamadı`
             stockErrors.push(errorMsg)
             errors.push(errorMsg)
-            logger.error(`[KUMAŞ KONTROLÜ] ${errorMsg}`)
+            logger.error(`[KUMAŞ KONTROL�S] ${errorMsg}`)
           }
           continue // BOM'daki kumaş malzemesini atla, siparişteki kumaş koduna göre kontrol yaptık
         }
@@ -407,7 +457,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         const required = getRequiredQuantity(db, item, order.quantity)
         const available = (item.stock_amount || 0) - (item.reserved_quantity || 0)
         
-        logger.info(`[STOK KONTROLÜ] Malzeme kontrolü`, {
+        logger.info(`[STOK KONTROL�S] Malzeme kontrolü`, {
           material_id: item.material_id,
           material_name: item.material_name,
           material_category: materialCategory,
@@ -428,7 +478,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             `(Gereken: ${required.toFixed(2)} ${item.material_unit}, Mevcut: ${available.toFixed(2)} ${item.material_unit}, Eksik: ${shortage.toFixed(2)} ${item.material_unit})`
           stockErrors.push(errorMsg)
           errors.push(errorMsg)
-          logger.error(`[STOK KONTROLÜ] Stok yetersiz`, {
+          logger.error(`[STOK KONTROL�S] Stok yetersiz`, {
             material_name: item.material_name,
             required: required,
             available: available,
@@ -437,25 +487,25 @@ export const POST = withAuth(async (request: NextRequest) => {
         }
       }
       
-      // Eğer stok hatası varsa, bu siparişi atla
+      // Eşer stok hatası varsa, bu siparişi atla
       if (stockErrors.length > 0) {
-        logger.warn(`[STOK KONTROLÜ] Sipariş ${order.order_number} stok yetersizliği nedeniyle atlandı`, {
+        logger.warn(`[STOK KONTROL�S] Sipariş ${order.order_number} stok yetersizlişi nedeniyle atlandı`, {
           stock_errors: stockErrors
         })
         continue // Bu sipariş için daha fazla işlem yapma
       }
       
-      logger.info(`[STOK KONTROLÜ] Sipariş ${order.order_number} için tüm stoklar yeterli ✓`)
+      logger.info(`[STOK KONTROL�S] Sipariş ${order.order_number} için tüm stoklar yeterli �S`)
 
-      // Eğer bu sipariş için hata yoksa, dönüştürme listesine ekle
+      // Eşer bu sipariş için hata yoksa, dönüştürme listesine ekle
       if (!errors.some(e => e.includes(order.order_number))) {
         ordersToConvert.push({ ...order, product, bom, orderFabricMaterial })
       }
     }
 
-    // Eğer herhangi bir hata varsa, detaylı bilgi ver
+    // Eşer herhangi bir hata varsa, detaylı bilgi ver
     if (errors.length > 0) {
-      logger.error(`[STOK KONTROLÜ] Toplam ${errors.length} hata bulundu, hiçbir sipariş dönüştürülmedi`, {
+      logger.error(`[STOK KONTROL�S] Toplam ${errors.length} hata bulundu, hiçbir sipariş dönüştürülmedi`, {
         error_count: errors.length,
         errors: errors,
         orders_checked: order_ids.length,
@@ -473,12 +523,12 @@ export const POST = withAuth(async (request: NextRequest) => {
     }
     
     // Kontrol başarılı
-    logger.info(`[STOK KONTROLÜ] Tüm kontroller başarılı, ${ordersToConvert.length} sipariş dönüştürülecek`, {
+    logger.info(`[STOK KONTROL�S] Tüm kontroller başarılı, ${ordersToConvert.length} sipariş dönüştürülecek`, {
       orders_to_convert: ordersToConvert.map(o => o.order_number)
     })
 
     // Tüm kontroller başarılı, şimdi üretim emirlerini oluştur
-    // HER SİPARİŞ İÇİN AYRI AYRI İŞLEM YAP - Transaction'ları izole et
+    // HER SİPARİŞ İ�!İN AYRI AYRI İŞLEM YAP - Transaction'ları izole et
     for (const orderData of ordersToConvert) {
       const order = orderData
       const product = orderData.product
@@ -493,7 +543,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const productionOrderId = randomUUID()
       
       // Benzersiz üretim emri numarası oluştur (veritabanından direkt)
-      let orderNumber: string
+      let orderNumber = ''
       let retryCount = 0
       const maxRetries = 20
       
@@ -529,14 +579,14 @@ export const POST = withAuth(async (request: NextRequest) => {
         retryCount++
       }
       
-      if (retryCount >= maxRetries) {
+      if (retryCount >= maxRetries || !orderNumber) {
         throw new Error(`Benzersiz üretim emri numarası oluşturulamadı (${maxRetries} deneme)`)
       }
       
       logger.info(`[NUMARA] Üretim emri numarası oluşturuldu: ${orderNumber}`, { retry_count: retryCount })
 
       // BOM'dan purchase_price bilgisini al (transaction dışında)
-      const bomWithPrices = bom.map(item => {
+      const bomWithPrices = bom.map((item: any) => {
         const material = db.prepare('SELECT COALESCE(purchase_price, 0) as purchase_price FROM materials WHERE id = ?').get(item.material_id) as any
         return {
           ...item,
@@ -564,7 +614,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         totalCost: totalCost
       }
 
-      // Kar hesaplama - calculateProfit(sellingPrice, totalCost) şeklinde çağrılmalı
+      // Kar hesaplama - calculateProfit(sellingPrice, totalCost) şeklinde çaşrılmalı
       const { calculateProfit } = await import('@/lib/utils/costCalculator')
       const sellingPrice = (order.unit_price || product.selling_price || product.price || 0) * order.quantity
       const profitObj = calculateProfit(sellingPrice, totalCost)
@@ -577,8 +627,8 @@ export const POST = withAuth(async (request: NextRequest) => {
       const baseTimestamp = Date.now()
       
       for (let i = 0; i < order.quantity; i++) {
-        let barcode: string
-        let serial: string
+        let barcode = ''
+        let serial = ''
         let retryBarcode = 0
         const maxBarcodeRetries = 100
         
@@ -587,21 +637,21 @@ export const POST = withAuth(async (request: NextRequest) => {
           // i * 10000 ile her ürün için farklı timestamp garantisi
           const uniqueId = randomUUID().replace(/-/g, '') // UUID'den tireleri kaldır
           const timestamp = baseTimestamp + (i * 10000) + retryBarcode
-          const randomPart = Math.floor(Math.random() * 1000000) + (i * 137) // i ile çarpılmış random değer
+          const randomPart = Math.floor(Math.random() * 1000000) + (i * 137) // i ile çarpılmış random deşer
           
           // EAN-13 formatı: 869 (Türkiye) + 9 haneli benzersiz kod + 1 kontrol hanesi = 13 hane
           const countryCode = '869'
           
-          // SKU'dan sayısal değer çıkar (4 hane)
+          // SKU'dan sayısal deşer çıkar (4 hane)
           const skuNumeric = product.sku
             .split('')
-            .map(char => char.charCodeAt(0) % 10)
+            .map((char: string) => char.charCodeAt(0) % 10)
             .join('')
             .padStart(4, '0')
             .slice(0, 4)
           
           // Benzersiz kod: SKU(4) + Timestamp son 3 hanesi(3) + Random son 2 hanesi(2) = 9 hane
-          // i değerini de dahil et (son basamağa ekle)
+          // i deşerini de dahil et (son basamaşa ekle)
           const timestampPart = String(timestamp).slice(-3)
           const randomPartStr = String(randomPart).slice(-2)
           const sequencePart = String(i).padStart(1, '0').slice(-1) // i'yi de ekle (son hane)
@@ -639,14 +689,14 @@ export const POST = withAuth(async (request: NextRequest) => {
           retryBarcode++
         }
         
-        if (retryBarcode >= maxBarcodeRetries) {
-          throw new Error(`Benzersiz barkod oluşturulamadı (${maxBarcodeRetries} deneme) - Ürün: ${product.sku}, Adet: ${i + 1}/${order.quantity}`)
+        if (retryBarcode >= maxBarcodeRetries || !barcode || !serial) {
+          throw new Error(`Benzersiz barkod oluşturulamadı (${maxBarcodeRetries} deneme) - �Srün: ${product.sku}, Adet: ${i + 1}/${order.quantity}`)
         }
         
         barcodesToInsert.push({
           id: randomUUID(),
-          barcode: barcode!,
-          serial: serial!,
+          barcode,
+          serial,
         })
         
         logger.info(`[BARKOD ${i + 1}/${order.quantity}] Barkod oluşturuldu: ${barcode}, Seri: ${serial}`)
@@ -658,14 +708,14 @@ export const POST = withAuth(async (request: NextRequest) => {
         barcodes: barcodesToInsert.map(b => b.barcode)
       })
 
-      // HER SİPARİŞ İÇİN YENİ BİR TRANSACTION OLUŞTUR
+      // HER SİPARİŞ İ�!İN YENİ BİR TRANSACTION OLUŞTUR
       try {
         // TRANSACTION MEKANİZMASINI KALDIR - Direkt güncelleme yap
-        logger.info(`[BAŞLANGIÇ] Sipariş ${orderNumberToUpdate} dönüştürülüyor...`, { order_id: orderIdToUpdate })
+        logger.info(`[BAŞLANGI�!] Sipariş ${orderNumberToUpdate} dönüştürülüyor...`, { order_id: orderIdToUpdate })
         
-        // ÖNCE: Mevcut durumu kontrol et
-        const beforeUpdate = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
-        logger.info(`[ÖNCE] Sipariş ${orderNumberToUpdate} mevcut durum`, {
+        // �NCE: Mevcut durumu kontrol et
+        const beforeUpdate = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
+        logger.info(`[�NCE] Sipariş ${orderNumberToUpdate} mevcut durum`, {
           order_id: orderIdToUpdate,
           current_production_order_id: beforeUpdate?.production_order_id,
           current_status: beforeUpdate?.status
@@ -738,7 +788,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         for (const item of bom) {
           const materialCategory = (item as any).material_category
           
-          // Eğer malzeme kumaş kategorisindeyse, siparişteki kumaş koduna göre stoktan düş
+          // Eşer malzeme kumaş kategorisindeyse, siparişteki kumaş koduna göre stoktan düş
           if (materialCategory && materialCategory.toLowerCase() === 'kumaş' && orderFabricMaterial) {
             // Siparişteki kumaş koduna göre hammadde depodan stoktan düş
             const firePercentage = (item as any).fire_percentage || 0
@@ -748,7 +798,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             const baseRequired = ((item as any).quantity_required * order.quantity) * (factor || 1)
             const totalRequired = baseRequired * (1 + (firePercentage / 100))
 
-            logger.info(`[STOK DÜŞÜMÜ] Kumaş stoktan düşülüyor (siparişteki kumaş koduna göre)`, {
+            logger.info(`[STOK D�SŞ�SM�S] Kumaş stoktan düşülüyor (siparişteki kumaş koduna göre)`, {
               order_fabric_code: orderFabricMaterial.name || orderFabricMaterial.code,
               material_id: orderFabricMaterial.id,
               material_name: orderFabricMaterial.name,
@@ -773,7 +823,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             `).run(
               movementId,
               orderFabricMaterial.id,
-              totalRequired, // Pozitif değer (movement_type 'out' olduğu için stok düşecek)
+              totalRequired, // Pozitif deşer (movement_type 'out' olduşu için stok düşecek)
               productionOrderId,
               `Üretim emri: ${orderNumber} - ${orderFabricMaterial.name || orderFabricMaterial.code}`
             )
@@ -815,7 +865,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           `).run(
             movementId,
             (item as any).material_id,
-            totalRequired, // Pozitif değer (movement_type 'out' olduğu için stok düşecek)
+            totalRequired, // Pozitif deşer (movement_type 'out' olduşu için stok düşecek)
             productionOrderId,
             `Üretim emri: ${orderNumber} - ${(item as any).material_name}`
           )
@@ -853,8 +903,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         }
         logger.info(`[3/5] Barkodlar oluşturuldu`, { production_order_id: productionOrderId, barcode_count: barcodesToInsert.length })
 
-        // 4. SİPARİŞİ GÜNCELLE - EN ÖNEMLİ ADIM
-        // ÖNCE status'u güncelle (pending'den çıkar)
+        // 4. SİPARİŞİ G�SNCELLE - EN �NEMLİ ADIM
+        // �NCE status'u güncelle (pending'den çıkar)
         const statusUpdate = db.prepare(`
           UPDATE orders 
           SET status = 'in_production', 
@@ -888,9 +938,9 @@ export const POST = withAuth(async (request: NextRequest) => {
           throw new Error(`Sipariş ${orderNumberToUpdate} (ID: ${orderIdToUpdate}) güncellenemedi (changes: 0)`)
         }
         
-        // Hemen doğrulama yap
-        const verify = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
-        logger.info(`[4c/5] Doğrulama`, {
+        // Hemen doşrulama yap
+        const verify = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
+        logger.info(`[4c/5] Doşrulama`, {
           production_order_id: verify?.production_order_id,
           status: verify?.status,
           beklenen_production_order_id: productionOrderId,
@@ -900,7 +950,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         })
         
         if (!verify || verify.production_order_id !== productionOrderId || verify.status !== 'in_production') {
-          logger.warn(`Sipariş ${orderNumberToUpdate} doğrulama başarısız, tekrar deneniyor...`, {
+          logger.warn(`Sipariş ${orderNumberToUpdate} doşrulama başarısız, tekrar deneniyor...`, {
             verify,
             beklenen: { production_order_id: productionOrderId, status: 'in_production' }
           })
@@ -913,22 +963,22 @@ export const POST = withAuth(async (request: NextRequest) => {
             WHERE id = ?
           `).run(productionOrderId, orderIdToUpdate)
           
-          const retryVerify = db.prepare('SELECT production_order_id, status FROM active_orders WHERE id = ?').get(orderIdToUpdate) as any
+          const retryVerify = db.prepare('SELECT production_order_id, status FROM orders WHERE id = ?').get(orderIdToUpdate) as any
           if (!retryVerify || retryVerify.production_order_id !== productionOrderId || retryVerify.status !== 'in_production') {
-            logger.error(`Sipariş ${orderNumberToUpdate} retry sonrası da doğrulanamadı`, {
+            logger.error(`Sipariş ${orderNumberToUpdate} retry sonrası da doşrulanamadı`, {
               retryVerify,
               beklenen: { production_order_id: productionOrderId, status: 'in_production' }
             })
-            throw new Error(`Sipariş ${orderNumberToUpdate} doğrulanamadı!`)
+            throw new Error(`Sipariş ${orderNumberToUpdate} doşrulanamadı!`)
           }
-          logger.info(`Sipariş ${orderNumberToUpdate} retry sonrası doğrulandı`)
+          logger.info(`Sipariş ${orderNumberToUpdate} retry sonrası doşrulandı`)
         }
         
         // 5. Pending sorgusunda görünüyor mu kontrol et
         logger.info(`[5/5] Pending sorgusu kontrol ediliyor...`, { order_id: orderIdToUpdate })
         const pendingCheck = db.prepare(`
           SELECT COUNT(*) as count
-          FROM active_orders
+          FROM orders
           WHERE status = 'pending'
             AND (production_order_id IS NULL OR production_order_id = '')
             AND id = ?
@@ -956,7 +1006,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           `).run(productionOrderId, orderIdToUpdate)
           logger.info(`[ZORLA] Sipariş ${orderNumberToUpdate} zorla güncellendi`)
         } else {
-          logger.info(`[BAŞARILI] Sipariş ${orderNumberToUpdate} pending sorgusunda görünmüyor ✓`, {
+          logger.info(`[BAŞARILI] Sipariş ${orderNumberToUpdate} pending sorgusunda görünmüyor �S`, {
             order_id: orderIdToUpdate
           })
         }
@@ -1011,4 +1061,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

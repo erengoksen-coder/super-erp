@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { ok, fail } from '@/lib/api/response'
 import { handleApi } from '@/lib/api/handler'
@@ -10,7 +11,7 @@ type UnsubscribeBody = {
 
 export const POST = withAuth(async (request: NextRequest) => {
   return handleApi(async () => {
-    const body = await request.json() as UnsubscribeBody
+    const body = await parseJsonBody(request) as UnsubscribeBody
     if (!body.endpoint) {
       return fail('Endpoint gerekli', { status: 400 })
     }
@@ -20,3 +21,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return ok({ unsubscribed: true })
   })
 })
+

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
@@ -7,13 +8,13 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
 /**
  * İstasyon Geçiş API
  * Barkod okutarak üretim emrini bir sonraki istasyona geçirir
- * Döşeme aşamasına geçildiğinde otomatik stok düşümü yapar
+ * Döşeme aşamasına geçildişinde otomatik stok düşümü yapar
  */
 
 // POST: Barkod okutarak istasyon geçişi
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { barcode, station } = body
 
     if (!barcode) {
@@ -99,7 +100,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     }
 
-    // Önceki istasyonu tamamla
+    // �nceki istasyonu tamamla
     if (currentStation === 'iskelet' && nextStation === 'terzihane') {
       updateQuery += `, iskelet_completed_at = ?`
       updateParams.push(now)
@@ -117,7 +118,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     updateQuery += ` WHERE id = ?`
     updateParams.push(productionOrderId)
 
-    // Döşeme aşamasına geçildiğinde otomatik stok düşümü
+    // Döşeme aşamasına geçildişinde otomatik stok düşümü
     if (nextStation === 'döseme' && serialNumber.stock_deducted === 0) {
       const bom = db.prepare(`
         SELECT 
@@ -133,7 +134,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
         WHERE b.product_id = ? AND b.deleted_at IS NULL
-      `).all(serialNumber.product_id)
+      `).all(serialNumber.product_id) as any[]
 
       // Her malzeme için stok düş
       for (const item of bom) {
@@ -199,22 +200,72 @@ export const POST = withAuth(async (request: NextRequest) => {
   }
 })
 
-// GET: İstasyon bazlı istatistikler (darboğaz analizi)
+// GET: İstasyon bazlı istatistikler (darboşaz analizi)
 export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     
-    const stats = db.prepare(`
-      SELECT 
-        current_station,
-        COUNT(*) as count,
-        SUM(quantity) as total_quantity
-      FROM production_orders
-      WHERE status != 'completed' AND status != 'cancelled'
-      GROUP BY current_station
-    `).all()
+    // Kart bazlı istasyon takibi için product_serial_numbers tablosundan say
+    // Her kartın kendi current_station'ına göre say
+    // Eğer kartın current_station'ı yoksa, üretim emrinin current_station'ını kullan
+      // Aktif istasyonlar için kart bazlı sayım
+      const activeStats = db.prepare(`
+        SELECT 
+          COALESCE(psn.current_station, po.current_station) as station,
+          COUNT(psn.id) as count,
+          COUNT(psn.id) as total_quantity
+        FROM product_serial_numbers psn
+        JOIN production_orders po ON psn.production_order_id = po.id
+        WHERE po.status != 'completed' 
+          AND po.status != 'cancelled'
+          AND COALESCE(psn.current_station, po.current_station) IS NOT NULL
+        GROUP BY COALESCE(psn.current_station, po.current_station)
+      `).all() as Array<{ station: string | null; count: number | null; total_quantity: number | null }>
+      
+      // Mamül Depo (completed) için sayım - Sevk edilmiş ürünleri hariç tut
+      const completedStats = db.prepare(`
+        SELECT 
+          COUNT(psn.id) as count,
+          COUNT(psn.id) as total_quantity
+        FROM product_serial_numbers psn
+        JOIN production_orders po ON psn.production_order_id = po.id
+        WHERE (psn.current_station = 'completed' OR psn.current_station IS NULL)
+          AND psn.status IN ('available', 'in_stock')
+          AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+      `).get() as { count: number | null; total_quantity: number | null } | undefined
+      
+      // Sevkiyat (shipped) için sayım - Sevk edilmiş ürünler
+      const shippedStats = db.prepare(`
+        SELECT 
+          COUNT(psn.id) as count,
+          COUNT(psn.id) as total_quantity
+        FROM product_serial_numbers psn
+        WHERE psn.shipment_id IS NOT NULL
+          AND psn.shipment_id != ''
+      `).get() as { count: number | null; total_quantity: number | null } | undefined
+      
+      // Aktif istasyonları birleştir
+      const stats = [...activeStats]
+      
+      // Sevkiyat istatistiklerini ekle
+      if (shippedStats && (shippedStats.count || 0) > 0) {
+        stats.push({
+          station: 'sevkiyat',
+          count: shippedStats.count || 0,
+          total_quantity: shippedStats.total_quantity || 0
+        })
+      }
+      
+      // Mamül Depo istatistiklerini ekle
+      if (completedStats && (completedStats.count || 0) > 0) {
+        stats.push({
+          station: 'completed',
+          count: completedStats.count || 0,
+          total_quantity: completedStats.total_quantity || 0
+        })
+      }
 
-    const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat']
+    const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
     const stationNames: Record<string, string> = {
       iskelet: 'İskelet',
       terzihane: 'Terzihane',
@@ -222,9 +273,10 @@ export const GET = withAuth(async (request) => {
       döseme: 'Döşeme',
       montaj: 'Montaj',
       sevkiyat: 'Sevkiyat',
+      completed: 'Mamül Depo',
     }
     const formattedStats = stationOrder.map(station => {
-      const stat = stats.find((s: any) => s.current_station === station)
+      const stat = stats.find((s: any) => s.station === station)
       return {
         station,
         station_name: stationNames[station] || station,
@@ -233,14 +285,78 @@ export const GET = withAuth(async (request) => {
       }
     })
 
-    // En çok biriken istasyon (darboğaz)
+    // En çok biriken istasyon (darboşaz)
     const bottleneck = formattedStats.reduce((max, stat) => 
       stat.count > max.count ? stat : max, 
       formattedStats[0] || { station: '', station_name: '', count: 0, total_quantity: 0 }
     )
 
+    // Her istasyon için üretim emri bazlı detayları al
+    const stationDetails: Record<string, Array<{ order_number: string; count: number; product_name: string }>> = {}
+    
+    for (const station of stationOrder) {
+      let details: Array<{ order_number: string; count: number; product_name: string }>
+      
+      if (station === 'completed') {
+        // Mamül Depo için özel sorgu - Sevk edilmiş ürünleri hariç tut
+        details = db.prepare(`
+          SELECT 
+            po.order_number,
+            COUNT(psn.id) as count,
+            p.name as product_name
+          FROM product_serial_numbers psn
+          JOIN production_orders po ON psn.production_order_id = po.id
+          JOIN active_products p ON po.product_id = p.id
+          WHERE (psn.current_station = 'completed' OR psn.current_station IS NULL)
+            AND psn.status IN ('available', 'in_stock')
+            AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+          GROUP BY po.order_number, p.name
+          ORDER BY po.order_number
+        `).all() as Array<{ order_number: string; count: number; product_name: string }>
+      } else if (station === 'sevkiyat') {
+        // Sevkiyat için özel sorgu - Sevk edilmiş ürünler
+        details = db.prepare(`
+          SELECT 
+            po.order_number,
+            COUNT(psn.id) as count,
+            p.name as product_name
+          FROM product_serial_numbers psn
+          JOIN production_orders po ON psn.production_order_id = po.id
+          JOIN active_products p ON po.product_id = p.id
+          WHERE psn.shipment_id IS NOT NULL
+            AND psn.shipment_id != ''
+          GROUP BY po.order_number, p.name
+          ORDER BY po.order_number
+        `).all() as Array<{ order_number: string; count: number; product_name: string }>
+      } else {
+        // Diğer istasyonlar için normal sorgu
+        details = db.prepare(`
+          SELECT 
+            po.order_number,
+            COUNT(psn.id) as count,
+            p.name as product_name
+          FROM product_serial_numbers psn
+          JOIN production_orders po ON psn.production_order_id = po.id
+          JOIN active_products p ON po.product_id = p.id
+          WHERE po.status != 'completed' 
+            AND po.status != 'cancelled'
+            AND COALESCE(psn.current_station, po.current_station) = ?
+          GROUP BY po.order_number, p.name
+          ORDER BY po.order_number
+        `).all(station) as Array<{ order_number: string; count: number; product_name: string }>
+      }
+      
+      stationDetails[station] = details
+    }
+
+    // formattedStats'a detayları ekle
+    const statsWithDetails = formattedStats.map(stat => ({
+      ...stat,
+      details: stationDetails[stat.station] || []
+    }))
+
     return NextResponse.json({
-      stations: formattedStats,
+      stations: statsWithDetails,
       bottleneck: bottleneck.count > 0 ? bottleneck : null,
       total_pending: formattedStats.reduce((sum, s) => sum + s.count, 0)
     })
@@ -248,4 +364,5 @@ export const GET = withAuth(async (request) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

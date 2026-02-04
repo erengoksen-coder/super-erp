@@ -1,1 +1,1 @@
-export { GET, POST } from '../../../stock-counts/route'
+export { GET, POST } from '../../stock-counts/route'

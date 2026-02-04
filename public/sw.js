@@ -1,4 +1,5 @@
-const CACHE_NAME = 'super-erp-static-v1'
+const isLocalhost = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1'
+const CACHE_NAME = isLocalhost ? 'super-erp-dev-nocache' : 'super-erp-static-v2'
 const STATIC_ASSETS = [
   '/',
   '/offline',
@@ -6,52 +7,74 @@ const STATIC_ASSETS = [
   '/manifest.webmanifest',
 ]
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  )
-  self.skipWaiting()
-})
+if (isLocalhost) {
+  // Dev ortamında cache'i kapatıp SW'yi kaldır.
+  self.addEventListener('install', () => {
+    self.skipWaiting()
+  })
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
+  self.addEventListener('activate', (event) => {
+    event.waitUntil(
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+        .then(() => self.registration.unregister())
+        .then(() => self.clients.claim())
+    )
+  })
+
+  self.addEventListener('fetch', (event) => {
+    if (event.request.method !== 'GET') return
+    event.respondWith(fetch(event.request))
+  })
+} else {
+  self.addEventListener('install', (event) => {
+    event.waitUntil(
+      caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    )
+    self.skipWaiting()
+  })
+
+  self.addEventListener('activate', (event) => {
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME)
+            .map((key) => caches.delete(key))
+        )
       )
     )
-  )
-  self.clients.claim()
-})
+    self.clients.claim()
+  })
 
-self.addEventListener('fetch', (event) => {
-  const { request } = event
+  self.addEventListener('fetch', (event) => {
+    const { request } = event
 
-  if (request.method !== 'GET') {
-    return
-  }
+    if (request.method !== 'GET') {
+      return
+    }
 
-  const url = new URL(request.url)
+    const url = new URL(request.url)
 
-  if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached
-        return fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const copy = response.clone()
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
-            }
-            return response
-          })
-          .catch(() => caches.match('/offline'))
-      })
-    )
-  }
-})
+    if (url.origin === self.location.origin) {
+      event.respondWith(
+        caches.match(request).then((cached) => {
+          if (cached) return cached
+          return fetch(request)
+            .then((response) => {
+              if (response.ok) {
+                const copy = response.clone()
+                caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
+              }
+              return response
+            })
+            .catch(() => caches.match('/offline'))
+        })
+      )
+    }
+  })
+}
 
 self.addEventListener('push', (event) => {
   const data = event.data?.json?.() || {}

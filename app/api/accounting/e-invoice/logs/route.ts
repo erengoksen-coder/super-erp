@@ -1,1 +1,1 @@
-export { GET } from '../../../../e-invoice/logs/route'
+export { GET } from '../../../e-invoice/logs/route'

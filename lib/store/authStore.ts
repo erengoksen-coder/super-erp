@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { getSafeStorage } from '@/lib/store/safeStorage'
 
 export type AuthUser = {
   id: string
@@ -38,7 +39,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => getSafeStorage()),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true)
       },

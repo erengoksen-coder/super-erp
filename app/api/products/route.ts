@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -10,7 +11,16 @@ import { handleApi } from '@/lib/api/handler'
 export const GET = withAuth(async (request) => {
   return handleApi(async () => {
     const db = getDatabase()
-    const products = db.prepare('SELECT * FROM active_products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
+    let products: any[] = []
+    try {
+      products = db.prepare('SELECT * FROM active_products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
+    } catch {
+      try {
+        products = db.prepare('SELECT * FROM products WHERE deleted_at IS NULL ORDER BY sku').all() as any[]
+      } catch {
+        products = db.prepare('SELECT * FROM products ORDER BY sku').all() as any[]
+      }
+    }
     
     // Her ürün için gerçek stok miktarını hesapla (sadece tamamlanmış üretim emirlerindeki ürünler)
     const productsWithRealStock = products.map(product => {
@@ -41,9 +51,22 @@ export const POST = withAuth(async (request: NextRequest) => {
   return handleApi(async () => {
     let body: any
     try {
-      body = await request.json()
+      body = await parseJsonBody(request)
     } catch {
-      return fail('Geçersiz JSON', { status: 400 })
+      const { searchParams } = new URL(request.url)
+      const name = searchParams.get('name')?.trim()
+      const sku = searchParams.get('sku')?.trim()
+      const priceParam = searchParams.get('price')
+      const sellingPriceParam = searchParams.get('selling_price')
+      if (!name || !sku) {
+        return fail('Geçersiz JSON', { status: 400 })
+      }
+      body = {
+        name,
+        sku,
+        price: priceParam ? Number(priceParam) : 0,
+        selling_price: sellingPriceParam ? Number(sellingPriceParam) : undefined,
+      }
     }
     const db = getDatabase()
     
@@ -62,5 +85,6 @@ export const POST = withAuth(async (request: NextRequest) => {
     return ok({ id, ...body }, { status: 201 })
   })
 })
+
 
 

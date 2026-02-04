@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
@@ -37,7 +38,7 @@ type PaymentCreateInput = {
   notes?: string | null
 }
 
-// GET: Ödeme/tahsilatları listele
+// GET: �deme/tahsilatları listele
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
@@ -91,10 +92,10 @@ export const GET = withAuth(async (request: NextRequest) => {
   }
 })
 
-// POST: Ödeme/tahsilat oluştur ve cari hareketi yaz
+// POST: �deme/tahsilat oluştur ve cari hareketi yaz
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as PaymentCreateInput
+    const body = await parseJsonBody(request) as PaymentCreateInput
     const {
       account_id,
       invoice_id,
@@ -147,7 +148,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const normalizedAmount = Number(amount)
     const transactionType = type === 'receipt' ? 'credit' : 'debit'
     const paymentDate = payment_date || new Date().toISOString()
-    const description = notes || (type === 'receipt' ? 'Tahsilat' : 'Ödeme')
+    const description = notes || (type === 'receipt' ? 'Tahsilat' : '�deme')
 
     db.transaction(() => {
       db.prepare(`
@@ -223,8 +224,9 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     })()
 
-    return ok({ id: paymentId }, { status: 201, message: 'Ödeme kaydedildi' })
+    return ok({ id: paymentId }, { status: 201, message: '�deme kaydedildi' })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
 })
+

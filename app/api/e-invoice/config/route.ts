@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -27,7 +28,7 @@ export const GET = withAuth(async (request) => {
 // POST: Yeni entegratör konfigürasyonu kaydet
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as ConfigInput
+    const body = await parseJsonBody(request) as ConfigInput
     const { provider, config, is_active } = body
 
     if (!provider || !config) {
@@ -52,10 +53,10 @@ export const POST = withAuth(async (request: NextRequest) => {
   }
 })
 
-// PATCH: Aktif konfigürasyonu değiştir
+// PATCH: Aktif konfigürasyonu deşiştir
 export const PATCH = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as { id?: string; is_active?: boolean }
+    const body = await parseJsonBody(request) as { id?: string; is_active?: boolean }
     if (!body.id) {
       return NextResponse.json({ error: 'id gerekli' }, { status: 400 })
     }
@@ -73,3 +74,4 @@ export const PATCH = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

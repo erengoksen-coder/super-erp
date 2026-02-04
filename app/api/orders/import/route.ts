@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import * as XLSX from 'xlsx'
 
-// Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
+// Bayi isminden otomatik cari hesap oluştur (eşer yoksa)
 function createAccountIfNotExists(db: any, dealerName: string | null): void {
   if (!dealerName || dealerName.trim() === '') {
     return
@@ -54,25 +55,132 @@ function createAccountIfNotExists(db: any, dealerName: string | null): void {
   }
 }
 
+function createMaterialIfNotExists(db: any, fabricCode: string | null, unit?: string | null): void {
+  if (!fabricCode || fabricCode.trim() === '') {
+    return
+  }
+
+  const trimmedCode = fabricCode.trim()
+  const name = `Kumaş ${trimmedCode}`
+  const existingMaterial = db
+    .prepare('SELECT id, unit FROM materials WHERE name = ? COLLATE NOCASE')
+    .all(name) as Array<{ id: string; unit: string | null }>
+
+  if (existingMaterial.length > 0) {
+    const hasMetre = existingMaterial.some((row) => (row.unit || '').toLowerCase() === 'metre')
+    if (hasMetre) {
+      db.prepare('DELETE FROM materials WHERE name = ? COLLATE NOCASE AND LOWER(COALESCE(unit, \"\")) != \"metre\"')
+        .run(name)
+    }
+    console.warn(`Hammadde aynı isimle kayıtlı: ${name}`)
+    return
+  }
+
+  try {
+    const id = `mat-${Date.now()}-${Math.random().toString(36).substring(7)}`
+    const materialUnit = 'metre'
+
+    db.prepare(`
+      INSERT INTO materials (
+        id, code, name, category, unit, stock_amount, min_stock_level, purchase_price,
+        company_id, branch_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(
+      id,
+      trimmedCode,
+      name,
+      'Kumaş',
+      materialUnit,
+      0,
+      0,
+      0,
+      DEFAULT_COMPANY_ID,
+      DEFAULT_BRANCH_ID
+    )
+
+    db.prepare(`
+      INSERT OR IGNORE INTO material_stocks (id, material_id, warehouse_id, quantity, created_at, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(
+      `mstock-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      id,
+      DEFAULT_WAREHOUSE_ID,
+      0
+    )
+  } catch (error: any) {
+    console.error(`Hammadde oluşturulamadı (${trimmedCode}):`, {
+      error: error.message,
+      stack: error.stack,
+    })
+  }
+}
+
 // POST: Excel dosyasından siparişleri yükle
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
-    const { file } = body
+    const contentType = request.headers.get('content-type') || ''
+    let buffer: Buffer | null = null
 
-    if (!file) {
-      return NextResponse.json({ 
-        error: 'Dosya gerekli',
-        details: 'Lütfen Excel dosyasını base64 formatında gönderin.'
-      }, { status: 400 })
+    if (contentType.toLowerCase().includes('multipart/form-data')) {
+      const formData = await request.formData()
+      const file = formData.get('file')
+      if (!file || !(file instanceof Blob)) {
+        return NextResponse.json({ error: 'Dosya gerekli' }, { status: 400 })
+      }
+      const arrayBuffer = await file.arrayBuffer()
+      buffer = Buffer.from(arrayBuffer)
+    } else {
+      let body: any
+      try {
+        body = await parseJsonBody(request)
+      } catch (error: any) {
+        return NextResponse.json(
+          { error: 'Geçersiz istek', details: error?.message || 'JSON çözümlenemedi' },
+          { status: 400 }
+        )
+      }
+      const { file } = body
+
+      if (!file || typeof file !== 'string') {
+        return NextResponse.json({ 
+          error: 'Dosya gerekli',
+          details: 'Lütfen Excel dosyasını base64 formatında gönderin.'
+        }, { status: 400 })
+      }
+
+      const base64 = file.includes('base64,') ? file.split('base64,')[1] : file
+      if (!base64) {
+        return NextResponse.json({ error: 'Dosya boş' }, { status: 400 })
+      }
+
+      try {
+        buffer = Buffer.from(base64, 'base64')
+      } catch (error: any) {
+        return NextResponse.json({ 
+          error: 'Dosya formatı geçersiz',
+          details: error.message 
+        }, { status: 400 })
+      }
     }
 
-    // Base64'ü buffer'a çevir
-    const buffer = Buffer.from(file, 'base64')
+    if (!buffer || !buffer.length) {
+      return NextResponse.json({ error: 'Dosya boş' }, { status: 400 })
+    }
     
     // Excel dosyasını oku
-    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    let workbook
+    try {
+      workbook = XLSX.read(buffer, { type: 'buffer' })
+    } catch (error: any) {
+      return NextResponse.json({ 
+        error: 'Excel dosyası okunamadı',
+        details: error.message 
+      }, { status: 400 })
+    }
     const firstSheetName = workbook.SheetNames[0]
+    if (!firstSheetName) {
+      return NextResponse.json({ error: 'Excel sayfası bulunamadı' }, { status: 400 })
+    }
     const worksheet = workbook.Sheets[firstSheetName]
     
     // JSON'a çevir - raw: true yaparak Excel tarih serial number'larını al
@@ -130,7 +238,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         const unitPriceNum = unitPrice ? parseFloat(String(unitPrice).replace(',', '.')) : 0
         const totalAmount = quantityNum * unitPriceNum
 
-        // Ürünü bul (SKU veya isim ile)
+        // �Srünü bul (SKU veya isim ile)
         let productId: string | null = null
         if (productSku) {
           const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(productSku) as any
@@ -167,7 +275,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             // Excel tarih formatlarını parse et
             const dateValue = orderDate
             
-            // Eğer Excel serial date number ise (sayı olarak geliyorsa)
+            // Eşer Excel serial date number ise (sayı olarak geliyorsa)
             if (typeof dateValue === 'number' && dateValue > 25569) {
               // Excel epoch: 1900-01-01 (Windows)
               const excelEpoch = new Date(1900, 0, 1)
@@ -178,7 +286,7 @@ export const POST = withAuth(async (request: NextRequest) => {
               // String formatında geliyorsa
               const dateStr = String(dateValue).trim()
               
-              // Eğer sayı string olarak geliyorsa
+              // Eşer sayı string olarak geliyorsa
               if (!isNaN(Number(dateStr)) && Number(dateStr) > 25569) {
                 const excelEpoch = new Date(1900, 0, 1)
                 const days = Number(dateStr) - 2
@@ -188,7 +296,7 @@ export const POST = withAuth(async (request: NextRequest) => {
                 // YYYY-MM-DD veya DD-MM-YYYY formatı kontrolü
                 const parts = dateStr.split('-')
                 if (parts.length === 3) {
-                  // Eğer ilk parça 4 haneli ise YYYY-MM-DD
+                  // Eşer ilk parça 4 haneli ise YYYY-MM-DD
                   if (parts[0].length === 4) {
                     formattedOrderDate = dateStr
                   } else {
@@ -225,8 +333,10 @@ export const POST = withAuth(async (request: NextRequest) => {
           }
         }
 
-        // Bayi isminden otomatik cari hesap oluştur (eğer yoksa)
+        // Bayi/Müşteri isminden otomatik cari hesap oluştur (eğer yoksa)
         createAccountIfNotExists(db, dealerName)
+        // Kumaş kodu varsa hammaddeye ekle
+        createMaterialIfNotExists(db, fabricCode, unit)
 
         const orderId = randomUUID()
         // TAKİP NO varsa onu kullan, yoksa otomatik oluştur
@@ -278,9 +388,10 @@ export const POST = withAuth(async (request: NextRequest) => {
     })
   } catch (error: any) {
     console.error('Excel yükleme hatası:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Excel dosyası yüklenemedi',
-      details: error.message 
+      details: error?.message || 'Bilinmeyen hata'
     }, { status: 500 })
   }
 })
+

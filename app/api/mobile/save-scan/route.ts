@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // POST: Telefondan gelen barkod bilgisini kaydet
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { code, barcode } = body
 
     if (!code || !barcode) {
@@ -17,7 +18,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const db = getDatabase()
     
-    // Geçici tablo oluştur (eğer yoksa)
+    // Geçici tablo oluştur (eşer yoksa)
     try {
       db.exec(`
         CREATE TABLE IF NOT EXISTS mobile_scan_results (
@@ -46,3 +47,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

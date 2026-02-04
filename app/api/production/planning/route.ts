@@ -31,7 +31,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         p.name as product_name,
         p.sku as product_sku
       FROM production_orders po
-      JOIN active_products p ON po.product_id = p.id
+      JOIN products p ON po.product_id = p.id AND p.deleted_at IS NULL
       WHERE po.status != 'completed'
         AND po.status != 'cancelled'
       ORDER BY po.created_at ASC
@@ -95,12 +95,23 @@ export const GET = withAuth(async (request: NextRequest) => {
       }
     })
 
+    // Kart bazlı sayım (istasyon istatistikleri ile tutarlı olması için)
+    const totalCards = db.prepare(`
+      SELECT COUNT(psn.id) as total_cards
+      FROM product_serial_numbers psn
+      JOIN production_orders po ON psn.production_order_id = po.id
+      WHERE po.status != 'completed'
+        AND po.status != 'cancelled'
+        AND COALESCE(psn.current_station, po.current_station) IS NOT NULL
+    `).get() as { total_cards: number } | undefined
+
     return NextResponse.json({
       orders,
       groupedByStation,
       stationDurations,
       total_orders: orders.length,
       total_quantity: orders.reduce((sum: number, o: any) => sum + o.quantity, 0),
+      total_cards: totalCards?.total_cards || 0, // Kart bazlı toplam sayı
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

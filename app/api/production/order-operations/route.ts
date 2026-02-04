@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
@@ -67,7 +68,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Üretim operasyonu kaydı oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const {
       production_order_id,
       operation_id,
@@ -137,7 +138,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 // PATCH: Üretim operasyonu güncelle
 export const PATCH = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const {
       id,
       work_center_id,

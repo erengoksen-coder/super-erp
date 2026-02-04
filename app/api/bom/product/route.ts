@@ -29,7 +29,7 @@ export const DELETE = withAuth(async (request: NextRequest) => {
         ORDER BY version_no DESC
         LIMIT 1
       `).get(productId) as { id: string } | undefined
-      resolvedVersionId = active?.id
+      resolvedVersionId = active?.id ?? null
     }
 
     const result = resolvedVersionId

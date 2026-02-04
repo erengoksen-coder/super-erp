@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -148,7 +149,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         ORDER BY p.sku, m.name
       `).all() as BomItemRow[]
 
-      // Ürün bazlı grupla
+      // �Srün bazlı grupla
       const groupedByProduct = allBom.reduce<Record<string, GroupedBom>>((acc, item) => {
         const key = item.product_id
         if (!acc[key]) {
@@ -173,7 +174,18 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni BOM kaydı oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const raw = await request.text()
+    let body: any = null
+    if (raw && raw.trim()) {
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        const params = new URLSearchParams(raw)
+        body = Object.fromEntries(params.entries())
+      }
+    } else {
+      body = {}
+    }
     const { product_id, material_id, quantity, unit, fire_percentage, waste_percentage, parent_id, version_id } = body
 
     if (!product_id || !material_id || quantity === undefined || quantity <= 0) {
@@ -185,10 +197,10 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const db = getDatabase()
 
-    // Ürün ve malzeme kontrolü
+    // �Srün ve malzeme kontrolü
     const product = db.prepare('SELECT id FROM active_products WHERE id = ?').get(product_id) as ProductRow | undefined
     if (!product) {
-      return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+      return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
     const material = db.prepare('SELECT id, unit FROM materials WHERE id = ?').get(material_id) as (MaterialRow & { unit?: string | null }) | undefined
@@ -284,3 +296,4 @@ export const DELETE = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

@@ -1,6 +1,13 @@
 -- Active views for soft-deleted records
-CREATE VIEW IF NOT EXISTS active_orders AS
-SELECT * FROM orders WHERE deleted_at IS NULL;
+DO $$
+BEGIN
+  IF to_regclass('public.orders') IS NOT NULL THEN
+    EXECUTE 'CREATE OR REPLACE VIEW active_orders AS
+      SELECT * FROM orders WHERE deleted_at IS NULL';
+  END IF;
 
-CREATE VIEW IF NOT EXISTS active_products AS
-SELECT * FROM products WHERE deleted_at IS NULL;
+  IF to_regclass('public.products') IS NOT NULL THEN
+    EXECUTE 'CREATE OR REPLACE VIEW active_products AS
+      SELECT * FROM products WHERE deleted_at IS NULL';
+  END IF;
+END $$;

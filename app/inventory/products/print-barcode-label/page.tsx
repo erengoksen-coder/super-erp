@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { QRCodeSVG } from 'qrcode.react'
 // Logo bileşeni yerine doğrudan resim kullanılacak
 import { Printer, ArrowLeft } from 'lucide-react'
-import JsBarcode from 'jsbarcode'
+// JsBarcode'ı dinamik import ile yükle (CSP sorunlarını önlemek için)
 
 interface BarcodeData {
   id: string
@@ -36,16 +36,16 @@ export default function PrintBarcodeLabelPage() {
   const [loading, setLoading] = useState(true)
   const [barcodeCanvasId] = useState(`barcode-${Date.now()}`)
   const [labelSettings, setLabelSettings] = useState({
-    logo_width: '90',
-    logo_height: '15',
+    logo_width: '96',
+    logo_height: '14',
     logo_align: 'left',
-    product_name_font_size: '15',
-    barcode_height: '22',
-    qr_code_size: '35',
-    detail_font_size: '13',
+    product_name_font_size: '16',
+    barcode_height: '18',
+    qr_code_size: '28',
+    detail_font_size: '11',
     label_width: '100',
     label_height: '100',
-    label_padding: '3'
+    label_padding: '2'
   })
 
   useEffect(() => {
@@ -59,45 +59,130 @@ export default function PrintBarcodeLabelPage() {
 
   useEffect(() => {
     if (barcodeData && typeof window !== 'undefined') {
-      // Barkod oluşturmayı biraz geciktir (DOM hazır olsun)
-      setTimeout(() => {
+      // Barkod oluşturmayı birkaç kez dene (DOM hazır olana kadar)
+      let attempts = 0
+      const maxAttempts = 10
+      
+      const tryRenderBarcode = () => {
+        attempts++
         try {
           const canvas = document.getElementById(barcodeCanvasId) as HTMLCanvasElement
           if (canvas && barcodeData.barcode) {
-            JsBarcode(canvas, barcodeData.barcode, {
-              format: 'CODE128',
-              width: 1.5,
-              height: parseFloat(labelSettings.barcode_height) || 22,
-              displayValue: true,
-              fontSize: 12,
-              fontOptions: 'bold',
-              font: 'Arial Black, Arial, sans-serif',
-              textMargin: 2,
-              margin: 2,
-              background: '#ffffff',
-              lineColor: '#000000',
-              textAlign: 'center',
-              textPosition: 'bottom'
-            })
+            // Canvas'ı temizle
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width || 300, canvas.height || 80)
+            }
             
-            // Barkod numarasını daha koyu yap
-            setTimeout(() => {
-              const textElements = canvas.parentElement?.querySelectorAll('text, .barcode-text')
-              textElements?.forEach((el: any) => {
-                el.style.fill = '#000000'
-                el.style.fontWeight = '900'
-                el.style.fontFamily = 'Arial Black, Arial, sans-serif'
-                el.style.stroke = '#000000'
-                el.style.strokeWidth = '0.5'
+            // Canvas boyutlarını ayarla (piksel cinsinden) - daha geniş
+            const canvasWidth = 400
+            const canvasHeight = 80
+            canvas.width = canvasWidth
+            canvas.height = canvasHeight
+            canvas.style.width = '100%'
+            canvas.style.height = `${labelSettings.barcode_height}mm`
+            
+            // Canvas'ın görünür olduğundan emin ol
+            canvas.style.display = 'block'
+            canvas.style.visibility = 'visible'
+            canvas.style.opacity = '1'
+            canvas.style.backgroundColor = '#ffffff'
+            
+            // JsBarcode'ı dinamik olarak yükle ve çağır
+            import('jsbarcode').then((JsBarcodeModule) => {
+              const JsBarcode = JsBarcodeModule.default || JsBarcodeModule
+              
+              // Canvas'ı beyaz yap
+              if (ctx) {
+                ctx.fillStyle = '#ffffff'
+                ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+              }
+              
+              JsBarcode(canvas, barcodeData.barcode, {
+                format: 'CODE128',
+                width: 3,
+                height: 60,
+                displayValue: false,
+                fontSize: 12,
+                fontOptions: 'bold',
+                font: 'Arial Black, Arial, sans-serif',
+                textMargin: 2,
+                margin: 5,
+                background: '#ffffff',
+                lineColor: '#000000',
+                textAlign: 'center',
+                textPosition: 'bottom',
+                valid: function(valid) {
+                  if (!valid) {
+                    console.error('Barkod geçersiz:', barcodeData.barcode)
+                  } else {
+                    console.log('✅ Barkod başarıyla oluşturuldu:', barcodeData.barcode)
+                  }
+                }
               })
-            }, 100)
+              
+              // Canvas'ın render edildiğini kontrol et (daha uzun bekle)
+              setTimeout(() => {
+                const imageData = ctx?.getImageData(0, 0, canvasWidth, canvasHeight)
+                // Siyah piksel var mı kontrol et (barkod çizgileri siyah olmalı)
+                const hasContent = imageData && Array.from(imageData.data).some((pixel, index) => {
+                  // Her 4 pixel bir RGBA değeri: R, G, B, A
+                  const channel = index % 4
+                  if (channel === 3) return false // Alpha channel'ı atla
+                  // Siyah piksel kontrolü (R, G, B hepsi 0 veya çok koyu)
+                  if (channel === 0) { // R channel
+                    const r = pixel
+                    const g = imageData.data[index + 1]
+                    const b = imageData.data[index + 2]
+                    // Siyah veya çok koyu gri (threshold: 50)
+                    return (r < 50 && g < 50 && b < 50)
+                  }
+                  return false
+                })
+                if (hasContent) {
+                  console.log('✅ Canvas içeriği render edildi - barkod çizgileri görünüyor')
+                } else {
+                  console.warn('⚠️ Canvas boş görünüyor, tekrar deniyor...')
+                  if (attempts < maxAttempts) {
+                    setTimeout(tryRenderBarcode, 300)
+                  }
+                }
+              }, 400)
+            }).catch((error) => {
+              console.error('❌ JsBarcode yükleme hatası:', error)
+              // Fallback: Canvas'a sadece metin yaz
+              if (ctx) {
+                ctx.fillStyle = '#000000'
+                ctx.font = 'bold 14px monospace'
+                ctx.textAlign = 'center'
+                ctx.fillText(barcodeData.barcode, canvasWidth / 2, canvasHeight / 2)
+              }
+              if (attempts < maxAttempts) {
+                setTimeout(tryRenderBarcode, 300)
+              }
+            })
+          } else {
+            if (attempts < maxAttempts) {
+              console.log(`Canvas bulunamadı, tekrar deniyor... (${attempts}/${maxAttempts})`)
+              setTimeout(tryRenderBarcode, 200)
+            } else {
+              console.error('❌ Canvas bulunamadı veya barkod verisi yok:', { canvas: !!canvas, barcode: barcodeData.barcode })
+            }
           }
         } catch (error) {
-          console.error('Barkod oluşturma hatası:', error)
+          console.error('❌ Barkod oluşturma hatası:', error)
+          if (attempts < maxAttempts) {
+            setTimeout(tryRenderBarcode, 200)
+          }
         }
-      }, 100)
+      }
+      
+      // İlk denemeyi başlat
+      const timeoutId = setTimeout(tryRenderBarcode, 100)
+      
+      return () => clearTimeout(timeoutId)
     }
-  }, [barcodeData, barcodeCanvasId])
+  }, [barcodeData, barcodeCanvasId, labelSettings.barcode_height])
 
   async function loadBarcode() {
     if (!barcodeId) {
@@ -266,7 +351,7 @@ export default function PrintBarcodeLabelPage() {
       {/* Etiket - Ayarlardan gelen boyutlar */}
       <div className="flex justify-center items-center min-h-[400px] py-8 print-wrapper">
         <div
-          className="bg-white border-2 border-gray-300 shadow-lg print-label"
+          className="bg-white border-2 border-gray-200 shadow-lg print-label"
           style={{
             width: `${labelSettings.label_width}mm`,
             height: `${labelSettings.label_height}mm`,
@@ -277,104 +362,193 @@ export default function PrintBarcodeLabelPage() {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            padding: `${labelSettings.label_padding}mm`,
+            paddingTop: '1mm',
+            paddingBottom: `${labelSettings.label_padding}mm`,
+            paddingLeft: `${labelSettings.label_padding}mm`,
+            paddingRight: `${labelSettings.label_padding}mm`,
             boxSizing: 'border-box',
             overflow: 'hidden',
             visibility: 'visible',
-            opacity: 1
+            opacity: 1,
+            backgroundColor: '#ffffff',
+            background: '#ffffff'
           }}
         >
-          {/* Logo - Ayarlardan gelen manuel boyutlar, yükseklik max 16mm */}
+          {/* Logo - Sola hizalı, maksimum genişlik */}
           {(() => {
-            const logoHeight = Math.min(parseFloat(labelSettings.logo_height) || 15, 16)
+            const logoHeight = parseFloat(labelSettings.logo_height) || 14
+            // Etiket genişliğinden padding'i çıkar - maksimum genişlik kullan
+            const availableWidth = parseFloat(labelSettings.label_width) - (parseFloat(labelSettings.label_padding) * 2)
+            // Logo genişliğini neredeyse tam genişlik kullan (sadece 0.2mm güvenlik payı)
+            const finalLogoWidth = availableWidth - 0.2
+            
             return (
               <div style={{ 
-                marginBottom: '1.5mm', 
+                marginBottom: '0.5mm', 
+                marginTop: '0',
                 height: `${logoHeight}mm`, 
-                width: `${labelSettings.logo_width}mm`, 
-                overflow: 'hidden', 
-                alignSelf: labelSettings.logo_align === 'left' ? 'flex-start' : labelSettings.logo_align === 'right' ? 'flex-end' : 'center'
+                width: '100%',
+                maxWidth: '100%',
+                overflow: 'visible', 
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                paddingTop: '0',
+                paddingLeft: '0',
+                paddingRight: '0'
               }}>
                 <img 
                   src="/logo.png" 
                   alt="LIVA SOFA Logo" 
+                  onError={(e) => {
+                    console.error('Logo yüklenemedi:', e)
+                    e.currentTarget.style.display = 'none'
+                  }}
                   style={{ 
-                    width: `${labelSettings.logo_width}mm`,
+                    width: `${finalLogoWidth}mm`,
                     height: `${logoHeight}mm`,
+                    maxWidth: `${finalLogoWidth}mm`,
+                    maxHeight: `${logoHeight}mm`,
+                    minWidth: `${finalLogoWidth}mm`,
                     objectFit: 'fill',
                     imageRendering: '-webkit-optimize-contrast',
                     WebkitImageRendering: '-webkit-optimize-contrast',
                     msInterpolationMode: 'bicubic',
                     filter: 'contrast(1.15) brightness(1.05)',
-                    display: 'block'
-                  }}
+                    display: 'block',
+                    visibility: 'visible',
+                    opacity: 1,
+                    margin: '0',
+                    padding: '0'
+                  } as React.CSSProperties}
                 />
               </div>
             )
           })()}
 
           {/* Ürün Adı */}
-          <div className="text-center" style={{ marginBottom: '1.5mm' }}>
-            <div className="font-black text-gray-900 leading-tight" style={{ fontSize: `${labelSettings.product_name_font_size}px`, fontWeight: 900 }}>{barcodeData.product_name}</div>
+          <div className="text-center" style={{ marginBottom: '0.8mm' }}>
+            <div className="font-black text-black leading-tight" style={{ fontSize: `${labelSettings.product_name_font_size}px`, fontWeight: 900, lineHeight: '1.2', color: '#000000' }}>{barcodeData.product_name}</div>
+            <div className="text-black font-bold" style={{ fontSize: '10px', marginTop: '0.3mm', color: '#000000' }}>{barcodeData.sku}</div>
           </div>
 
           {/* Barkod Görseli */}
-          <div className="flex justify-center" style={{ marginBottom: '1mm' }}>
-            <canvas id={barcodeCanvasId} className="max-w-full" style={{ height: `${labelSettings.barcode_height}mm`, maxHeight: `${labelSettings.barcode_height}mm` }}></canvas>
+          <div className="flex flex-col items-center justify-center" style={{ marginBottom: '0.8mm', width: '100%' }}>
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '0.3mm', padding: '0 1mm' }}>
+              <canvas 
+                id={barcodeCanvasId} 
+                style={{ 
+                  width: '100%',
+                  maxWidth: '100%',
+                  height: `${labelSettings.barcode_height}mm`, 
+                  maxHeight: `${labelSettings.barcode_height}mm`,
+                  display: 'block !important',
+                  visibility: 'visible !important',
+                  opacity: '1 !important',
+                  backgroundColor: '#ffffff'
+                }}
+              ></canvas>
+            </div>
+            <div className="text-black font-mono font-bold text-center" style={{ fontSize: '9px', marginTop: '0.3mm', width: '100%', color: '#000000' }}>{barcodeData.barcode}</div>
           </div>
 
           {/* QR Kod */}
-          <div className="flex justify-center" style={{ marginBottom: '1.5mm' }}>
+          <div className="flex justify-center" style={{ marginBottom: '0.8mm', width: '100%' }}>
             <QRCodeSVG
               value={qrContent}
-              size={parseInt(labelSettings.qr_code_size) || 35}
+              size={parseInt(labelSettings.qr_code_size) || 28}
               level="M"
               includeMargin={false}
+              style={{
+                display: 'block',
+                visibility: 'visible',
+                opacity: 1,
+                width: `${labelSettings.qr_code_size}px`,
+                height: `${labelSettings.qr_code_size}px`
+              }}
             />
           </div>
 
           {/* Üretim Emri Kartı Detayları - Ayarlardan gelen font boyutu */}
-          <div className="font-black text-gray-900 leading-tight print-details" style={{ 
+          <div className="font-black text-black leading-tight print-details" style={{
+            color: '#000000', 
             fontSize: `${labelSettings.detail_font_size}px`,
             flex: 1, 
-            display: 'flex', 
+            display: 'flex !important', 
+            visibility: 'visible !important',
+            opacity: '1 !important',
             flexDirection: 'column', 
             justifyContent: 'flex-start', 
-            gap: '0.8mm', 
-            overflow: 'hidden' 
+            gap: '0.4mm', 
+            overflow: 'visible',
+            lineHeight: '1.2',
+            width: '100%'
           }}>
             <div className="flex justify-between items-start">
-              <span className="font-black whitespace-nowrap">SİP TRH:</span>
-              <span className="font-black text-right ml-1">{formatDate(productionDate)}</span>
+              <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>SERİ:</span>
+              <span className="font-black font-mono text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.serial_number || '-'}</span>
             </div>
             <div className="flex justify-between items-start">
-              <span className="font-black whitespace-nowrap">TAKİP NO:</span>
-              <span className="font-black font-mono text-right ml-1 break-all">{barcodeData.customer_order_number || barcodeData.production_order_number || '-'}</span>
+              <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>SİP TRH:</span>
+              <span className="font-black text-right ml-1" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{formatDate(productionDate)}</span>
             </div>
+            {(barcodeData.customer_order_number || barcodeData.production_order_number) && (
+              <div className="flex justify-between items-start">
+                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>TAKİP:</span>
+                <span className="font-black font-mono text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{(barcodeData.customer_order_number || barcodeData.production_order_number || '-').substring(0, 18)}</span>
+              </div>
+            )}
             {barcodeData.dealer_name && (
               <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap">CARİ:</span>
-                <span className="font-black text-right ml-1 break-all">{barcodeData.dealer_name}</span>
+                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>CARİ:</span>
+                <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.dealer_name.substring(0, 22)}</span>
               </div>
             )}
             {barcodeData.customer_name && (
               <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap">MÜŞTERİ:</span>
-                <span className="font-black text-right ml-1 break-all">{barcodeData.customer_name}</span>
+                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>MÜŞ:</span>
+                <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.customer_name.substring(0, 22)}</span>
               </div>
             )}
             {barcodeData.configuration && barcodeData.configuration !== '-' && (
               <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap">KONF:</span>
-                <span className="font-black text-right ml-1">{barcodeData.configuration}</span>
+                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KONF:</span>
+                <span className="font-black text-right ml-1" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.configuration}</span>
               </div>
             )}
-            {barcodeData.notes && cleanNotes(barcodeData.notes) !== '-' && (
-              <div className="flex flex-col">
-                <span className="font-black">AÇIK:</span>
-                <span className="font-black break-words leading-tight">{cleanNotes(barcodeData.notes)}</span>
-              </div>
-            )}
+            {(() => {
+              // Notes'tan kumaş, ayak, kasa bilgilerini çıkar
+              const notes = barcodeData.notes || ''
+              const fabricMatch = notes.match(/Kumaş:\s*([^|]+)/i)
+              const caseMatch = notes.match(/Kasa:\s*([^|]+)/i)
+              const legMatch = notes.match(/Ayak:\s*([^|]+)/i)
+              const fabricCode = fabricMatch ? fabricMatch[1].trim() : null
+              const caseInfo = caseMatch ? caseMatch[1].trim() : null
+              const legInfo = legMatch ? legMatch[1].trim() : null
+              
+              return (
+                <>
+                  {fabricCode && (
+                    <div className="flex justify-between items-start">
+                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KUMAŞ:</span>
+                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{fabricCode.substring(0, 22)}</span>
+                    </div>
+                  )}
+                  {legInfo && (
+                    <div className="flex justify-between items-start">
+                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>AYAK:</span>
+                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{legInfo.substring(0, 22)}</span>
+                    </div>
+                  )}
+                  {caseInfo && (
+                    <div className="flex justify-between items-start">
+                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KASA:</span>
+                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{caseInfo.substring(0, 22)}</span>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -383,6 +557,37 @@ export default function PrintBarcodeLabelPage() {
       <style jsx global>{`
         /* Ekran görünümü için - etiket her zaman görünür olmalı */
         div[style*="${labelSettings.label_width}mm"] {
+          display: flex !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        
+        /* Ekran görünümü için canvas */
+        canvas {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+          background: #ffffff !important;
+          image-rendering: crisp-edges !important;
+          min-height: 20mm !important;
+        }
+        
+        /* QR kod görünürlüğü */
+        svg[data-testid="qr-code-svg"] {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        
+        /* Logo görünürlüğü */
+        .print-label img[src="/logo.png"] {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        
+        /* Ürün detayları görünürlüğü */
+        .print-details {
           display: flex !important;
           visibility: visible !important;
           opacity: 1 !important;
@@ -449,6 +654,8 @@ export default function PrintBarcodeLabelPage() {
             break-inside: avoid !important;
             box-sizing: border-box !important;
             overflow: visible !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
           }
 
           .print-details {
@@ -461,6 +668,29 @@ export default function PrintBarcodeLabelPage() {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
+          }
+          
+          /* Barkod canvas görünürlüğü */
+          canvas {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 20mm !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            image-rendering: crisp-edges !important;
+          }
+          
+          /* Ekran görünümü için canvas */
+          .print-label canvas {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            background: #ffffff !important;
           }
           
           /* Barkod numarasını koyulaştır */
@@ -483,6 +713,51 @@ export default function PrintBarcodeLabelPage() {
           canvas, svg {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+          
+          /* QR kod SVG görünürlüğü */
+          svg[data-testid="qr-code-svg"] {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: ${labelSettings.qr_code_size}px !important;
+            height: ${labelSettings.qr_code_size}px !important;
+          }
+          
+          /* Logo görünürlüğü */
+          img[src="/logo.png"] {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+          
+          /* Ürün detayları görünürlüğü */
+          .print-details {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            color: #000000 !important;
+          }
+          
+          /* Tüm yazılar siyah */
+          .print-label * {
+            color: #000000 !important;
+          }
+          
+          .print-label .text-black,
+          .print-label .text-gray-900,
+          .print-label .text-gray-700 {
+            color: #000000 !important;
+          }
+          
+          /* Ürün adı ve SKU görünürlüğü */
+          .print-label > div {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
           }
           
           /* GPrinter GP1125D için yazdırma alanı sınırlaması */

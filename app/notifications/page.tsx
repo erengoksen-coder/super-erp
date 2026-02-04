@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bell, BellOff, Send, AlertTriangle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { fetchApi } from '@/lib/api/client'
+import { subscribeToTable } from '@/lib/supabase/realtime'
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -57,7 +58,7 @@ export default function NotificationsPage() {
     }
   }, [supported])
 
-  async function loadAlerts() {
+  const loadAlerts = useCallback(async () => {
     try {
       setAlertsLoading(true)
       const data = await fetchApi<any[]>('/api/stock-alerts?status=open')
@@ -67,11 +68,40 @@ export default function NotificationsPage() {
     } finally {
       setAlertsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     loadAlerts()
-  }, [])
+
+    let unsubscribe: (() => void) | null = null
+    let intervalId: number | null = null
+
+    const startRealtime = () => {
+      const cleanup = subscribeToTable('stock_alerts', () => {
+        loadAlerts()
+      })
+      if (cleanup) {
+        unsubscribe = cleanup
+        return
+      }
+      intervalId = window.setInterval(() => {
+        loadAlerts()
+      }, 30_000)
+    }
+
+    if (typeof window !== 'undefined') {
+      startRealtime()
+    }
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
+      if (intervalId) {
+        window.clearInterval(intervalId)
+      }
+    }
+  }, [loadAlerts])
 
   async function subscribe() {
     if (!supported) return

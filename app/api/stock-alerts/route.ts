@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
@@ -24,7 +25,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // PATCH: Uyarıyı kapat
 export const PATCH = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as { id?: string }
+    const body = await parseJsonBody(request) as { id?: string }
     if (!body.id) {
       return NextResponse.json({ error: 'id gerekli' }, { status: 400 })
     }
@@ -40,3 +41,4 @@ export const PATCH = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

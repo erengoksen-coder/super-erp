@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
@@ -157,10 +158,10 @@ export const GET = withAuth(async (request: NextRequest) => {
   }
 })
 
-// POST: Ürünü sevk edilebilir olarak işaretle
+// POST: �Srünü sevk edilebilir olarak işaretle
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as ReadyItemUpdateInput
+    const body = await parseJsonBody(request) as ReadyItemUpdateInput
     const { barcode, customer_id, ready } = body
 
     if (!barcode) {
@@ -184,33 +185,37 @@ export const POST = withAuth(async (request: NextRequest) => {
     const customerIdValue = ready && customer_id ? customer_id : null
 
     // updated_at kolonu varsa güncelle, yoksa sadece diğer alanları güncelle
+    // Ayrıca status'u 'available' yap (sevk edilebilir olması için)
     try {
       db.prepare(`
         UPDATE product_serial_numbers
         SET ready_for_shipment = ?,
             customer_id = COALESCE(?, customer_id),
+            status = CASE WHEN ? = 1 THEN 'available' ELSE status END,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(readyValue, customerIdValue, product.id)
+      `).run(readyValue, customerIdValue, readyValue, product.id)
     } catch (e: any) {
       // updated_at kolonu yoksa, sadece diğer alanları güncelle
       if (e.message?.includes('no such column: updated_at')) {
         db.prepare(`
           UPDATE product_serial_numbers
           SET ready_for_shipment = ?,
-              customer_id = COALESCE(?, customer_id)
+              customer_id = COALESCE(?, customer_id),
+              status = CASE WHEN ? = 1 THEN 'available' ELSE status END
           WHERE id = ?
-        `).run(readyValue, customerIdValue, product.id)
+        `).run(readyValue, customerIdValue, readyValue, product.id)
       } else {
         throw e
       }
     }
 
     return ok(null, {
-      message: ready ? 'Ürün sevk edilebilir olarak işaretlendi' : 'İşaret kaldırıldı',
+      message: ready ? '�Srün sevk edilebilir olarak işaretlendi' : 'İşaret kaldırıldı',
     })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
 })
+
 

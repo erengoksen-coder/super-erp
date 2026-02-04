@@ -1,1 +1,1 @@
-export { GET, DELETE } from '../../../../shipments/[id]/route'
+export { GET, DELETE } from '../../../shipments/[id]/route'

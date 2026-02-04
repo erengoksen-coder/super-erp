@@ -3,11 +3,10 @@
  * Bu script sadece üretim ve sevkiyat ile ilgili verileri siler
  */
 
-const Database = require('better-sqlite3');
-const path = require('path');
+const { ensureDangerousAllowed, openDatabase } = require('./db-utils');
 
-const dbPath = path.join(__dirname, '..', 'data', 'erp.db');
-const db = new Database(dbPath);
+ensureDangerousAllowed('clear-production-shipment-orders.js');
+const db = openDatabase();
 
 console.log('========================================');
 console.log('  Üretim ve Sevkiyat Verileri Siliniyor');

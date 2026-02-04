@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
+import { ok, fail } from '@/lib/api/response'
+import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
+import { logger } from '@/lib/utils/logger'
 import { getDatabase } from '@/lib/database/db'
 
 type JournalEntryRow = {
@@ -17,20 +20,20 @@ type JournalEntryLineRow = {
 export const GET = withAuth(async (
   _request: NextRequest,
   _user,
-  context?: { params?: { id?: string } }
+  context?: unknown
 ) => {
   try {
     const db = getDatabase()
-    const id = context?.params?.id
+    const id = (context as { params?: { id?: string } } | undefined)?.params?.id
 
     if (!id) {
-      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+      return fail('ID gerekli', { status: 400 })
     }
 
     // Yevmiye kaydı
     const entry = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as JournalEntryRow | undefined
     if (!entry) {
-      return NextResponse.json({ error: 'Yevmiye kaydı bulunamadı' }, { status: 404 })
+      return fail('Yevmiye kaydı bulunamadı', { status: 404 })
     }
 
     // Yevmiye satırları
@@ -46,12 +49,15 @@ export const GET = withAuth(async (
       ORDER BY jel.debit DESC, jel.credit DESC
     `).all(id) as JournalEntryLineRow[]
 
-    return NextResponse.json({
-      entry,
-      lines
-    })
+    return ok({ entry, lines }, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await logger.error('[Journal Entries API] GET [id] failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    return fail(error.message, { status: 500 })
   }
 })
 

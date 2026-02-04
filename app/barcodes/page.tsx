@@ -15,6 +15,8 @@ interface Barcode {
   status: string
   production_order_number?: string
   production_order_created_at?: string
+  current_station?: string | null
+  production_order_status?: string | null
   dealer_name?: string | null
   customer_name?: string | null
   customer_order_number?: string | null
@@ -136,15 +138,27 @@ export default function BarcodesPage() {
           return
         }
 
-        const html5QrcodeScanner = new Html5QrcodeScanner(
-          qrReaderId,
-          {
-            qrbox: { width: 250, height: 250 },
-            fps: 10,
-            aspectRatio: 1.0
-          },
-          false // verbose
-        )
+        const container = document.getElementById(qrReaderId)
+        if (!container) {
+          console.error('QR reader container bulunamadı.')
+          return
+        }
+
+        let html5QrcodeScanner: any
+        try {
+          html5QrcodeScanner = new Html5QrcodeScanner(
+            qrReaderId,
+            {
+              qrbox: { width: 250, height: 250 },
+              fps: 10,
+              aspectRatio: 1.0
+            },
+            false // verbose
+          )
+        } catch (error) {
+          console.error('QR reader başlatılamadı:', error)
+          return
+        }
 
         html5QrcodeScanner.render(
           async (decodedText: string) => {
@@ -224,7 +238,30 @@ export default function BarcodesPage() {
     }
   }
 
-  function getStatusBadge(status: string) {
+  function getStatusBadge(barcode: Barcode) {
+    // Üretim aşamasındaysa current_station bilgisini göster
+    if (barcode.production_order_status && barcode.production_order_status !== 'completed' && barcode.current_station) {
+      const stationMap: Record<string, { label: string; className: string }> = {
+        iskelet: { label: 'İskelet Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        terzihane: { label: 'Terzihane Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        döşeme: { label: 'Döşeme Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        doseme: { label: 'Döşeme Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        berjer: { label: 'Berjer Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        montaj: { label: 'Montaj Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        sevkiyat: { label: 'Sevkiyat Aşamasında', className: 'bg-orange-900 text-orange-300' },
+      }
+      const stationKey = barcode.current_station.toLowerCase()
+      const stationInfo = stationMap[stationKey] || { 
+        label: `${barcode.current_station} Aşamasında`, 
+        className: 'bg-orange-900 text-orange-300' 
+      }
+      return (
+        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${stationInfo.className}`}>
+          {stationInfo.label}
+        </span>
+      )
+    }
+    
     const statusMap: Record<string, { label: string; className: string }> = {
       in_stock: { label: 'Depoda', className: 'bg-green-900 text-green-300' },
       in_production: { label: 'Üretim Aşamasında', className: 'bg-orange-900 text-orange-300' },
@@ -232,7 +269,7 @@ export default function BarcodesPage() {
       reserved: { label: 'Rezerve', className: 'bg-yellow-900 text-yellow-300' },
       shipped: { label: 'Sevk Edildi', className: 'bg-purple-900 text-purple-300' },
     }
-    const statusInfo = statusMap[status] || { label: status, className: 'bg-gray-800 text-gray-300' }
+    const statusInfo = statusMap[barcode.status] || { label: barcode.status, className: 'bg-gray-800 text-gray-300' }
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
         {statusInfo.label}
@@ -251,136 +288,8 @@ export default function BarcodesPage() {
   })
 
   function printBarcode(barcode: Barcode) {
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
-
-    const barcodeValue = barcode.barcode.replace(/[^0-9]/g, '') || barcode.barcode
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-      barcode.barcode
-    )}`
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Barkod: ${barcode.barcode}</title>
-          <style>
-            @media print {
-              @page { size: 100mm 100mm; margin: 4mm; }
-            }
-            body {
-              font-family: Arial, sans-serif;
-              width: 100mm;
-              height: 100mm;
-              padding: 6mm;
-              text-align: center;
-              box-sizing: border-box;
-            }
-            .row {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              gap: 12px;
-              margin-top: 8px;
-            }
-            .barcode {
-              font-size: 24px;
-              font-weight: bold;
-              margin: 10px 0;
-              letter-spacing: 2px;
-            }
-            .barcode-canvas {
-              display: block;
-              margin: 6px auto 0;
-              max-width: 100%;
-              height: auto;
-            }
-            .qr {
-              width: 100px;
-              height: 100px;
-            }
-            .serial {
-              font-size: 14px;
-              color: #666;
-              margin: 5px 0;
-            }
-            .product {
-              font-size: 12px;
-              margin: 5px 0;
-            }
-            .sku {
-              font-size: 10px;
-              color: #999;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="product">${barcode.product_name}</div>
-          <div class="sku">${barcode.sku}</div>
-          <div class="barcode">${barcode.barcode}</div>
-          <canvas id="barcode-canvas" class="barcode-canvas" width="280" height="80"></canvas>
-          <div class="row">
-            <img id="qr-image" class="qr" src="${qrCodeUrl}" alt="QR" />
-            <div class="serial">SN: ${barcode.serial_number}</div>
-          </div>
-          <div style="margin-top: 10px; font-size: 10px;">
-            ${new Date(barcode.created_at).toLocaleDateString('tr-TR')}
-          </div>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-          <script>
-            (function() {
-              const qrImg = document.getElementById('qr-image')
-              const canvas = document.getElementById('barcode-canvas')
-              let barcodeReady = false
-              let qrReady = false
-
-              function tryPrint() {
-                if (barcodeReady && qrReady) {
-                  window.print()
-                }
-              }
-
-              try {
-                const options = {
-                  width: 1.5,
-                  height: 60,
-                  displayValue: true,
-                  fontSize: 14,
-                  margin: 10,
-                  background: '#ffffff',
-                  lineColor: '#000000',
-                  textAlign: 'center',
-                  textPosition: 'bottom',
-                  textMargin: 4
-                }
-                const value = '${barcodeValue}'
-                if (value.length === 13) {
-                  JsBarcode(canvas, value, Object.assign({}, options, { format: 'EAN13' }))
-                } else {
-                  JsBarcode(canvas, value, Object.assign({}, options, { format: 'CODE128' }))
-                }
-                barcodeReady = true
-              } catch (e) {
-                console.error('Print barcode error', e)
-                barcodeReady = true
-              }
-
-              if (qrImg && qrImg.complete) {
-                qrReady = true
-              } else if (qrImg) {
-                qrImg.onload = function() { qrReady = true; tryPrint() }
-                qrImg.onerror = function() { qrReady = true; tryPrint() }
-              } else {
-                qrReady = true
-              }
-
-              tryPrint()
-            })()
-          </script>
-        </body>
-      </html>
-    `)
-    printWindow.document.close()
+    // Yazdırma sayfasına yönlendir
+    window.open(`/inventory/products/print-barcode-label?barcodeId=${barcode.barcode}`, '_blank')
   }
 
   return (
@@ -459,7 +368,7 @@ export default function BarcodesPage() {
               </div>
               <div>
                 <div className="text-xs text-gray-400 mb-1">DURUM</div>
-                <div>{getStatusBadge(scannedBarcodeData.status)}</div>
+                <div>{getStatusBadge(scannedBarcodeData)}</div>
               </div>
               {scannedBarcodeData.production_order_number && (
                 <div>
@@ -608,7 +517,7 @@ export default function BarcodesPage() {
                       <div className="text-xs text-gray-400">{barcode.sku}</div>
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(barcode.status)}
+                      {getStatusBadge(barcode)}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
                       {barcode.production_order_number || '-'}

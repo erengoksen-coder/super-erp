@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
@@ -13,7 +14,7 @@ type BomVersionRow = {
   created_at: string
 }
 
-// GET: Ürün için BOM versiyonlarını getir
+// GET: �Srün için BOM versiyonlarını getir
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
@@ -39,7 +40,18 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni BOM versiyonu oluştur (opsiyonel kopyalama)
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const raw = await request.text()
+    let body: any = null
+    if (raw && raw.trim()) {
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        const params = new URLSearchParams(raw)
+        body = Object.fromEntries(params.entries())
+      }
+    } else {
+      body = {}
+    }
     const {
       product_id,
       effective_date,
@@ -59,7 +71,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const db = getDatabase()
     const product = db.prepare('SELECT id FROM active_products WHERE id = ?').get(product_id) as { id: string } | undefined
     if (!product) {
-      return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+      return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
     const latest = db.prepare(`
@@ -93,10 +105,11 @@ export const POST = withAuth(async (request: NextRequest) => {
         revision_reason || null
       )
 
-      const sourceVersionId = copy_from_version_id || db.prepare(`
+      const previous = db.prepare(`
         SELECT id FROM bom_versions
         WHERE product_id = ? AND version_no = ?
-      `).get(product_id, nextVersion - 1)?.id
+      `).get(product_id, nextVersion - 1) as { id: string } | undefined
+      const sourceVersionId = copy_from_version_id || previous?.id
 
       if (sourceVersionId) {
         const sourceItems = db.prepare(`
@@ -136,3 +149,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

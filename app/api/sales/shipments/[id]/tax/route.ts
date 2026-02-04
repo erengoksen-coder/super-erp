@@ -1,1 +1,1 @@
-export { PATCH } from '../../../../../shipments/[id]/tax/route'
+export { PATCH } from '../../../../shipments/[id]/tax/route'

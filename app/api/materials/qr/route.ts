@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
@@ -18,7 +19,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
       }
 
-      // QR kod içeriği: malzeme ID ve kod
+      // QR kod içerişi: malzeme ID ve kod
       const qrData = JSON.stringify({
         type: 'material',
         id: material.id,
@@ -50,7 +51,7 @@ export const GET = withAuth(async (request: NextRequest) => {
           return NextResponse.json({ material })
         }
       } catch (e) {
-        // Eğer JSON değilse, direkt kod olarak dene
+        // Eşer JSON deşilse, direkt kod olarak dene
         const material = db.prepare('SELECT * FROM materials WHERE code = ?').get(code) as any
         if (material) {
           return NextResponse.json({ material })
@@ -66,10 +67,10 @@ export const GET = withAuth(async (request: NextRequest) => {
   }
 })
 
-// POST: QR kod içeriğini parse et ve malzeme bilgisini döndür
+// POST: QR kod içerişini parse et ve malzeme bilgisini döndür
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { qr_data } = body
 
     if (!qr_data) {
@@ -86,7 +87,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         materialCode = parsed.code || null
       }
     } catch (e) {
-      // JSON değilse direkt kod olarak kabul et
+      // JSON deşilse direkt kod olarak kabul et
       materialCode = qr_data
     }
 
@@ -108,5 +109,6 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 
 

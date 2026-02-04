@@ -548,14 +548,22 @@ export default function MaterialStockPage() {
                   value={stockChange || ''}
                   onChange={(e) => setStockChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-700 text-white rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className={`w-full px-4 py-3 bg-gray-900 border border-gray-700 text-white rounded-lg text-lg focus:ring-2 focus:border-transparent ${
+                    stockType === 'in'
+                      ? 'focus:ring-green-500'
+                      : 'focus:ring-red-500'
+                  }`}
                 />
               </div>
 
               <button
                 onClick={handleStockChange}
                 disabled={saving || stockChange === 0}
-                className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center space-x-2"
+                className={`w-full py-3 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center space-x-2 ${
+                  stockType === 'in'
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
               >
                 <Save className="w-5 h-5" />
                 <span>{saving ? 'Kaydediliyor...' : 'Kaydet'}</span>

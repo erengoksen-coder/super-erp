@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
-import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
+import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
 import { calculateProductionCost, calculateProfit } from '@/lib/utils/costCalculator'
 import { logAudit } from '@/lib/audit'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { getAuthUserId } from '@/lib/auth/session'
+import { logger } from '@/lib/utils/logger'
+import { getProductionOrders } from '@/lib/production/getProductionOrders'
 
 async function getActorId(request: NextRequest) {
   return await getAuthUserId(request)
@@ -15,13 +18,13 @@ async function getActorId(request: NextRequest) {
 // GET: Tüm üretim emirlerini getir
 export const GET = withAuth(async (request: NextRequest) => {
   try {
-    const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const customerName = searchParams.get('customer_name') // Müşteri ismi arama filtresi
     const search = searchParams.get('search') || searchParams.get('q') // Cari/ürün araması
     
     // Önce production_orders tablosunun var olup olmadığını kontrol et
     try {
+      const db = getDatabase()
       const testQuery = db.prepare('SELECT COUNT(*) as count FROM production_orders').get() as any
       console.log('Production orders count:', testQuery?.count || 0)
     } catch (testError: any) {
@@ -29,65 +32,17 @@ export const GET = withAuth(async (request: NextRequest) => {
       return NextResponse.json({ error: `Veritabanı hatası: ${testError.message}` }, { status: 500 })
     }
     
-    let query = `
-      SELECT 
-        po.*,
-        p.name as product_name,
-        p.sku,
-        p.price as product_price,
-        COALESCE(po.material_cost, 0) as material_cost,
-        COALESCE(po.labor_cost, 0) as labor_cost,
-        COALESCE(po.total_cost, 0) as total_cost,
-        COALESCE(po.selling_price, 0) as selling_price,
-        COALESCE(po.profit, 0) as profit,
-        po.due_date,
-        po.estimated_completion_date,
-        po.started_at,
-        po.completed_at,
-        o.dealer_name,
-        o.customer_name,
-        o.order_number as customer_order_number,
-        o.order_date,
-        o.configuration,
-        o.notes
-      FROM production_orders po
-      LEFT JOIN active_products p ON po.product_id = p.id
-      LEFT JOIN active_orders o ON po.id = o.production_order_id
-      WHERE 1=1
-    `
-    const params: any[] = []
-    query += ' AND po.company_id = ? AND po.branch_id = ?'
-    params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
-    query += ' AND po.deleted_at IS NULL'
-    
-    // Müşteri ismi arama filtresi
-    if (customerName && customerName.trim()) {
-      query += ' AND o.customer_name LIKE ?'
-      params.push(`%${customerName.trim()}%`)
-    }
-
-    if (search && search.trim()) {
-      const term = `%${search.trim()}%`
-      query += `
-        AND (
-          o.customer_name LIKE ?
-          OR o.dealer_name LIKE ?
-          OR p.name LIKE ?
-          OR p.sku LIKE ?
-          OR po.order_number LIKE ?
-          OR o.order_number LIKE ?
-        )
-      `
-      params.push(term, term, term, term, term, term)
-    }
-    
-    query += ' ORDER BY po.created_at DESC'
-    
-    const orders = db.prepare(query).all(...params)
-    
+    const userId = await getActorId(request)
+    const orders = await getProductionOrders({ customerName, search, userId })
     return NextResponse.json(orders)
   } catch (error: any) {
     console.error('Error in GET /api/production:', error)
+    try {
+      await logger.error('[Production API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
     return NextResponse.json({ 
       error: error.message || 'Üretim emirleri yüklenirken bir hata oluştu',
       details: error.stack 
@@ -98,7 +53,23 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Yeni üretim emri oluştur ve stokları düş
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await parseJsonBody(request)
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message || 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json(
+        { error: 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
     const { order_number, product_id, quantity, due_date } = body
 
     if (!order_number || !product_id || !quantity) {
@@ -112,6 +83,21 @@ export const POST = withAuth(async (request: NextRequest) => {
     const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(product_id) as any
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+    }
+
+    const findBomProductIdByName = (name: string, excludeId: string) => {
+      if (!name) return null
+      const row = db.prepare(`
+        SELECT p.id as id
+        FROM active_products p
+        JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+        WHERE p.name = ? AND p.id != ?
+        GROUP BY p.id
+        ORDER BY COUNT(b.id) DESC
+        LIMIT 1
+      `).get(name, excludeId) as { id: string } | undefined
+      return row?.id || null
     }
 
     const actorId = await getActorId(request)
@@ -139,7 +125,8 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
 
       // 1. Stok kontrolü ve maliyet hesaplama
-      const bom = db.prepare(`
+      let bomProductId = product_id
+      let bom = db.prepare(`
         SELECT 
           b.material_id,
           b.quantity_required,
@@ -154,9 +141,40 @@ export const POST = withAuth(async (request: NextRequest) => {
         JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
         JOIN materials m ON b.material_id = m.id
         WHERE b.product_id = ? AND b.deleted_at IS NULL
-      `).all(product_id)
+      `).all(bomProductId) as any[]
 
-      // Stok yeterliliğini kontrol et (fire dahil)
+      if (bom.length === 0) {
+        const fallbackId = findBomProductIdByName(product.name, product_id)
+        if (fallbackId) {
+          bomProductId = fallbackId
+          bom = db.prepare(`
+            SELECT 
+              b.material_id,
+              b.quantity_required,
+              b.unit as unit,
+              COALESCE(b.fire_percentage, 0) as fire_percentage,
+              m.name as material_name,
+              m.stock_amount,
+              m.unit as material_unit,
+              m.reserved_quantity,
+              COALESCE(m.purchase_price, 0) as purchase_price
+            FROM bom b
+            JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+            JOIN materials m ON b.material_id = m.id
+            WHERE b.product_id = ? AND b.deleted_at IS NULL
+          `).all(bomProductId) as any[]
+
+          if (bom.length > 0) {
+            logger.info('[Production API] BOM isim eşleşmesi ile bulundu', {
+              product_id,
+              fallback_product_id: bomProductId,
+              product_name: product.name,
+            })
+          }
+        }
+      }
+
+      // Stok yeterlilişini kontrol et (fire dahil)
       for (const item of bom) {
         const firePercentage = item.fire_percentage || 0
         const quantityWithFire = item.quantity_required * (1 + (firePercentage / 100))
@@ -262,7 +280,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
         const totalRequired = convertedQuantity * quantity
         
-        // Stoku düş (ÖNEMLİ: movement_type 'out' olduğu için stok düşmeli)
+        // Stoku düş (�NEMLİ: movement_type 'out' olduşu için stok düşmeli)
         applyMaterialStockChange(db, item.material_id, -totalRequired)
         
         const movementId = randomUUID()
@@ -313,7 +331,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             `Üretim emri: ${order_number}` // notes
           )
         } catch (error: any) {
-          // Eğer hala çakışma olursa, UUID ekleyerek tekrar dene
+          // Eşer hala çakışma olursa, UUID ekleyerek tekrar dene
           if (error.message && error.message.includes('UNIQUE')) {
             const uniqueId = randomUUID().slice(0, 8)
             const barcodeWithId = `${barcodeData.barcode}-${uniqueId}`
@@ -342,3 +360,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

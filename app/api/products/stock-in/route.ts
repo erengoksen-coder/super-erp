@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -6,19 +7,19 @@ import { randomUUID } from 'crypto'
 // POST: Mamül stok girişi
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { product_id, quantity, user_id } = body
 
     if (!product_id || !quantity || quantity <= 0) {
       return NextResponse.json(
-        { error: 'Ürün ve miktar (pozitif değer) gerekli' },
+        { error: '�Srün ve miktar (pozitif deşer) gerekli' },
         { status: 400 }
       )
     }
 
     const db = getDatabase()
 
-    // Products tablosuna stock_amount kolonu ekle (eğer yoksa)
+    // Products tablosuna stock_amount kolonu ekle (eşer yoksa)
     try {
       db.exec('ALTER TABLE products ADD COLUMN stock_amount INTEGER DEFAULT 0')
     } catch {
@@ -29,7 +30,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(product_id) as any
     
     if (!product) {
-      return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
+      return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
     // Her birim için otomatik barkod üret
@@ -82,7 +83,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           serial_number: barcodeData.serial,
         })
       } catch (error: any) {
-        // Eğer hala çakışma olursa, UUID ekleyerek tekrar dene
+        // Eşer hala çakışma olursa, UUID ekleyerek tekrar dene
         if (error.message && error.message.includes('UNIQUE')) {
           const uniqueId = randomUUID().slice(0, 8)
           const barcodeWithId = `${barcodeData.barcode}-${uniqueId}`
@@ -137,3 +138,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

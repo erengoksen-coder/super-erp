@@ -47,5 +47,4 @@ export function loadUserPermissions(db: Database.Database, userId: string) {
   return Array.from(mergedMap.values())
 }
 
-export { loadUserPermissions }
 export type { Permission }

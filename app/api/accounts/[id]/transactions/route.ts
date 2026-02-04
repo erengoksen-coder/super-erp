@@ -17,6 +17,8 @@ type AccountTransactionRow = {
   product_name?: string | null
   product_sku?: string | null
   shipment_number?: string | null
+  shipment_discount_rate?: number | null
+  shipment_discount_amount?: number | null
   created_at?: string
   running_balance?: number
 }
@@ -25,11 +27,13 @@ type AccountTransactionRow = {
 export const GET = withAuth(async (
   request: NextRequest,
   _user,
-  context?: { params?: { id?: string } | Promise<{ id?: string }> }
+  context?: unknown
 ) => {
   try {
     const db = getDatabase()
-    const resolvedParams = await Promise.resolve(context?.params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
+    )
     const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
     if (!accountId) {
       return fail('ID gerekli', { status: 400 })
@@ -44,7 +48,9 @@ export const GET = withAuth(async (
         si.total_price,
         p.name as product_name,
         p.sku as product_sku,
-        s.shipment_number
+        s.shipment_number,
+        s.discount_rate as shipment_discount_rate,
+        s.discount_amount as shipment_discount_amount
       FROM account_transactions at
       LEFT JOIN shipment_items si ON at.reference_id = si.id AND at.reference_type = 'shipment_item'
       LEFT JOIN shipments s ON si.shipment_id = s.id

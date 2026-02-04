@@ -5,6 +5,7 @@ import { Download } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 type StockSummary = {
   summary: {
@@ -40,6 +41,19 @@ export default function ReportsPage() {
   const criticalProducts = useMemo(() => {
     return (data?.products ?? []).filter((p) => (p.stock_amount ?? 0) < (p.min_stock_level ?? 0))
   }, [data])
+
+  const summaryChartData = useMemo(() => ([
+    {
+      name: 'Malzeme',
+      toplam: data?.summary.materials_total ?? 0,
+      kritik: data?.summary.materials_critical ?? 0,
+    },
+    {
+      name: 'Ürün',
+      toplam: data?.summary.products_total ?? 0,
+      kritik: data?.summary.products_critical ?? 0,
+    },
+  ]), [data])
 
   async function downloadExcel() {
     const response = await fetch('/api/reports/stock-summary/export')
@@ -166,6 +180,22 @@ export default function ReportsPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+              <h2 className="text-white font-semibold mb-3">Stok Özeti</h2>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={summaryChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="name" stroke="#9ca3af" />
+                    <YAxis stroke="#9ca3af" />
+                    <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151' }} />
+                    <Legend />
+                    <Bar dataKey="toplam" fill="#60a5fa" name="Toplam" />
+                    <Bar dataKey="kritik" fill="#f87171" name="Kritik" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
             <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
               <h2 className="text-white font-semibold mb-3">Kritik Malzemeler</h2>
               {criticalMaterials.length === 0 ? (

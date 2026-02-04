@@ -1,16 +1,7 @@
-const Database = require('better-sqlite3')
-const { join } = require('path')
-const { existsSync } = require('fs')
+const { ensureDangerousAllowed, openDatabase } = require('./db-utils')
 
-const dbPath = join(process.cwd(), 'data', 'erp.db')
-
-if (!existsSync(dbPath)) {
-  console.log('Veritabanı dosyası bulunamadı:', dbPath)
-  process.exit(0)
-}
-
-const db = new Database(dbPath)
-db.pragma('foreign_keys = OFF')
+ensureDangerousAllowed('clear-all-data.js')
+const db = openDatabase()
 
 console.log('Tüm veriler siliniyor...\n')
 

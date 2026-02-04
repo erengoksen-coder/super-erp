@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { getAccessTokenFromRequest } from '@/lib/auth/session'
@@ -12,7 +13,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     if (!token) {
       return NextResponse.json({ error: 'Kullanıcı kimliği gerekli' }, { status: 401 })
     }
-    const payload = await verifyAccessToken(token).catch (() => null)
+    const payload = await verifyAccessToken(token).catch(() => null)
     const userId = payload?.userId
     if (!userId) {
       return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
@@ -65,7 +66,7 @@ export const PATCH = withAuth(async (request: NextRequest) => {
       return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
     }
 
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { email, full_name, job_title } = body
 
     const db = getDatabase()
@@ -109,4 +110,5 @@ export const PATCH = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

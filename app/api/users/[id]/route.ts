@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
-import { createHash } from 'crypto'
+import { hashPassword } from '@/lib/auth/password'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
 import { getAuthUserId } from '@/lib/auth/session'
@@ -26,10 +27,15 @@ async function getActorId(request: NextRequest) {
 // GET: Tek kullanıcı detayı
 export const GET = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const userId = resolvedParams.id
     const db = getDatabase()
 
@@ -77,12 +83,17 @@ export const GET = withAuth(async (
 // PATCH: Kullanıcı güncelle (onaylama, izin güncelleme)
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const userId = resolvedParams.id
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { is_approved, approved_by, permissions, password, full_name, job_title, role, position, email } = body
 
     const db = getDatabase()
@@ -136,7 +147,7 @@ export const PATCH = withAuth(async (
         }
 
         if (password) {
-          const passwordHash = createHash('sha256').update(password).digest('hex')
+          const passwordHash = hashPassword(password)
           updateQuery += ', password_hash = ?'
           updateParams.push(passwordHash)
         }
@@ -227,10 +238,15 @@ export const PATCH = withAuth(async (
 // DELETE: Kullanıcı sil
 export const DELETE = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const userId = resolvedParams.id
     const db = getDatabase()
 

@@ -16,7 +16,9 @@ export type AccessTokenPayload = JWTPayload & {
   }>
 }
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-degistir')
+const secret = new TextEncoder().encode(process.env.JWT_SECRET || (() => {
+  throw new Error('JWT_SECRET environment variable is required')
+})())
 
 export async function createToken(payload: { userId: string; role: string } & Partial<AccessTokenPayload>) {
   return new SignJWT(payload)

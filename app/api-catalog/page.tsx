@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Boxes, Building2, ClipboardList, Package, ShoppingCart, Wallet } from 'lucide-react'
+import { Boxes, ClipboardList, Package, ShoppingCart, Wallet } from 'lucide-react'
 
 const categories = [
   { id: 'accounting', name: 'Muhasebe', icon: Wallet },
@@ -9,7 +9,6 @@ const categories = [
   { id: 'procurement', name: 'Satın Alma', icon: ClipboardList },
   { id: 'inventory', name: 'Stok', icon: Package },
   { id: 'production', name: 'Üretim', icon: Boxes },
-  { id: 'hr', name: 'İK', icon: Building2 },
 ]
 
 export default function ApiCatalogPage() {

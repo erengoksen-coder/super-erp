@@ -1,1 +1,1 @@
-export { POST } from '../../../../materials/create-from-orders/route'
+export { POST } from '../../../materials/create-from-orders/route'

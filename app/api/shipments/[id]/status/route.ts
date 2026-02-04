@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
@@ -29,12 +30,17 @@ type ShipmentStatusInput = {
 // PATCH: Sevkiyat durumunu güncelle
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return fail('ID gerekli', { status: 400 })
+    }
     const shipmentId = resolvedParams.id
-    const body = await request.json() as ShipmentStatusInput
+    const body = await parseJsonBody(request) as ShipmentStatusInput
     const { status, cancel_reason } = body
 
     if (!status || !['pending', 'in_transit', 'delivered', 'cancelled'].includes(status)) {

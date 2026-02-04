@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -16,7 +17,7 @@ type TransferInput = {
 // POST: Depolar arası transfer
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as TransferInput
+    const body = await parseJsonBody(request) as TransferInput
     const { material_id, from_warehouse_id, to_warehouse_id, quantity, unit, notes } = body
 
     if (!material_id || !from_warehouse_id || !to_warehouse_id || !quantity || quantity <= 0) {
@@ -49,7 +50,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const factor = resolveUnitFactor(db, material_id, unit, baseUnit)
       if (!factor) {
         return NextResponse.json(
-          { error: `Birim dönüşümü bulunamadı (${unit} → ${baseUnit})` },
+          { error: `Birim dönüşümü bulunamadı (${unit} �  ${baseUnit})` },
           { status: 400 }
         )
       }
@@ -94,7 +95,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         normalizedQuantity
       )
 
-      const transferNote = `${notes ? notes + ' - ' : ''}${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} → ${normalizedQuantity} ${baseUnit}] ` : ''}Depo transferi`
+      const transferNote = `${notes ? notes + ' - ' : ''}${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} �  ${normalizedQuantity} ${baseUnit}] ` : ''}Depo transferi`
 
       db.prepare(`
         INSERT INTO stock_movements 
@@ -130,3 +131,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

@@ -24,6 +24,8 @@ interface Shipment {
   shipment_date: string
   total_quantity: number
   total_amount: number
+  discount_rate?: number | null
+  discount_amount?: number | null
   tax_rate: number
   tax_amount: number
   final_amount: number
@@ -58,6 +60,8 @@ interface AccountTransaction {
   unit_price?: number
   total_price?: number
   shipment_number?: string
+  shipment_discount_rate?: number | null
+  shipment_discount_amount?: number | null
   running_balance?: number
 }
 
@@ -91,7 +95,7 @@ export default function AccountDetailPage() {
 
   async function loadAccount(id: string) {
     try {
-      const data = await fetchApi(`/api/accounts/${id}`)
+      const data = await fetchApi<Account>(`/api/accounts/${id}`)
       setAccount(data)
     } catch (error) {
       console.error('Error loading account:', error)
@@ -104,7 +108,7 @@ export default function AccountDetailPage() {
 
   async function loadShipments(accountId: string) {
     try {
-      const data = await fetchApi(`/api/shipments?customer_id=${accountId}`)
+      const data = await fetchApi<Shipment[]>(`/api/shipments?customer_id=${accountId}`)
       setShipments(data)
     } catch (error) {
       console.error('Error loading shipments:', error)
@@ -113,7 +117,7 @@ export default function AccountDetailPage() {
 
   async function loadTransactions(accountId: string) {
     try {
-      const data = await fetchApi(`/api/accounts/${accountId}/transactions`)
+      const data = await fetchApi<AccountTransaction[]>(`/api/accounts/${accountId}/transactions`)
       setTransactions(data)
     } catch (error) {
       console.error('Error loading transactions:', error)
@@ -580,6 +584,7 @@ export default function AccountDetailPage() {
                     <th className="text-left py-2 px-3 text-xs text-gray-400">Ürün</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Adet</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Birim Fiyat (BOM)</th>
+                    <th className="text-right py-2 px-3 text-xs text-gray-400">İskonto</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Tutar</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Tip</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Bakiye</th>
@@ -593,7 +598,7 @@ export default function AccountDetailPage() {
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300">
                         <div className="flex items-center space-x-2">
-                          <span>{transaction.description || '-'}</span>
+                          <span>{(transaction.description || '-').replace(/❖/g, '₺')}</span>
                           {(transaction.reference_type === 'shipment_return' ||
                             (transaction.description || '').toLowerCase().includes('sevkiyat iptali')) && (
                             <span className="px-2 py-0.5 rounded bg-red-900/30 text-red-400 text-[10px] font-semibold">
@@ -604,12 +609,29 @@ export default function AccountDetailPage() {
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300">
                         {transaction.product_name ? (
-                          <span>
-                            {transaction.product_name} {transaction.product_sku && `(${transaction.product_sku})`}
-                            {transaction.shipment_number && (
-                              <span className="text-blue-400 ml-1">[{transaction.shipment_number}]</span>
-                            )}
-                          </span>
+                          <div>
+                            <div>
+                              {transaction.product_name} {transaction.product_sku && `(${transaction.product_sku})`}
+                              {transaction.shipment_number && (
+                                <span className="text-blue-400 ml-1">[{transaction.shipment_number}]</span>
+                              )}
+                            </div>
+                            {/* İskonto detayı (sevkiyat için) */}
+                            {transaction.reference_type === 'shipment_item' && ((transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) || (transaction.description && transaction.description.includes('İskonto:'))) ? (
+                              <div className="text-yellow-400 text-[10px] mt-1">
+                                {transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0
+                                  ? `İskonto: %${transaction.shipment_discount_rate.toFixed(2)} (${transaction.shipment_discount_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺)`
+                                  : (() => {
+                                      const discountMatch = transaction.description?.match(/İskonto: %([\d.]+) \(([\d.]+) ₺\)/)
+                                      if (discountMatch) {
+                                        return `İskonto: %${discountMatch[1]} (${parseFloat(discountMatch[2]).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺)`
+                                      }
+                                      return null
+                                    })()
+                                }
+                              </div>
+                            ) : null}
+                          </div>
                         ) : (
                           '-'
                         )}
@@ -628,6 +650,34 @@ export default function AccountDetailPage() {
                           </span>
                         ) : (
                           '-'
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-xs text-gray-300 text-right">
+                        {(transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) || (transaction.description && transaction.description.includes('İskonto:')) ? (
+                          <div className="text-yellow-400">
+                            {(() => {
+                              if (transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) {
+                                return (
+                                  <>
+                                    <div className="text-[10px]">%{transaction.shipment_discount_rate.toFixed(2)}</div>
+                                    <div className="text-[10px]">-{transaction.shipment_discount_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                                  </>
+                                )
+                              }
+                              const discountMatch = transaction.description?.match(/İskonto: %([\d.]+) \(([\d.]+) ₺\)/)
+                              if (discountMatch) {
+                                return (
+                                  <>
+                                    <div className="text-[10px]">%{discountMatch[1]}</div>
+                                    <div className="text-[10px]">-{parseFloat(discountMatch[2]).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                                  </>
+                                )
+                              }
+                              return null
+                            })()}
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">-</span>
                         )}
                       </td>
                       <td className={`py-2 px-3 text-xs font-semibold text-right ${
@@ -686,6 +736,7 @@ export default function AccountDetailPage() {
                     <th className="text-left py-2 px-3 text-xs text-gray-400">Tarih</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Adet</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Ara Toplam</th>
+                    <th className="text-right py-2 px-3 text-xs text-gray-400">İskonto</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">KDV %</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">KDV Tutarı</th>
                     <th className="text-right py-2 px-3 text-xs text-gray-400">Genel Toplam</th>
@@ -722,10 +773,32 @@ export default function AccountDetailPage() {
                           {shipment.total_quantity}
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                          {shipment.total_amount?.toLocaleString('tr-TR', { 
-                            minimumFractionDigits: 2, 
-                            maximumFractionDigits: 2 
-                          }) || '0,00'} ₺
+                          {/* Ara Toplam = BOM fiyatı (iskonto öncesi) = total_amount + discount_amount (eğer iskonto varsa) */}
+                          {(() => {
+                            // Eğer iskonto varsa, total_amount iskonto sonrası olabilir, bu yüzden iskonto tutarını ekliyoruz
+                            const araToplam = shipment.total_amount || 0
+                            const iskontoTutari = shipment.discount_amount || 0
+                            // Eğer iskonto varsa, Ara Toplam = total_amount + discount_amount (BOM fiyatı)
+                            // Eğer iskonto yoksa, Ara Toplam = total_amount (zaten BOM fiyatı)
+                            const bomFiyati = iskontoTutari > 0 ? araToplam + iskontoTutari : araToplam
+                            return bomFiyati.toLocaleString('tr-TR', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })
+                          })()} ₺
+                        </td>
+                        <td className="py-2 px-3 text-xs text-gray-300 text-right">
+                          {shipment.discount_rate && shipment.discount_rate > 0 && shipment.discount_amount && shipment.discount_amount > 0 ? (
+                            <div className="text-yellow-400">
+                              <div className="font-semibold">%{shipment.discount_rate.toFixed(2)}</div>
+                              <div className="text-[10px]">-{shipment.discount_amount.toLocaleString('tr-TR', { 
+                                minimumFractionDigits: 2, 
+                                maximumFractionDigits: 2 
+                              })} ₺</div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">-</span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300 text-right">
                           {editingShipmentId === shipment.id ? (
@@ -750,13 +823,19 @@ export default function AccountDetailPage() {
                           }) || '0,00'} ₺
                         </td>
                         <td className="py-2 px-3 text-xs font-semibold text-white text-right">
-                          {shipment.final_amount?.toLocaleString('tr-TR', { 
-                            minimumFractionDigits: 2, 
-                            maximumFractionDigits: 2 
-                          }) || shipment.total_amount?.toLocaleString('tr-TR', { 
-                            minimumFractionDigits: 2, 
-                            maximumFractionDigits: 2 
-                          }) || '0,00'} ₺
+                          {/* Genel Toplam = Ara Toplam - İskonto + KDV */}
+                          {(() => {
+                            // Ara Toplam = BOM fiyatı (iskonto öncesi)
+                            const araToplam = shipment.total_amount || 0
+                            const iskontoTutari = shipment.discount_amount || 0
+                            const bomFiyati = iskontoTutari > 0 ? araToplam + iskontoTutari : araToplam
+                            const kdvTutari = shipment.tax_amount || 0
+                            const genelToplam = bomFiyati - iskontoTutari + kdvTutari
+                            return genelToplam.toLocaleString('tr-TR', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })
+                          })()} ₺
                         </td>
                         <td className="py-2 px-3 text-xs text-center">
                           <span className={`px-2 py-1 rounded text-[10px] font-semibold ${
@@ -808,7 +887,7 @@ export default function AccountDetailPage() {
                       </tr>
                       {expandedShipments.has(shipment.id) && shipment.items && shipment.items.length > 0 && (
                         <tr className="bg-gray-800/50">
-                          <td colSpan={8} className="py-3 px-3">
+                          <td colSpan={10} className="py-3 px-3">
                             <div className="space-y-2">
                               <div className="text-xs font-semibold text-gray-400 mb-2">Sevkiyat Kalemleri:</div>
                               <div className="overflow-x-auto">
@@ -822,28 +901,54 @@ export default function AccountDetailPage() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {shipment.items.map((item) => (
-                                      <tr key={item.id} className="border-b border-gray-700/50">
-                                        <td className="py-1 px-2 text-gray-300">
-                                          {item.product_name} ({item.product_sku})
-                                        </td>
-                                        <td className="py-1 px-2 text-gray-300 text-right">
-                                          {item.quantity}
-                                        </td>
-                                        <td className="py-1 px-2 text-gray-300 text-right">
-                                          {item.unit_price?.toLocaleString('tr-TR', { 
-                                            minimumFractionDigits: 2, 
-                                            maximumFractionDigits: 2 
-                                          }) || '0,00'} ₺
-                                        </td>
-                                        <td className="py-1 px-2 text-white font-semibold text-right">
-                                          {item.total_price?.toLocaleString('tr-TR', { 
-                                            minimumFractionDigits: 2, 
-                                            maximumFractionDigits: 2 
-                                          }) || '0,00'} ₺
-                                        </td>
-                                      </tr>
-                                    ))}
+                                    {shipment.items.map((item) => {
+                                      // item.total_price artık BOM fiyatı (iskonto öncesi)
+                                      const itemBomPrice = item.total_price || 0
+                                      // İskonto hesapla (eğer varsa)
+                                      const itemDiscountRate = shipment.discount_rate || 0
+                                      const itemDiscountAmount = itemBomPrice && itemDiscountRate > 0 
+                                        ? (itemBomPrice * itemDiscountRate) / 100 
+                                        : 0
+                                      
+                                      return (
+                                        <Fragment key={item.id}>
+                                          <tr className="border-b border-gray-700/50">
+                                            <td className="py-1 px-2 text-gray-300">
+                                              {item.product_name} ({item.product_sku})
+                                            </td>
+                                            <td className="py-1 px-2 text-gray-300 text-right">
+                                              {item.quantity}
+                                            </td>
+                                            <td className="py-1 px-2 text-gray-300 text-right">
+                                              {item.unit_price?.toLocaleString('tr-TR', { 
+                                                minimumFractionDigits: 2, 
+                                                maximumFractionDigits: 2 
+                                              }) || '0,00'} ₺
+                                            </td>
+                                            <td className="py-1 px-2 text-white font-semibold text-right">
+                                              {/* BOM fiyatı (iskonto öncesi) */}
+                                              {itemBomPrice.toLocaleString('tr-TR', { 
+                                                minimumFractionDigits: 2, 
+                                                maximumFractionDigits: 2 
+                                              })} ₺
+                                            </td>
+                                          </tr>
+                                          {itemDiscountAmount > 0 && (
+                                            <tr className="border-b border-gray-700/30 bg-gray-900/30">
+                                              <td colSpan={3} className="py-1 px-2 text-gray-400 text-right text-[10px]">
+                                                İskonto (%{itemDiscountRate.toFixed(2)}):
+                                              </td>
+                                              <td className="py-1 px-2 text-yellow-400 text-right text-[10px] font-semibold">
+                                                -{itemDiscountAmount.toLocaleString('tr-TR', { 
+                                                  minimumFractionDigits: 2, 
+                                                  maximumFractionDigits: 2 
+                                                })} ₺
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </Fragment>
+                                      )
+                                    })}
                                   </tbody>
                                 </table>
                               </div>

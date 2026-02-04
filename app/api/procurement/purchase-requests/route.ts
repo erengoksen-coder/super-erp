@@ -1,1 +1,1 @@
-export { GET, POST } from '../../../purchase-requests/route'
+export { GET, POST } from '../../purchase-requests/route'

@@ -1,1 +1,1 @@
-export { GET } from '../../../../shipments/ready-items/route'
+export { GET } from '../../../shipments/ready-items/route'

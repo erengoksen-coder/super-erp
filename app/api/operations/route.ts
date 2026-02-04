@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
@@ -31,7 +32,7 @@ export const GET = withAuth(async (request) => {
 // POST: Operasyon oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { code, name, description, standard_duration_minutes } = body || {}
 
     if (!name || !String(name).trim()) {
@@ -61,7 +62,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 // PATCH: Operasyon güncelle
 export const PATCH = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { id, code, name, description, standard_duration_minutes, is_active } = body || {}
 
     if (!id) {

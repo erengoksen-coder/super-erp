@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -9,12 +10,28 @@ import { createJournalEntry } from '@/lib/utils/accounting'
 // POST: Hammadde stok girişi
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await parseJsonBody(request)
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: error?.message || 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json(
+        { error: 'Geçersiz istek verisi' },
+        { status: 400 }
+      )
+    }
+
     const { material_id, quantity, unit, warehouse_id, invoice_number, shipment_number, user_id } = body
 
     if (!material_id || !quantity || quantity <= 0) {
       return NextResponse.json(
-        { error: 'Malzeme ve miktar (pozitif değer) gerekli' },
+        { error: 'Malzeme ve miktar (pozitif deşer) gerekli' },
         { status: 400 }
       )
     }
@@ -48,7 +65,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const factor = resolveUnitFactor(db, material_id, unit, baseUnit)
       if (!factor) {
         return NextResponse.json(
-          { error: `Birim dönüşümü bulunamadı (${unit} → ${baseUnit})` },
+          { error: `Birim dönüşümü bulunamadı (${unit} �  ${baseUnit})` },
           { status: 400 }
         )
       }
@@ -58,6 +75,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     // Mevcut stok miktarını al
     const currentStock = material.stock_amount || 0
 
+    let movementId: string | undefined
     db.transaction(() => {
       // Stoku güncelle (optimistic)
       applyMaterialStockChange(db, material_id, normalizedQuantity)
@@ -75,7 +93,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       )
 
       // Stok hareketi kaydı oluştur
-      const movementId = randomUUID()
+      movementId = randomUUID()
       const invoiceNum = invoice_number?.trim() || null
       const shipmentNum = shipment_number?.trim() || null
       
@@ -89,7 +107,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         normalizedQuantity,
         invoiceNum,
         shipmentNum,
-        `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} → ${normalizedQuantity} ${baseUnit}] ` : ''}Manuel stok girişi - ${new Date().toLocaleString('tr-TR')}`,
+        `${unit && baseUnit && unit !== baseUnit ? `[${quantity} ${unit} �  ${normalizedQuantity} ${baseUnit}] ` : ''}Manuel stok girişi - ${new Date().toLocaleString('tr-TR')}`,
         user_id || null,
         targetWarehouseId,
         targetWarehouseId
@@ -132,7 +150,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           WHERE id = ?
         `).run(newReceivedQty, req.id)
 
-        // Eğer talep tamamen karşılandıysa status'u "completed" yap
+        // Eşer talep tamamen karşılandıysa status'u "completed" yap
         if (newReceivedQty >= req.requested_quantity) {
           db.prepare(`
             UPDATE purchase_requests
@@ -193,3 +211,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

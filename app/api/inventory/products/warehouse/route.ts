@@ -8,6 +8,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const db = getDatabase()
     
     // Mamül depodaki ürünleri getir (completed durumundaki)
+    // Sadece products tablosundan gelen kayıtları göster (hammaddeler değil)
     // Her barkod için sipariş ve müşteri bilgileriyle birlikte
     const warehouseItems = db.prepare(`
       SELECT 
@@ -37,15 +38,17 @@ export const GET = withAuth(async (request: NextRequest) => {
         a.email as customer_email,
         a.phone as customer_phone
       FROM product_serial_numbers psn
-      JOIN active_products p ON psn.product_id = p.id
+      JOIN products p ON psn.product_id = p.id AND p.deleted_at IS NULL
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       LEFT JOIN active_orders o ON po.id = o.production_order_id
       LEFT JOIN accounts a ON psn.customer_id = a.id
-      WHERE (psn.current_station = 'completed' OR (psn.current_station IS NULL AND po.status = 'completed'))
-        AND psn.status IN ('available', 'in_stock')
-        AND (po.status = 'completed' OR po.status IS NULL)
+      WHERE psn.current_station = 'completed'
+        AND p.id IS NOT NULL
+        AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
       ORDER BY po.completed_at DESC, psn.created_at DESC
     `).all() as any[]
+    
+    console.log(`[Warehouse API] Found ${warehouseItems.length} items in warehouse`)
     
     return NextResponse.json(warehouseItems)
   } catch (error: any) {

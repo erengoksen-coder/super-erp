@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
@@ -50,7 +51,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 // POST: Birim dönüşümü ekle
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as ConversionInput
+    const body = await parseJsonBody(request) as ConversionInput
     const { material_id, from_unit, to_unit, factor } = body
 
     if (!from_unit || !to_unit || !factor || factor <= 0) {
@@ -103,7 +104,7 @@ export const DELETE = withAuth(async (request: NextRequest) => {
 // PATCH: Birim dönüşümü güncelle
 export const PATCH = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json() as ConversionInput & { id?: string }
+    const body = await parseJsonBody(request) as ConversionInput & { id?: string }
     const { id, material_id, from_unit, to_unit, factor } = body
 
     if (!id) {
@@ -139,3 +140,4 @@ export const PATCH = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

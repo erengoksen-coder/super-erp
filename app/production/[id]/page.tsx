@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 
 interface ProductionOrder {
   id: string
   order_number: string
+  customer_order_number?: string | null
   product_name: string
   sku: string
   quantity: number
@@ -66,17 +67,56 @@ export default function ProductionOrderDetailPage() {
 
   async function loadData() {
     try {
-      // Üretim emri bilgilerini yükle
-      const orderResponse = await fetch('/api/production')
-      if (!orderResponse.ok) throw new Error('Üretim emri yüklenemedi')
-      const orders = await orderResponse.json()
-      const foundOrder = orders.find((o: ProductionOrder) => o.id === orderId)
-      if (!foundOrder) throw new Error('Üretim emri bulunamadı')
+      let foundOrder: ProductionOrder | null = null
+      const rawParam = String(orderId || '').trim()
+
+      if (rawParam) {
+        try {
+          foundOrder = await fetchApi<ProductionOrder>(
+            `/api/production/${encodeURIComponent(rawParam)}`
+          )
+        } catch (error: any) {
+          const message = String(error?.message || '')
+          if (!message.includes('Üretim emri bulunamadı')) {
+            throw error
+          }
+        }
+      }
+
+      if (!foundOrder) {
+        const ordersData = await fetchApi<ProductionOrder[] | { orders?: ProductionOrder[] }>('/api/production')
+        const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders ?? [])
+        const normalizedId = decodeURIComponent(rawParam || '').trim()
+        const normalizedLower = normalizedId.toLowerCase()
+        foundOrder = orders.find((o: ProductionOrder) => {
+          if (!o) return false
+          const rawId = String(o.id ?? '').trim()
+          const rawOrderNumber = String((o as ProductionOrder).order_number ?? '').trim()
+          const rawCustomerOrderNumber = String((o as ProductionOrder).customer_order_number ?? '').trim()
+          return (
+            rawId === normalizedId ||
+            rawOrderNumber === normalizedId ||
+            rawOrderNumber.toLowerCase() === normalizedLower ||
+            rawCustomerOrderNumber === normalizedId ||
+            rawCustomerOrderNumber.toLowerCase() === normalizedLower
+          )
+        }) || null
+      }
+
+      if (!foundOrder) {
+        setOrder(null)
+        setConsumptions([])
+        setBarcodes([])
+        setCustomers([])
+        return
+      }
+
       setOrder(foundOrder)
+      const productionOrderId = foundOrder.id
 
       // Fiili harcanan malzemeleri yükle
       const consumptionResponse = await fetch(
-        `/api/production/actual-consumption?production_order_id=${orderId}`
+        `/api/production/actual-consumption?production_order_id=${productionOrderId}`
       )
       if (consumptionResponse.ok) {
         const data = await consumptionResponse.json()
@@ -93,7 +133,7 @@ export default function ProductionOrderDetailPage() {
       }
 
       // Barkodları yükle
-      const barcodesResponse = await fetch(`/api/production/${orderId}/barcodes`)
+      const barcodesResponse = await fetch(`/api/production/${productionOrderId}/barcodes`)
       if (barcodesResponse.ok) {
         const barcodesData = await barcodesResponse.json()
         setBarcodes(barcodesData)
@@ -101,18 +141,39 @@ export default function ProductionOrderDetailPage() {
 
       // Müşterileri yükle
       const customersData = await fetchApi('/api/accounts?type=customer')
-      setCustomers(customersData)
+      setCustomers((Array.isArray(customersData) ? customersData : []))
     } catch (error) {
       console.error('Error loading data:', error)
-      alert('Veri yüklenirken hata oluştu')
+      setOrder(null)
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleMarkForShipment(barcode: string, ready: boolean) {
+  async function handleCancelProduction() {
+    if (!order) return
+    if (!confirm(`${order.order_number} üretim emrini iptal etmek istiyor musunuz?`)) {
+      return
+    }
     try {
-      const response = await fetch(`/api/production/${orderId}/barcodes`, {
+      const response = await fetch(`/api/production/${order.id}/cancel`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'İptal işlemi başarısız')
+      }
+      alert('✅ Üretim emri iptal edildi')
+      await loadData()
+    } catch (error: any) {
+      alert('Hata: ' + error.message)
+    }
+  }
+
+  async function handleMarkForShipment(barcode: string, ready: boolean) {
+    const productionOrderId = order?.id || orderId
+    try {
+      const response = await fetch(`/api/production/${productionOrderId}/barcodes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +189,7 @@ export default function ProductionOrderDetailPage() {
       }
 
       // Barkodları yeniden yükle
-      const barcodesResponse = await fetch(`/api/production/${orderId}/barcodes`)
+      const barcodesResponse = await fetch(`/api/production/${productionOrderId}/barcodes`)
       if (barcodesResponse.ok) {
         const barcodesData = await barcodesResponse.json()
         setBarcodes(barcodesData)
@@ -417,85 +478,16 @@ export default function ProductionOrderDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
-                  {barcode.ready_for_shipment ? (
-                    <>
-                      <span className="text-green-400 text-sm font-semibold flex items-center space-x-1">
-                        <Truck className="w-4 h-4" />
-                        <span>Sevk Edilebilir</span>
-                      </span>
-                      <button
-                        onClick={() => handleMarkForShipment(barcode.barcode, false)}
-                        className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition"
-                      >
-                        İptal
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => handleMarkForShipment(barcode.barcode, true)}
-                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition flex items-center space-x-1"
-                    >
-                      <Truck className="w-4 h-4" />
-                      <span>Sevk Edilebilir İşaretle</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 p-3 bg-blue-900/30 border border-blue-700 rounded-lg">
-            <p className="text-blue-300 text-sm">
-              💡 Ürünleri sevk edilebilir olarak işaretledikten sonra, <Link href="/shipments/new" className="underline font-semibold">Sevkiyat</Link> sayfasından sevk fişi oluşturabilirsiniz.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Barkodlar ve Sevk Edilebilir İşaretleme */}
-      {barcodes.length > 0 && (
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white flex items-center space-x-2">
-              <Package className="w-5 h-5" />
-              <span>Üretilen Ürünler ve Barkodlar</span>
-            </h2>
-            <div className="flex items-center space-x-3">
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-              >
-                <option value="">Müşteri seçin (opsiyonel)</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.code} - {customer.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {barcodes.map((barcode) => (
-              <div
-                key={barcode.id}
-                className={`bg-gray-800 rounded-lg border p-3 flex items-center justify-between ${
-                  barcode.ready_for_shipment ? 'border-green-700 bg-green-900/20' : 'border-gray-700'
-                }`}
-              >
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3">
-                    <div>
-                      <div className="text-white font-mono text-sm">{barcode.barcode}</div>
-                      <div className="text-gray-400 text-xs">Seri: {barcode.serial_number}</div>
-                    </div>
-                    <div className="text-sm text-gray-300">
-                      {barcode.product_name} ({barcode.product_sku})
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => {
+                      window.open(`/inventory/products/print-barcode-label?barcodeId=${barcode.barcode}`, '_blank')
+                    }}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition flex items-center space-x-1"
+                    title="Barkod Yazdır"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Yazdır</span>
+                  </button>
                   {barcode.ready_for_shipment ? (
                     <>
                       <span className="text-green-400 text-sm font-semibold flex items-center space-x-1">

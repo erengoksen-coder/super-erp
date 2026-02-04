@@ -1,1 +1,1 @@
-export { GET } from '../../../../materials/qr/route'
+export { GET } from '../../../materials/qr/route'

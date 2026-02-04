@@ -69,7 +69,7 @@ export default function ShipmentsPage() {
     async function preloadReady() {
       try {
         setFilterStatus('ready')
-        const response = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(barcode)}`)
+        const response = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(barcode || '')}`)
         if (!response.ok) return
         const payload = await response.json()
         const item = payload?.data?.item || payload?.item
@@ -162,7 +162,7 @@ export default function ShipmentsPage() {
         return a.customer_name.localeCompare(b.customer_name, 'tr')
       })
 
-      setReadyItems(sortedCustomers)
+      setReadyItems(sortedCustomers as any)
       setShipments([])
       if (!selectedReadyCustomerId) {
         setReadyProducts([])
@@ -184,7 +184,7 @@ export default function ShipmentsPage() {
   async function loadCustomers() {
     try {
       const data = await fetchApi('/api/accounts?type=customer')
-      setCustomers(data)
+      setCustomers(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error loading customers:', error)
     }
@@ -247,7 +247,7 @@ export default function ShipmentsPage() {
 
       // Toplam bilgisi
       const totalQuantity = shipments.reduce((sum, s) => sum + s.total_quantity, 0)
-      const totalAmount = shipments.reduce((sum, s) => sum + (s.total_amount || 0), 0)
+      const totalAmount = shipments.reduce((sum, s) => sum + ((s as any).total_amount || 0), 0)
       doc.setFont('helvetica', 'bold')
       doc.text(toASCII(`Toplam Sevkiyat: ${shipments.length} adet`), margin, yPos)
       yPos += 5
@@ -383,8 +383,8 @@ export default function ShipmentsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shipment_id: shipmentId })
       })
-      if (result?.invoice?.id) {
-        router.push(`/invoices/${result.invoice.id}`)
+      if ((result as any)?.invoice?.id) {
+        router.push(`/invoices/${(result as any).invoice.id}`)
       } else {
         await mutateShipments()
         alert('Fatura oluşturuldu')

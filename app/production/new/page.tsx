@@ -142,39 +142,114 @@ export default function NewProductionOrderPage() {
     }
   }
 
+  async function findProductWithBom(candidates: Product[]) {
+    for (const candidate of candidates) {
+      try {
+        const bomData = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
+        if (Array.isArray(bomData) && bomData.length > 0) {
+          return candidate
+        }
+      } catch (error) {
+        console.warn(`[Ürün Eşleştirme] BOM kontrolü başarısız: ${candidate.id}`, error)
+      }
+    }
+    return null
+  }
+
+  async function resolveBomProductId(productId: string) {
+    if (!productId) return ''
+
+    const baseProduct = products.find(p => p.id === productId)
+    if (!baseProduct) return productId
+
+    const sameNameCandidates = products.filter(p =>
+      p.name.toLowerCase().trim() === baseProduct.name.toLowerCase().trim()
+    )
+
+    const orderedCandidates = [
+      baseProduct,
+      ...sameNameCandidates.filter(p => p.id !== baseProduct.id),
+    ]
+
+    const withBom = await findProductWithBom(orderedCandidates)
+    return withBom?.id || productId
+  }
+
   // Sipariş seçildiğinde ürün ve miktarı otomatik doldur
   // NOT: selectedOrderIds kullanıldığında bu useEffect devre dışı bırakılmalı
   // Çünkü selectedOrderIds useEffect'i zaten ürün seçimini yapıyor
   useEffect(() => {
+    let cancelled = false
+
     // Eğer selectedOrderIds kullanılıyorsa, bu useEffect'i atla
     if (selectedOrderIds.size > 0) {
       return
     }
-    
+
     if (selectedOrderId) {
-      const order = orders.find(o => o.id === selectedOrderId)
-      if (order) {
-        // Ürünü bul ve seç - ama sadece product_id veya product_sku varsa
-        // Eğer yoksa, selectedOrderIds useEffect'i eşleştirme yapacak
+      const run = async () => {
+        const order = orders.find(o => o.id === selectedOrderId)
+        if (!order) return
+
+        const candidates: Product[] = []
         if (order.product_id) {
-          setSelectedProductId(order.product_id)
-        } else if (order.product_sku) {
-          const product = products.find(p => p.sku === order.product_sku)
-          if (product) {
-            setSelectedProductId(product.id)
+          const productById = products.find(p => p.id === order.product_id)
+          if (productById) candidates.push(productById)
+        }
+        if (order.product_sku) {
+          const productBySku = products.find(p => p.sku === order.product_sku)
+          if (productBySku && !candidates.some(p => p.id === productBySku.id)) {
+            candidates.push(productBySku)
           }
         }
-        setQuantity(order.quantity)
+        if (order.product_name) {
+          const nameLower = order.product_name.toLowerCase().trim()
+          const nameMatches = products.filter(p => p.name.toLowerCase().includes(nameLower))
+          for (const match of nameMatches) {
+            if (!candidates.some(p => p.id === match.id)) {
+              candidates.push(match)
+            }
+          }
+        }
+
+        let resolvedProduct: Product | null = null
+        if (candidates.length > 0) {
+          resolvedProduct = await findProductWithBom(candidates)
+        }
+
+        if (!cancelled) {
+          if (resolvedProduct) {
+            setSelectedProductId(resolvedProduct.id)
+          } else if (order.product_id) {
+            setSelectedProductId(order.product_id)
+          } else if (order.product_sku) {
+            const fallback = products.find(p => p.sku === order.product_sku)
+            if (fallback) {
+              setSelectedProductId(fallback.id)
+            }
+          }
+          setQuantity(order.quantity)
+        }
       }
+
+      run()
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [selectedOrderId, selectedOrderIds, orders, products])
 
   // Seçili siparişlerden ilkini al ve forma aktar
   useEffect(() => {
+    let cancelled = false
+
     if (selectedOrderIds.size > 0) {
-      const firstOrderId = Array.from(selectedOrderIds)[0]
-      const order = orders.find(o => o.id === firstOrderId)
-      if (order) {
+      const run = async () => {
+        const firstOrderId = Array.from(selectedOrderIds)[0]
+        const order = orders.find(o => o.id === firstOrderId)
+        if (!order) return
+
         // Ürünü bul ve seç - önce product_id ile, sonra product_sku ile, son olarak product_name ile, en son konfigürasyona göre
         let foundProduct = null
         
@@ -245,17 +320,26 @@ export default function NewProductionOrderPage() {
               // Eğer birden fazla eşleşen ürün varsa, SKU'ya göre sırala (daha yüksek numaralı SKU'yu tercih et - PRD-894566 gibi)
               if (matchingProducts.length > 1) {
                 console.log(`[Ürün Eşleştirme] ⚠️ Birden fazla eşleşen ürün bulundu (${matchingProducts.length} adet):`, matchingProducts.map(p => `${p.sku} - ${p.name}`))
-                
-                // SKU'ya göre sırala (ters sırada - en yüksek numara önce)
-                matchingProducts.sort((a, b) => {
-                  const aNum = parseInt(a.sku.replace(/[^0-9]/g, '')) || 0
-                  const bNum = parseInt(b.sku.replace(/[^0-9]/g, '')) || 0
-                  return bNum - aNum // Ters sıralama - en yüksek numara önce
-                })
-                
-                // En yüksek SKU numaralı ürünü seç (PRD-894566 gibi)
-                foundProduct = matchingProducts[0]
-                console.log(`[Ürün Eşleştirme] ✅ En yüksek SKU numaralı ürün seçildi: ${foundProduct.sku} - ${foundProduct.name}`)
+
+                const productWithBom = await findProductWithBom(matchingProducts)
+                if (productWithBom) {
+                  foundProduct = productWithBom
+                  if (!cancelled) {
+                    setSelectedProductId(productWithBom.id)
+                  }
+                  console.log(`[Ürün Eşleştirme] ✅ BOM olan ürün seçildi: ${productWithBom.sku} - ${productWithBom.name}`)
+                } else {
+                  // SKU'ya göre sırala (ters sırada - en yüksek numara önce)
+                  matchingProducts.sort((a, b) => {
+                    const aNum = parseInt(a.sku.replace(/[^0-9]/g, '')) || 0
+                    const bNum = parseInt(b.sku.replace(/[^0-9]/g, '')) || 0
+                    return bNum - aNum // Ters sıralama - en yüksek numara önce
+                  })
+
+                  // En yüksek SKU numaralı ürünü seç (PRD-894566 gibi)
+                  foundProduct = matchingProducts[0]
+                  console.log(`[Ürün Eşleştirme] ✅ En yüksek SKU numaralı ürün seçildi: ${foundProduct.sku} - ${foundProduct.name}`)
+                }
               } else if (matchingProducts.length === 1) {
                 foundProduct = matchingProducts[0]
               }
@@ -264,7 +348,9 @@ export default function NewProductionOrderPage() {
             if (foundProduct) {
               console.log(`[Ürün Eşleştirme] ✅ Sipariş: "${order.product_name}" (${order.configuration}) → Bulunan Ürün: "${foundProduct.name}" (ID: ${foundProduct.id}, SKU: ${foundProduct.sku})`)
               console.log(`  - productBaseName: "${productBaseName}", configKeyword: "${configKeyword}", expectedProductName: "${expectedProductName}"`)
-              setSelectedProductId(foundProduct.id)
+              if (!cancelled) {
+                setSelectedProductId(foundProduct.id)
+              }
             } else {
               console.warn(`[Ürün Eşleştirme] ❌ Sipariş: "${order.product_name}" (${order.configuration}) → Ürün bulunamadı`)
               console.warn(`  - productBaseName: "${productBaseName}", configKeyword: "${configKeyword}", expectedProductName: "${expectedProductName}"`)
@@ -295,7 +381,13 @@ export default function NewProductionOrderPage() {
               if (hasConfigMatch) {
                 console.log(`[Ürün Eşleştirme] ✅ product_id ile bulundu: "${productById.name}" (ID: ${productById.id})`)
                 foundProduct = productById
-                setSelectedProductId(productById.id)
+                if (!cancelled) {
+                  setSelectedProductId(productById.id)
+                }
+                foundProduct = productById
+                if (!cancelled) {
+                  setSelectedProductId(productById.id)
+                }
               } else {
                 console.warn(`[Ürün Eşleştirme] ⚠️ product_id ile bulunan ürün konfigürasyonla uyuşmuyor: "${productById.name}" (sipariş: ${order.configuration})`)
               }
@@ -322,7 +414,13 @@ export default function NewProductionOrderPage() {
               if (hasConfigMatch) {
                 console.log(`[Ürün Eşleştirme] ✅ product_sku ile bulundu: "${productBySku.name}" (ID: ${productBySku.id})`)
                 foundProduct = productBySku
-                setSelectedProductId(productBySku.id)
+                if (!cancelled) {
+                  setSelectedProductId(productBySku.id)
+                }
+                foundProduct = productBySku
+                if (!cancelled) {
+                  setSelectedProductId(productBySku.id)
+                }
               } else {
                 console.warn(`[Ürün Eşleştirme] ⚠️ product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${productBySku.name}" (sipariş: ${order.configuration})`)
               }
@@ -336,23 +434,35 @@ export default function NewProductionOrderPage() {
           if (nameMatch) {
             console.log(`[Ürün Eşleştirme] ⚠️ Ürün adı ile fallback bulundu: "${nameMatch.name}" (ID: ${nameMatch.id})`)
             foundProduct = nameMatch
-            setSelectedProductId(nameMatch.id)
+            if (!cancelled) {
+              setSelectedProductId(nameMatch.id)
+            }
           }
         }
 
         if (!foundProduct && order.product_id) {
           console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
-          setSelectedProductId(order.product_id)
+          if (!cancelled) {
+            setSelectedProductId(order.product_id)
+          }
         }
 
         if (!foundProduct && order.product_id) {
           console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
-          setSelectedProductId(order.product_id)
+          if (!cancelled) {
+            setSelectedProductId(order.product_id)
+          }
         }
-        setQuantity(order.quantity)
+        if (!cancelled) {
+          setQuantity(order.quantity)
+        }
         // Sipariş ID'yi de seçili olarak işaretle (tek sipariş seçimi için)
-        setSelectedOrderId(firstOrderId)
+        if (!cancelled) {
+          setSelectedOrderId(firstOrderId)
+        }
       }
+
+      run()
     } else {
       // Seçim kaldırıldıysa formu temizle
       setSelectedOrderId('')
@@ -360,6 +470,10 @@ export default function NewProductionOrderPage() {
       setQuantity(1)
       setBomItems([])
       setStockCheck(null)
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [selectedOrderIds, orders, products])
 
@@ -431,7 +545,12 @@ export default function NewProductionOrderPage() {
       
       // API'den BOM verilerini al
       console.log(`[BOM Yükleme] BOM API çağrısı: /api/bom?product_id=${productId}`)
-      const response = await fetch(`/api/bom?product_id=${productId}`)
+      const bomProductId = await resolveBomProductId(productId)
+      if (bomProductId !== productId) {
+        console.log(`[BOM Yükleme] ⚠️ Ürün BOM'u isim eşleşmesi ile bulundu: ${productId} → ${bomProductId}`)
+      }
+
+      const response = await fetch(`/api/bom?product_id=${bomProductId}`)
       if (!response.ok) {
         console.error(`[BOM Yükleme] API hatası: ${response.status} ${response.statusText}`)
         throw new Error('BOM yüklenemedi')
@@ -644,7 +763,8 @@ export default function NewProductionOrderPage() {
     setLoading(true)
     try {
       // BOM verilerini API'den al
-      const bomResponse = await fetch(`/api/bom?product_id=${selectedProductId}`)
+      const bomProductId = await resolveBomProductId(selectedProductId)
+      const bomResponse = await fetch(`/api/bom?product_id=${bomProductId}`)
       if (!bomResponse.ok) {
         throw new Error('BOM bilgileri alınamadı')
       }
@@ -808,29 +928,29 @@ export default function NewProductionOrderPage() {
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <Link href="/production" className="text-blue-400 hover:text-blue-300 mb-4 inline-block">
+    <div className="min-h-screen bg-[#0f172a] text-[#f1f5f9]">
+      <div className="mb-8">
+        <Link href="/production" className="text-[#6366f1] hover:text-[#8b5cf6] mb-4 inline-block transition-colors">
           ← Geri Dön
         </Link>
         <div className="flex items-center space-x-4">
-          <h1 className="text-3xl font-bold text-white">Yeni Üretim Emri</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] bg-clip-text text-transparent">Yeni Üretim Emri</h1>
           <LogoWithBackground size="sm" />
         </div>
-        <p className="text-gray-400 mt-1">Üretim emri oluşturun ve stokları otomatik düşürün</p>
+        <p className="text-[#94a3b8] mt-1">Üretim emri oluşturun ve stokları otomatik düşürün</p>
       </div>
 
       {/* Seçili Siparişler */}
       {selectedOrdersList.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-xl font-bold text-white mb-4">Seçili Siparişler ({selectedOrdersList.length})</h3>
+          <h3 className="text-xl font-bold text-[#f1f5f9] mb-4">Seçili Siparişler ({selectedOrdersList.length})</h3>
           <div className="space-y-4">
             {selectedOrdersList.map((order) => {
               if (!order) return null
               return (
                 <div 
                   key={order.id} 
-                  className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30"
+                  className="bg-[#1e293b] rounded-lg border border-[#334155] p-4 hover:bg-[#334155] transition-all duration-200 hover:shadow-lg"
                 >
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {/* Sol Sütun */}
@@ -839,17 +959,17 @@ export default function NewProductionOrderPage() {
                       <div className="text-white text-sm font-mono">{order.order_number}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                      <div className="text-white text-sm">{order.configuration || '-'}</div>
+                      <div className="text-xs text-[#94a3b8] mb-1">PARÇA</div>
+                      <div className="text-[#f1f5f9] text-sm font-medium">{order.configuration || '-'}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-400 mb-1">Durum</div>
+                      <div className="text-xs text-[#94a3b8] mb-1">Durum</div>
                       <div>
-                        <span className={`px-2 py-1 rounded text-xs border ${
-                          order.status === 'pending' ? 'bg-yellow-900/30 text-yellow-400 border-yellow-700' :
-                          order.status === 'in_production' ? 'bg-blue-900/30 text-blue-400 border-blue-700' :
-                          order.status === 'completed' ? 'bg-green-900/30 text-green-400 border-green-700' :
-                          'bg-red-900/30 text-red-400 border-red-700'
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                          order.status === 'pending' ? 'bg-[#eab308]/10 text-[#eab308] border-[#eab308]/20' :
+                          order.status === 'in_production' ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/20' :
+                          order.status === 'completed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20' :
+                          'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/20'
                         }`}>
                           {order.status === 'pending' ? 'Beklemede' :
                            order.status === 'in_production' ? 'Üretimde' :
@@ -919,21 +1039,21 @@ export default function NewProductionOrderPage() {
         </div>
       )}
 
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-6">
+      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6 space-y-6 shadow-xl">
         {/* Üretim Emri Bilgileri */}
         <div>
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center space-x-2">
-            <Factory className="w-5 h-5" />
+          <h2 className="text-xl font-semibold text-[#f1f5f9] mb-4 flex items-center space-x-2">
+            <Factory className="w-5 h-5 text-[#6366f1]" />
             <span>Üretim Emri Bilgileri</span>
           </h2>
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#94a3b8] mb-1">
                 Emir No *
               </label>
               {codeLoading ? (
-                <div className="w-full px-3 py-2 border border-gray-700 rounded-lg bg-gray-800">
-                  <span className="text-gray-400">Kod oluşturuluyor...</span>
+                <div className="w-full px-3 py-2 border border-[#334155] rounded-lg bg-[#0f172a]">
+                  <span className="text-[#64748b]">Kod oluşturuluyor...</span>
                 </div>
               ) : (
                 <input
@@ -943,7 +1063,7 @@ export default function NewProductionOrderPage() {
                   required
                   readOnly
                   value={orderNumber}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg cursor-not-allowed opacity-75"
+                  className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] text-[#f1f5f9] rounded-lg cursor-not-allowed opacity-75 focus:outline-none focus:ring-2 focus:ring-[#6366f1]/20"
                   placeholder="Örn: URE-001"
                 />
               )}
@@ -1036,34 +1156,34 @@ export default function NewProductionOrderPage() {
           {/* BOM Listesi - Üretim Emri Bilgileri içinde */}
           {bomItems.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-lg font-semibold text-white mb-3">
+              <h3 className="text-lg font-semibold text-[#f1f5f9] mb-3">
                 Ürün Reçetesi
               </h3>
-              <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-700">
-                  <thead className="bg-gray-750">
+              <div className="bg-[#0f172a] rounded-lg border border-[#334155] overflow-hidden">
+                <table className="min-w-full divide-y divide-[#334155]">
+                  <thead className="bg-[#1e293b]">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-[#94a3b8] uppercase tracking-wider">
                         Hammadde
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-[#94a3b8] uppercase tracking-wider">
                         Kategori
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-[#94a3b8] uppercase tracking-wider">
                         Gereken
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-[#94a3b8] uppercase tracking-wider">
                         Mevcut
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                         Toplam Gereken
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-[#94a3b8] uppercase tracking-wider">
                         Durum
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-700">
+                  <tbody className="divide-y divide-[#334155]">
                     {bomItems.map((item) => {
                       // Fire yüzdesini hesaba kat
                       const quantityWithFire = item.required_quantity * (1 + (item.fire_percentage / 100))
@@ -1071,12 +1191,12 @@ export default function NewProductionOrderPage() {
                       const isAvailable = item.is_available
                       
                       return (
-                        <tr key={item.stock_id} className="hover:bg-gray-750">
-                          <td className="px-4 py-3 text-sm text-white">
+                        <tr key={item.stock_id} className="hover:bg-[#334155]/30 transition-colors">
+                          <td className="px-4 py-3 text-sm text-[#f1f5f9] font-medium">
                             {item.stock_name}
-                            <span className="text-gray-400 ml-2">({item.stock_code})</span>
+                            <span className="text-[#64748b] ml-2">({item.stock_code})</span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-400 capitalize">
+                          <td className="px-4 py-3 text-sm text-[#94a3b8] capitalize">
                             {item.stock_category}
                           </td>
                           <td className="px-4 py-3 text-sm text-white">
@@ -1110,12 +1230,12 @@ export default function NewProductionOrderPage() {
                           </td>
                           <td className="px-4 py-3">
                             {isAvailable ? (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20">
                                 <CheckCircle className="w-3 h-3 mr-1" />
                                 Yeterli
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-900 text-red-300">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20">
                                 <AlertCircle className="w-3 h-3 mr-1" />
                                 Yetersiz
                               </span>
@@ -1387,7 +1507,7 @@ export default function NewProductionOrderPage() {
                     setConverting(false)
                   }
                 }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                className="px-6 py-3 bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-white rounded-lg hover:from-[#16a34a] hover:to-[#15803d] transition-all duration-200 hover:shadow-lg font-medium"
               >
                 Üretim Emri Oluştur
               </button>

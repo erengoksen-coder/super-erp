@@ -41,7 +41,7 @@ export function applyMaterialStockChange(
       throw new Error('Rezerve miktar yetersiz')
     }
     if (nextReserved > nextStock) {
-      throw new Error('Rezerve miktar stoktan fazla olamaz')
+      throw new Error('Çıkış stoğu depo stoğundan fazla olamaz')
     }
 
     const result = db.prepare(`
@@ -68,7 +68,7 @@ export function applyMaterialStockChange(
             INSERT INTO stock_alerts (id, material_id, level, message, status)
             VALUES (?, ?, 'critical', ?, 'open')
           `).run(
-            db.prepare('SELECT lower(hex(randomblob(16))) as id').get()?.id,
+            (db.prepare('SELECT lower(hex(randomblob(16))) as id').get() as any)?.id,
             materialId,
             `Kritik stok seviyesi: Mevcut ${available.toFixed(2)}`
           )

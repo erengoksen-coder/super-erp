@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { getSafeStorage } from '@/lib/store/safeStorage'
 
 export type Language = 'tr' | 'en'
 
@@ -18,7 +19,7 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: 'preferences',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => getSafeStorage()),
     }
   )
 )

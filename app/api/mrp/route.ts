@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
@@ -47,7 +48,7 @@ function calculateMrp(db: ReturnType<typeof getDatabase>, productId: string, qua
     .get(productId) as ProductInfo | undefined
 
   if (!product) {
-    return { error: 'Ürün bulunamadı' as const }
+    return { error: '�Srün bulunamadı' as const }
   }
 
   const bomRows = db.prepare(`
@@ -199,7 +200,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { product_id, quantity } = body || {}
 
     if (!product_id) {
@@ -272,3 +273,4 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+

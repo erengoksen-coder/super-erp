@@ -28,13 +28,50 @@ if (!existsSync(dataDir)) {
 // Veritabanı bağlantısı
 let db: Database.Database | null = null
 
+function openDatabase(path: string) {
+  const instance = new Database(path)
+  try {
+    instance.pragma('journal_mode = WAL')
+  } catch (error) {
+    console.error('Database WAL pragma failed, falling back to DELETE mode:', error)
+    try {
+      instance.pragma('journal_mode = DELETE')
+    } catch (fallbackError) {
+      console.error('Database journal_mode fallback failed:', fallbackError)
+    }
+  }
+  instance.pragma('busy_timeout = 5000')
+  instance.pragma('foreign_keys = OFF')
+  return instance
+}
+
 export function getDatabase(): Database.Database {
   if (!db) {
-    db = new Database(dbPath)
-    db.pragma('journal_mode = WAL') // Performans için
-    // FOREIGN KEY constraint'lerini devre dışı bırak (NULL değerler için sorun çıkarmaması için)
-    db.pragma('foreign_keys = OFF')
-    initializeDatabase()
+    try {
+      db = openDatabase(dbPath)
+    } catch (error) {
+      // DB dosyası açılamazsa, alternatif konum dene ve sonra in-memory fallback.
+      console.error('Database open failed:', error)
+      const legacyPath = join(process.cwd(), 'erp.db')
+      if (existsSync(legacyPath)) {
+        try {
+          db = openDatabase(legacyPath)
+          console.warn('Database opened from legacy path:', legacyPath)
+        } catch (legacyError) {
+          console.error('Legacy database open failed, falling back to in-memory DB:', legacyError)
+          db = new Database(':memory:')
+        }
+      } else {
+        console.error('Database open failed, falling back to in-memory DB:', error)
+        db = new Database(':memory:')
+      }
+    }
+    try {
+      initializeDatabase()
+    } catch (error) {
+      // Init hatası varsa uygulamayı tamamen düşürme, logla ve devam et
+      console.error('Database initialize failed:', error)
+    }
   }
   return db
 }
@@ -504,6 +541,36 @@ function initializeDatabase() {
           DEFAULT_BRANCH_ID
         )
       }
+    }
+  } catch {}
+
+  // Yeni modüller için admin rolüne varsayılan izin ver
+  try {
+    const adminPaths = ['/accounting', '/hr', '/crm', '/fixed-assets', '/procurement', '/dashboard']
+    const permissionInsert = db.prepare(`
+      INSERT OR IGNORE INTO permissions (key, name, category, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    const rolePermInsert = db.prepare(`
+      INSERT OR IGNORE INTO role_permissions
+      (id, role_id, permission_key, can_view, can_create, can_edit, can_delete, company_id, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    for (const path of adminPaths) {
+      permissionInsert.run(path, path, null, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+      const permId = `rp_role_admin_${path.replace(/[^a-zA-Z0-9_]+/g, '_')}`
+      rolePermInsert.run(
+        permId,
+        'role_admin',
+        path,
+        1,
+        1,
+        1,
+        1,
+        DEFAULT_COMPANY_ID,
+        DEFAULT_BRANCH_ID
+      )
     }
   } catch {}
 
@@ -1580,7 +1647,7 @@ function initializeDatabase() {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       
-      for (const row of oldData) {
+      for (const row of oldData as any[]) {
         insertStmt.run(
           row.id,
           row.material_id,
@@ -1795,6 +1862,15 @@ function initializeDatabase() {
     }
   }
   
+  // current_station kolonu ekle (eğer yoksa) - Her barkod için ayrı istasyon takibi
+  try {
+    db.exec('ALTER TABLE product_serial_numbers ADD COLUMN current_station TEXT')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column') && !e.message?.includes('no such column')) {
+      console.warn('current_station kolonu eklenirken hata:', e.message)
+    }
+  }
+  
   // İndeksler
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_serial_numbers_product ON product_serial_numbers(product_id)')
@@ -1869,6 +1945,33 @@ function initializeDatabase() {
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN deleted_at TEXT')
   } catch {}
+  
+  // Accounts tablosuna discount_rate kolonu ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE accounts ADD COLUMN discount_rate REAL DEFAULT 0')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) {
+      console.warn('discount_rate kolonu eklenirken hata:', e.message)
+    }
+  }
+  
+  // Accounts tablosuna yetkili kişi kolonları ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE accounts ADD COLUMN authorized_person_name TEXT')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) {
+      console.warn('authorized_person_name kolonu eklenirken hata:', e.message)
+    }
+  }
+  
+  try {
+    db.exec('ALTER TABLE accounts ADD COLUMN authorized_person_phone TEXT')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) {
+      console.warn('authorized_person_phone kolonu eklenirken hata:', e.message)
+    }
+  }
+  
   try {
     db.exec(`
       UPDATE accounts
@@ -2147,6 +2250,55 @@ function initializeDatabase() {
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN invoice_number TEXT')
   } catch {}
+  
+  // İskonto kolonları ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN discount_rate REAL DEFAULT 0')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN discount_amount REAL DEFAULT 0')
+  } catch {}
+  
+  // Onay alanları ekle (risk limiti aşan sevkiyatlar için)
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN approval_status TEXT DEFAULT NULL')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN approved_by TEXT DEFAULT NULL')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN approved_at TEXT DEFAULT NULL')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE shipments ADD COLUMN approval_requested_at TEXT DEFAULT NULL')
+  } catch {}
+
+  // Bildirimler tablosu (local DB için)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT DEFAULT 'info',
+      reference_type TEXT,
+      reference_id TEXT,
+      read INTEGER DEFAULT 0,
+      read_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `)
+  
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)')
+  } catch {}
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read)')
+  } catch {}
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)')
+  } catch {}
 
   // Shipment Items (Sevkiyat Kalemleri)
   db.exec(`
@@ -2188,6 +2340,8 @@ function initializeDatabase() {
       type TEXT DEFAULT 'sale',
       status TEXT DEFAULT 'issued',
       total_amount REAL DEFAULT 0,
+      discount_rate REAL DEFAULT 0,
+      discount_amount REAL DEFAULT 0,
       tax_rate REAL DEFAULT 0,
       tax_amount REAL DEFAULT 0,
       final_amount REAL DEFAULT 0,
@@ -2199,6 +2353,22 @@ function initializeDatabase() {
       FOREIGN KEY (customer_id) REFERENCES accounts(id)
     )
   `)
+  
+  // İskonto kolonlarını ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE invoices ADD COLUMN discount_rate REAL DEFAULT 0')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) {
+      console.warn('discount_rate kolonu eklenirken hata:', e.message)
+    }
+  }
+  try {
+    db.exec('ALTER TABLE invoices ADD COLUMN discount_amount REAL DEFAULT 0')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) {
+      console.warn('discount_amount kolonu eklenirken hata:', e.message)
+    }
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS invoice_items (

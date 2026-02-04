@@ -14,13 +14,23 @@ interface BarcodeDetails {
   product_name: string
   status?: string | null
   ready_for_shipment?: number | null
-  sip_trh: string
-  takip_no: string
-  cari_adi: string
-  musteri_adi: string
-  konfigurasyon: string
-  aciklama: string
-  uretim_emri: string
+  sip_trh?: string
+  takip_no?: string
+  cari_adi?: string
+  musteri_adi?: string
+  konfigurasyon?: string
+  aciklama?: string
+  uretim_emri?: string
+  production_order_status?: string | null
+  current_station?: string | null
+  production_order_number?: string | null
+  customer_order_number?: string | null
+  dealer_name?: string | null
+  customer_name?: string | null
+  order_date?: string | null
+  configuration?: string | null
+  notes?: string | null
+  shipment_date?: string | null
 }
 
 interface TestBarcodeOption {
@@ -51,27 +61,38 @@ export default function ScanBarcodePage() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    // QR kod tarayıcıyı başlat
-    const html5QrcodeScanner = new Html5QrcodeScanner(
-      'qr-reader',
-      {
-        qrbox: { width: 250, height: 250 },
-        fps: 10,
-        aspectRatio: 1.0
-      },
-      false // verbose
-    )
+    // QR kod tarayıcıyı başlat (container hazır değilse çık)
+    const container = document.getElementById('qr-reader')
+    if (!container) {
+      console.error('QR reader container bulunamadı.')
+      return
+    }
 
-    html5QrcodeScanner.render(
-      (decodedText) => {
-        handleDecodedText(decodedText)
-      },
-      () => {
-        // Hata mesajlarını görmezden gel (sürekli tarama yapıyor)
-      }
-    )
+    let html5QrcodeScanner: Html5QrcodeScanner | null = null
+    try {
+      html5QrcodeScanner = new Html5QrcodeScanner(
+        'qr-reader',
+        {
+          qrbox: { width: 250, height: 250 },
+          fps: 10,
+          aspectRatio: 1.0
+        },
+        false // verbose
+      )
 
-    setScanner(html5QrcodeScanner)
+      html5QrcodeScanner.render(
+        (decodedText) => {
+          handleDecodedText(decodedText)
+        },
+        () => {
+          // Hata mesajlarını görmezden gel (sürekli tarama yapıyor)
+        }
+      )
+
+      setScanner(html5QrcodeScanner)
+    } catch (error) {
+      console.error('QR reader başlatılamadı:', error)
+    }
 
     return () => {
       if (html5QrcodeScanner) {
@@ -138,6 +159,37 @@ export default function ScanBarcodePage() {
         return 'Sevk Edildi'
       default:
         return status || '-'
+    }
+  }
+
+  function getStageMessage(data: BarcodeDetails) {
+    if (data.ready_for_shipment) return 'Sevk edileceklerde'
+    if (data.shipment_date || data.status === 'shipped') return 'Sevk edildi'
+    if (data.production_order_status && data.production_order_status !== 'completed') {
+      const stationMap: Record<string, string> = {
+        iskelet: 'İskelet',
+        terzihane: 'Terzihane',
+        döşeme: 'Döşeme',
+        doseme: 'Döşeme',
+        montaj: 'Montaj',
+        sevkiyat: 'Sevkiyat',
+      }
+      const station = data.current_station ? (stationMap[data.current_station] || data.current_station) : 'Üretim'
+      return `${station} aşamasında`
+    }
+    if (data.status === 'in_stock' || data.status === 'available') return 'Hammadde depoda'
+    return formatStage(data)
+  }
+
+  function normalizeDetails(data: BarcodeDetails) {
+    return {
+      sip_trh: data.sip_trh || data.order_date || '',
+      takip_no: data.takip_no || data.customer_order_number || '',
+      cari_adi: data.cari_adi || data.dealer_name || '',
+      musteri_adi: data.musteri_adi || data.customer_name || '',
+      konfigurasyon: data.konfigurasyon || data.configuration || '',
+      aciklama: data.aciklama || data.notes || '',
+      uretim_emri: data.uretim_emri || data.production_order_number || '',
     }
   }
 
@@ -236,11 +288,17 @@ export default function ScanBarcodePage() {
           body: JSON.stringify({ barcode: cleaned, ready: true }),
         })
         if (!readyResponse.ok) {
+          if (readyResponse.status === 404) {
+            throw new Error('Barkod sisteme kayıtlı değildir')
+          }
           throw new Error('Sevke hazırlanamadı')
         }
 
         const detailResponse = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(cleaned)}`)
         if (!detailResponse.ok) {
+          if (detailResponse.status === 404) {
+            throw new Error('Barkod sisteme kayıtlı değildir')
+          }
           throw new Error('Sevke hazır ürün bulunamadı')
         }
         const payload = await detailResponse.json()
@@ -262,7 +320,7 @@ export default function ScanBarcodePage() {
     } else {
       const response = await fetch(`/api/barcodes?barcode=${encodeURIComponent(cleaned)}`)
       if (!response.ok) {
-        throw new Error('Barkod bulunamadı')
+        throw new Error('Barkod sisteme kayıtlı değildir')
       }
 
       const data = await response.json()
@@ -276,7 +334,7 @@ export default function ScanBarcodePage() {
         return
       }
 
-      throw new Error('Barkod bulunamadı')
+      throw new Error('Barkod sisteme kayıtlı değildir')
     }
   }
 
@@ -341,6 +399,7 @@ export default function ScanBarcodePage() {
               {(() => {
                 const data = shipmentMatch || scannedData
                 if (!data) return null
+                const normalized = normalizeDetails(data)
                 return (
                   <>
               <div>
@@ -365,6 +424,10 @@ export default function ScanBarcodePage() {
                   <div className="text-white text-sm font-semibold">{formatStage(data)}</div>
                 </div>
               )}
+              <div>
+                <div className="text-xs text-gray-400 mb-1">DURUM MESAJI</div>
+                <div className="text-white text-sm font-semibold">{getStageMessage(data)}</div>
+              </div>
               {typeof data.ready_for_shipment === 'number' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">SEVK DURUMU</div>
@@ -373,46 +436,46 @@ export default function ScanBarcodePage() {
                   </div>
                 </div>
               )}
-                  {data.sip_trh && (
+                  {normalized.sip_trh && (
               <div>
                 <div className="text-xs text-gray-400 mb-1">ÜRETİM TARİHİ</div>
-                      <div className="text-white text-sm">{data.sip_trh}</div>
+                      <div className="text-white text-sm">{normalized.sip_trh}</div>
               </div>
                   )}
-                  {data.uretim_emri && data.uretim_emri !== '-' && (
+                  {normalized.uretim_emri && normalized.uretim_emri !== '-' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">ÜRETİM EMRİ</div>
-                      <div className="text-white text-sm font-mono">{data.uretim_emri}</div>
+                      <div className="text-white text-sm font-mono">{normalized.uretim_emri}</div>
                 </div>
               )}
-                  {data.cari_adi && data.cari_adi !== '-' && (
+                  {normalized.cari_adi && normalized.cari_adi !== '-' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                      <div className="text-white text-sm">{data.cari_adi}</div>
+                      <div className="text-white text-sm">{normalized.cari_adi}</div>
                 </div>
               )}
-                  {data.musteri_adi && data.musteri_adi !== '-' && (
+                  {normalized.musteri_adi && normalized.musteri_adi !== '-' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                      <div className="text-white text-sm">{data.musteri_adi}</div>
+                      <div className="text-white text-sm">{normalized.musteri_adi}</div>
                 </div>
               )}
-                  {data.takip_no && data.takip_no !== '-' && (
+                  {normalized.takip_no && normalized.takip_no !== '-' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">SİPARİŞ NO</div>
-                      <div className="text-white text-sm font-mono">{data.takip_no}</div>
+                      <div className="text-white text-sm font-mono">{normalized.takip_no}</div>
                 </div>
               )}
-                  {data.konfigurasyon && data.konfigurasyon !== '-' && (
+                  {normalized.konfigurasyon && normalized.konfigurasyon !== '-' && (
                 <div>
                   <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                      <div className="text-white text-sm">{data.konfigurasyon}</div>
+                      <div className="text-white text-sm">{normalized.konfigurasyon}</div>
                 </div>
               )}
-                  {data.aciklama && data.aciklama !== '-' && (
+                  {normalized.aciklama && normalized.aciklama !== '-' && (
                 <div className="md:col-span-2">
                   <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                      <div className="text-white text-sm break-words whitespace-normal">{data.aciklama}</div>
+                      <div className="text-white text-sm break-words whitespace-normal">{normalized.aciklama}</div>
                 </div>
               )}
                   </>
@@ -502,7 +565,7 @@ export default function ScanBarcodePage() {
                 )}
                 {scanMode === 'shipment' && shipmentMatch && (
                   <div className="mt-3 rounded-lg border border-green-700 bg-green-900/30 p-3 text-xs text-green-200">
-                    Sevke hazır: {shipmentMatch.product_name || ''} ({shipmentMatch.sku || ''})
+                    Sevke hazır: {(shipmentMatch as BarcodeDetails | null)?.product_name || ''} ({(shipmentMatch as BarcodeDetails | null)?.sku || ''})
                   </div>
                 )}
               </div>

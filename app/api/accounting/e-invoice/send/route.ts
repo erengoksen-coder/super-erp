@@ -1,1 +1,1 @@
-export { POST } from '../../../../e-invoice/send/route'
+export { POST } from '../../../e-invoice/send/route'

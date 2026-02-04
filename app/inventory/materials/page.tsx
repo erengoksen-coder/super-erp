@@ -134,7 +134,7 @@ export default function MaterialsInventoryPage() {
     try {
       const db = await getLocalDB()
       const data = await db.getMaterials()
-      setMaterials(data)
+      setMaterials(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Malzemeler yüklenirken hata:', error)
     } finally {
@@ -409,10 +409,10 @@ export default function MaterialsInventoryPage() {
             </button>
           <button
             onClick={() => setFilterCritical(!filterCritical)}
-            className={`px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 ${
+            className={`px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 font-bold ${
               filterCritical
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-red-950 text-red-100 hover:bg-red-900 border-2 border-red-700 shadow-xl shadow-red-900/70'
+                : 'bg-red-900/60 text-red-200 hover:bg-red-800/80 border-2 border-red-800/50'
             }`}
           >
             <Filter size={20} />
@@ -425,10 +425,10 @@ export default function MaterialsInventoryPage() {
               setShowStockOut(false)
               setShowList(false)
             }}
-            className={`px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation ${
+            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold ${
               activeTab === 'stockIn'
-                ? 'bg-green-600 text-white'
-                : 'bg-green-700/30 text-green-200 hover:bg-green-700/50'
+                ? 'bg-green-600 text-white border-2 border-green-500'
+                : 'bg-green-800 text-green-100 hover:bg-green-700 border-2 border-green-600'
             }`}
           >
             <ArrowDown size={20} />
@@ -441,10 +441,10 @@ export default function MaterialsInventoryPage() {
               setShowStockIn(false)
               setShowList(false)
             }}
-            className={`px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation ${
+            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold ${
               activeTab === 'stockOut'
-                ? 'bg-red-600 text-white'
-                : 'bg-red-700/30 text-red-200 hover:bg-red-700/50'
+                ? 'bg-red-600 text-white border-2 border-red-500'
+                : 'bg-red-800 text-red-100 hover:bg-red-700 border-2 border-red-600'
             }`}
           >
             <ArrowUp size={20} />
@@ -493,7 +493,7 @@ export default function MaterialsInventoryPage() {
               <select
                 value={selectedMaterial}
                 onChange={(e) => setSelectedMaterial(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-800 border-2 border-gray-700 text-white rounded-lg focus:border-green-500 focus:outline-none"
               >
                 <option value="">Hammadde seçin...</option>
                 {materials.map((material) => (
@@ -513,7 +513,7 @@ export default function MaterialsInventoryPage() {
                 min="0"
                 value={stockInQuantity}
                 onChange={(e) => setStockInQuantity(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-800 border-2 border-gray-700 text-white rounded-lg focus:border-green-500 focus:outline-none"
                 placeholder="0.00"
               />
             </div>
@@ -525,7 +525,7 @@ export default function MaterialsInventoryPage() {
                 type="text"
                 value={stockInInvoiceNumber}
                 onChange={(e) => setStockInInvoiceNumber(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-800 border-2 border-gray-700 text-white rounded-lg focus:border-green-500 focus:outline-none"
                 placeholder="Fatura numarası (opsiyonel)"
               />
             </div>
@@ -537,7 +537,7 @@ export default function MaterialsInventoryPage() {
                 type="text"
                 value={stockInShipmentNumber}
                 onChange={(e) => setStockInShipmentNumber(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-800 border-2 border-gray-700 text-white rounded-lg focus:border-green-500 focus:outline-none"
                 placeholder="Sevk numarası (opsiyonel)"
               />
               <p className="text-xs text-yellow-400 mt-1">
@@ -560,7 +560,7 @@ export default function MaterialsInventoryPage() {
             </button>
             <button
               onClick={handleStockIn}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+              className="px-6 py-3 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white rounded-lg transition-all duration-200 font-bold text-base border-2 border-green-500"
             >
               Stok Girişi Yap
             </button>
@@ -604,7 +604,7 @@ export default function MaterialsInventoryPage() {
                 max={selectedMaterial ? materials.find(m => m.id === selectedMaterial)?.stock_amount || 0 : 0}
                 value={stockOutQuantity}
                 onChange={(e) => setStockOutQuantity(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-gray-800 border-2 border-gray-700 text-white rounded-lg focus:border-red-500 focus:outline-none"
                 placeholder="0.00"
               />
               {selectedMaterial && (
@@ -627,7 +627,7 @@ export default function MaterialsInventoryPage() {
             </button>
             <button
               onClick={handleStockOut}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+              className="px-6 py-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg transition-all duration-200 font-bold text-base border-2 border-red-500"
             >
               Stok Çıkışı Yap
             </button>
@@ -665,9 +665,9 @@ export default function MaterialsInventoryPage() {
                       window.scrollTo({ top: 0, behavior: 'smooth' })
                     }, 100)
                   }}
-                  className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold flex items-center justify-center space-x-2"
+                  className="w-full py-4 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3 border-2 border-green-500"
                 >
-                  <ArrowDown className="w-5 h-5" />
+                  <ArrowDown className="w-6 h-6" />
                   <span>Stok Girişi</span>
                 </button>
                 <button
@@ -684,7 +684,7 @@ export default function MaterialsInventoryPage() {
                       window.scrollTo({ top: 0, behavior: 'smooth' })
                     }, 100)
                   }}
-                  className="w-full py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold flex items-center justify-center space-x-2"
+                  className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3 border-2 border-red-500"
                 >
                   <ArrowUp className="w-5 h-5" />
                   <span>Stok Çıkışı</span>
@@ -763,6 +763,14 @@ export default function MaterialsInventoryPage() {
                         return nameMatch || codeMatch || unitMatch
                       })
                     : categoryMaterials
+                  const sortedMaterials = [...filteredCategoryMaterials].sort((a, b) => {
+                    const normalizeName = (value: string) =>
+                      value.replace(/^Kumaş\s+/i, '').trim()
+                    const left = normalizeName((a.name || '').toString())
+                    const right = normalizeName((b.name || '').toString())
+                    return left.localeCompare(right, 'tr', { numeric: true })
+                  })
+
                   return (
                     <div key={category} className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
               <div className="bg-gray-800 px-6 py-3 border-b border-gray-700">
@@ -792,14 +800,16 @@ export default function MaterialsInventoryPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredCategoryMaterials.map((material) => {
+                      {sortedMaterials.map((material, index) => {
                         const lowStock = isLowStock(material)
                         const isEditing = editingMaterial === material.id
+                        const displayCode = String(index + 1).padStart(4, '0')
+                        const displayName = material.name.replace(/^Kumaş\s+/i, '')
                         return (
                           <TableRow 
                             key={material.id} 
                             className={`${
-                              lowStock ? 'bg-red-950/30 border-l-4 border-red-600' : ''
+                              lowStock ? 'bg-red-950/80 border-l-4 border-red-700 shadow-lg shadow-red-900/50' : ''
                             } cursor-pointer hover:bg-gray-800/50 transition`}
                             onDoubleClick={() => {
                               setQuickActionMaterial(material)
@@ -811,28 +821,28 @@ export default function MaterialsInventoryPage() {
                             }}
                           >
                             <TableCell className="font-medium text-white text-xs">
-                              {material.code || '-'}
+                              {displayCode}
                             </TableCell>
                             <TableCell className="font-medium text-white text-xs">
-                              {material.name}
+                              {displayName}
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
                               {material.unit}
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
                               {(material.total_in || 0).toLocaleString('tr-TR', {
-                                minimumFractionDigits: material.unit === 'metre' ? 2 : 0,
-                                maximumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
                               })}
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
                               {(material.total_out || 0).toLocaleString('tr-TR', {
-                                minimumFractionDigits: material.unit === 'metre' ? 2 : 0,
-                                maximumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
                               })}
                             </TableCell>
                             <TableCell className={`font-semibold text-xs ${
-                              lowStock ? 'text-red-400' : 'text-white'
+                              lowStock ? 'text-red-300 font-bold' : 'text-white'
                             }`}>
                               {isEditing ? (
                                 <input
@@ -846,8 +856,8 @@ export default function MaterialsInventoryPage() {
                               ) : (
                                 <span>
                                   {material.stock_amount.toLocaleString('tr-TR', {
-                                    minimumFractionDigits: material.unit === 'metre' ? 2 : 0,
-                                    maximumFractionDigits: material.unit === 'metre' ? 2 : 0,
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0,
                                   })}
                                 </span>
                               )}
@@ -869,9 +879,9 @@ export default function MaterialsInventoryPage() {
                             </TableCell>
                             <TableCell>
                               {lowStock ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-950 border-2 border-red-600 text-red-200 shadow-md shadow-red-900/50 animate-pulse">
                                   <AlertTriangle className="w-3 h-3 mr-1" />
-                                  Kritik
+                                  KRİTİK
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300">

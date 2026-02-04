@@ -19,6 +19,10 @@ type BarcodeApiItem = {
   status?: string | null
   ready_for_shipment?: number | null
   shipment_date?: string | null
+  shipment_id?: string | null
+  shipment_number?: string | null
+  current_station?: string | null
+  production_order_status?: string | null
 }
 
 function formatStage(status?: string | null) {
@@ -44,7 +48,13 @@ function formatShipmentDate(value?: string | null) {
   if (!value) return null
   const parsed = new Date(value)
   if (Number.isNaN(parsed.valueOf())) return null
-  return parsed.toLocaleDateString('tr-TR')
+  return parsed.toLocaleString('tr-TR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 export default function GlobalBarcodeListener() {
@@ -78,8 +88,73 @@ export default function GlobalBarcodeListener() {
       }
 
       const item = items[0]
-      const stage = formatStage(item.status)
-      const shippedDate = item.status === 'shipped' ? formatShipmentDate(item.shipment_date) : null
+      
+      // Debug: API'den gelen veriyi logla
+      console.log('Barkod API yanıtı:', {
+        barcode: item.barcode,
+        status: item.status,
+        current_station: item.current_station,
+        production_order_status: item.production_order_status,
+        production_order_id: item.production_order_id
+      })
+      
+      // Sevk edilmiş ürün kontrolü (öncelikli)
+      const isShipped = !!(item.shipment_id || item.shipment_date || item.status === 'shipped')
+      const shippedDate = isShipped ? formatShipmentDate(item.shipment_date) : null
+      const shipmentNumber = item.shipment_number || null
+      
+      // Üretim aşaması bilgisini al
+      // Öncelik: current_station (her zaman öncelikli, production_order_status kontrolüne bağlı değil)
+      let stage = formatStage(item.status)
+      
+      // Sevk edilmiş ürünler için özel mesaj
+      if (isShipped) {
+        stage = 'Sevk Edildi'
+        const shipmentInfo = shipmentNumber ? ` • Sevk No: ${shipmentNumber}` : ''
+        const dateInfo = shippedDate ? ` • ${shippedDate}` : ''
+        const productInfo = item.product_name ? ` • ${item.product_name}` : ''
+        
+        window.dispatchEvent(
+          new CustomEvent('barcode:scanned', {
+            detail: { barcode, item },
+          })
+        )
+        
+        pushBanner('success', `${barcode}${productInfo} • ${stage}${shipmentInfo}${dateInfo}`)
+        return
+      }
+      
+      // current_station varsa ve boş değilse, MUTLAKA onu göster (production_order_status kontrolü yok)
+      if (item.current_station && String(item.current_station).trim() !== '' && item.current_station !== null) {
+        const stationKey = String(item.current_station).toLowerCase().trim()
+        
+        // completed durumu için özel mesaj
+        if (stationKey === 'completed') {
+          stage = 'Mamül Depoda'
+          console.log('Aşama belirlendi (current_station):', stage, 'stationKey:', stationKey)
+        } else {
+          const stationMap: Record<string, string> = {
+            iskelet: 'İskelet',
+            terzihane: 'Terzihane',
+            döşeme: 'Döşeme',
+            doseme: 'Döşeme',
+            döseme: 'Döşeme',
+            berjer: 'Berjer',
+            montaj: 'Montaj',
+            sevkiyat: 'Sevkiyat',
+          }
+          const stationName = stationMap[stationKey] || item.current_station
+          stage = `${stationName} aşamasında`
+          console.log('Aşama belirlendi (current_station):', stage, 'stationKey:', stationKey)
+        }
+      } else if (item.production_order_status && item.production_order_status !== 'completed') {
+        // current_station yoksa ama üretim devam ediyorsa, genel "Üretimde" göster
+        stage = 'Üretimde'
+        console.log('Aşama belirlendi (production_order_status):', stage)
+      } else {
+        console.log('Aşama belirlendi (status):', stage)
+      }
+      
       const productInfo = item.product_name ? ` • ${item.product_name}` : ''
       if (pathname?.startsWith('/shipments')) {
         if (item.ready_for_shipment) {
@@ -90,8 +165,7 @@ export default function GlobalBarcodeListener() {
           )
           pushBanner('success', `Sevke eklendi: ${barcode}${productInfo}`)
         } else {
-          const shippedSuffix = shippedDate ? ` • Sevk Tarihi: ${shippedDate}` : ''
-          pushBanner('info', `Sevke hazır değil: ${barcode}${productInfo} • ${stage}${shippedSuffix}`)
+          pushBanner('info', `Sevke hazır değil: ${barcode}${productInfo} • ${stage}`)
         }
         return
       }
@@ -102,8 +176,7 @@ export default function GlobalBarcodeListener() {
         })
       )
 
-      const shippedSuffix = shippedDate ? ` • Sevk Tarihi: ${shippedDate}` : ''
-      pushBanner('success', `${barcode}${productInfo} • ${stage}${shippedSuffix}`)
+      pushBanner('success', `${barcode}${productInfo} • ${stage}`)
 
       if (item.ready_for_shipment) {
         pushBanner('info', `Sevke hazır: ${barcode} • Sevkiyat ekranında onaylanabilir`)
@@ -115,24 +188,32 @@ export default function GlobalBarcodeListener() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Güvenli kontrol: event.key undefined olabilir Edge'de
+      if (!event || !event.key) return
       if (event.defaultPrevented) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) {
+        return
+      }
 
       if (timerRef.current) {
         window.clearTimeout(timerRef.current)
       }
 
-      if (event.key === 'Enter') {
+      const key = String(event.key || '')
+
+      if (key === 'Enter') {
         const scanned = bufferRef.current
         bufferRef.current = ''
-        if (scanned.length >= 6) {
+        if (scanned && scanned.length >= 6) {
           handleScan(scanned)
         }
         return
       }
 
-      if (event.key.length === 1) {
-        bufferRef.current += event.key
+      if (key && key.length === 1) {
+        bufferRef.current += key
       }
 
       timerRef.current = window.setTimeout(() => {

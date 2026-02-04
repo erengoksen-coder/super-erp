@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { accountsRepo } from '@/lib/repositories/accounts'
+import { logger } from '@/lib/utils/logger'
 
 type AccountInput = {
   name?: string
@@ -12,6 +14,9 @@ type AccountInput = {
   email?: string | null
   address?: string | null
   risk_limit?: number | null
+  discount_rate?: number | null
+  authorized_person_name?: string | null
+  authorized_person_phone?: string | null
   created_by?: string | null
 }
 
@@ -24,7 +29,18 @@ export const GET = withAuth(async (request: NextRequest) => {
     const accounts = accountsRepo.getAll(type)
     return ok(accounts, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
-    return fail(error.message, { status: 500 })
+    try {
+      await logger.error('[Accounts API] GET failed', {
+        message: error?.message,
+        stack: error?.stack,
+      })
+    } catch {}
+    // Hata mesajını Türkçe'ye çevir
+    let errorMessage = error.message || 'Bilinmeyen hata'
+    if (errorMessage.includes('no such column')) {
+      errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+    }
+    return fail(errorMessage, { status: 500 })
   }
 })
 
@@ -33,11 +49,11 @@ export const POST = withAuth(async (request: NextRequest) => {
   try {
     let body: AccountInput
     try {
-      body = await request.json() as AccountInput
+      body = await parseJsonBody(request) as AccountInput
     } catch {
       return fail('Geçersiz JSON', { status: 400 })
     }
-    const { name, type = 'customer', tax_number, phone, email, address, risk_limit, created_by } = body
+    const { name, type = 'customer', tax_number, phone, email, address, risk_limit, discount_rate, authorized_person_name, authorized_person_phone, created_by } = body
 
     if (!name) {
       return fail('Müşteri/Tedarikçi adı gerekli', { status: 400 })
@@ -67,13 +83,28 @@ export const POST = withAuth(async (request: NextRequest) => {
       email,
       address,
       risk_limit: risk_limit ?? null,
+      discount_rate: discount_rate ?? null,
+      authorized_person_name: authorized_person_name || null,
+      authorized_person_phone: authorized_person_phone || null,
       created_by,
     })
 
     return ok({ id, code }, { message: 'Cari hesap oluşturuldu' })
   } catch (error: any) {
-    return fail(error.message, { status: 500 })
+    // Hata mesajını Türkçe'ye çevir
+    let errorMessage = error.message || 'Bilinmeyen hata'
+    if (errorMessage.includes('no such column')) {
+      errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
+    } else if (errorMessage.includes('UNIQUE constraint')) {
+      errorMessage = 'Bu kod zaten kullanılıyor. Lütfen farklı bir kod seçin.'
+    } else if (errorMessage.includes('FOREIGN KEY')) {
+      errorMessage = 'İlişkili kayıt bulunamadı.'
+    } else if (errorMessage.includes('NOT NULL')) {
+      errorMessage = 'Zorunlu alanlar eksik.'
+    }
+    return fail(errorMessage, { status: 500 })
   }
 })
+
 
 

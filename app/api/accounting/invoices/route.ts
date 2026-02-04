@@ -1,1 +1,1 @@
-export { GET, POST } from '../../../invoices/route'
+export { GET, POST } from '../../invoices/route'

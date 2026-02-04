@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
@@ -15,7 +16,21 @@ export const GET = withAuth(async (
     if (!productId) {
       return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
     }
-    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
+
+    let product: any = null
+    try {
+      product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId)
+    } catch {
+      product = null
+    }
+
+    if (!product) {
+      try {
+        product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(productId)
+      } catch {
+        product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
+      }
+    }
 
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
@@ -34,7 +49,7 @@ export const PATCH = withAuth(async (
   context?: { params?: { id?: string } | Promise<{ id?: string }> }
 ) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { stock_amount, min_stock_level, name, sku, price, selling_price, cost_price } = body
 
     const db = getDatabase()
@@ -45,7 +60,19 @@ export const PATCH = withAuth(async (
     }
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
+    let product: any = null
+    try {
+      product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId)
+    } catch {
+      product = null
+    }
+    if (!product) {
+      try {
+        product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(productId)
+      } catch {
+        product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
+      }
+    }
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
@@ -118,7 +145,19 @@ export const DELETE = withAuth(async (
     }
 
     // Ürünü bul
-    const product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId) as any
+    let product: any = null
+    try {
+      product = db.prepare('SELECT * FROM active_products WHERE id = ? AND deleted_at IS NULL').get(productId)
+    } catch {
+      product = null
+    }
+    if (!product) {
+      try {
+        product = db.prepare('SELECT * FROM products WHERE id = ? AND deleted_at IS NULL').get(productId)
+      } catch {
+        product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId)
+      }
+    }
     if (!product) {
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }

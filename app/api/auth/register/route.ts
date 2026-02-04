@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
-import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword } from '@/lib/auth/password'
 import { ok, fail } from '@/lib/api/response'
+import { userSchemas } from '@/lib/validation/schemas'
 
 type UserIdRow = {
   id: string
 }
-
-const registerSchema = z.object({
-  username: z.string().trim().min(3, 'Kullanıcı adı en az 3 karakter olmalıdır'),
-  email: z.string().trim().email('Geçerli bir e-posta adresi girin').optional().or(z.literal('')),
-  password: z.string().min(6, 'Şifre en az 6 karakter olmalıdır'),
-  full_name: z.string().trim().optional(),
-  job_title: z.string().trim().min(1, 'Görev/Ünvan gerekli'),
-})
 
 // POST: Kullanıcı kaydı
 export async function POST(request: NextRequest) {
@@ -40,16 +33,16 @@ export async function POST(request: NextRequest) {
 
     let body: unknown
     try {
-      body = await request.json()
+      body = await parseJsonBody(request)
     } catch {
       return fail('Geçersiz JSON', { status: 400 })
     }
-    const parsed = registerSchema.safeParse(body)
+    const parsed = userSchemas.create.safeParse(body)
     if (!parsed.success) {
       const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
       return NextResponse.json({ error: message }, { status: 400 })
     }
-    const { username, email, password, full_name, job_title } = parsed.data
+    const { username, email, password, full_name, job_title, role = 'user' } = parsed.data
 
     const db = getDatabase()
     const passwordHash = hashPassword(password)
@@ -72,8 +65,8 @@ export async function POST(request: NextRequest) {
     // Kullanıcı oluştur (onay bekliyor)
     db.prepare(`
       INSERT INTO users (id, username, email, password_hash, full_name, role, job_title, is_approved, company_id, branch_id)
-      VALUES (?, ?, ?, ?, ?, 'user', ?, 0, ?, ?)
-    `).run(userId, username, email || null, passwordHash, full_name || null, job_title, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(userId, username, email || null, passwordHash, full_name || null, role, job_title, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     db.prepare(`
       INSERT OR IGNORE INTO user_roles (id, user_id, role_id, company_id, branch_id)
@@ -96,5 +89,6 @@ export async function POST(request: NextRequest) {
     return fail(error.message, { status: 500 })
   }
 }
+
 
 

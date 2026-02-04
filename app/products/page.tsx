@@ -32,7 +32,7 @@ export default function ProductsPage() {
       const data = await localDB.getProducts()
       
       // API formatını sayfa formatına çevir
-      setProducts(data.map((p: any) => ({
+      setProducts((data as any).map((p: any) => ({
         id: p.id,
         code: p.sku,
         name: p.name,

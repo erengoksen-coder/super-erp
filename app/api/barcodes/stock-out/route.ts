@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 
 // POST: Barkod okutarak stok düş
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request)
     const { barcode, customer_id } = body
 
     if (!barcode) {
@@ -43,7 +44,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       )
     }
 
-    // Eğer zaten satıldıysa
+    // Eşer zaten satıldıysa
     if (barcodeData.status === 'sold') {
       return NextResponse.json(
         { error: 'Bu ürün zaten satılmış' },
@@ -71,7 +72,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       WHERE id = ?
     `).run(customer_id, barcodeData.id)
 
-    // Ürün stokunu düş (eğer stok takibi yapılıyorsa)
+    // �Srün stokunu düş (eşer stok takibi yapılıyorsa)
     if (barcodeData.stock_amount > 0) {
       const newStock = barcodeData.stock_amount - 1
       db.prepare(`
@@ -92,4 +93,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
+
 

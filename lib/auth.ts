@@ -4,7 +4,6 @@
  */
 
 import { useAuthStore } from '@/lib/store/authStore'
-import { fetchApi } from '@/lib/api/client'
 
 export function getUserId(): string | null {
   return useAuthStore.getState().user?.id ?? null
@@ -27,7 +26,7 @@ export function getUserName(): string | null {
   return user?.full_name || user?.username || null
 }
 
-export function getCurrentUser() {
+export function getCurrentUserFromStore() {
   const user = useAuthStore.getState().user
   if (!user) return null
   return {
@@ -38,12 +37,65 @@ export function getCurrentUser() {
   }
 }
 
+export async function createClient() {
+  const { createServerClient } = await import('@supabase/ssr')
+  const { cookies } = await import('next/headers')
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options })
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: '', ...options })
+        },
+      },
+    }
+  )
+}
+
+export async function getCurrentUser() {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getUser()
+  return data.user
+}
+
+let isLoggingOut = false
+
 export function logout() {
+  // Çift tıklama veya çoklu çağrıları engelle
+  if (isLoggingOut) {
+    return
+  }
+  
+  isLoggingOut = true
+  
   const clearAuth = useAuthStore.getState().clearAuth
   clearAuth()
+  
   if (typeof window !== 'undefined') {
-    fetchApi('/api/auth/logout', { method: 'POST' }).catch(() => {})
+    // localStorage'da logout flag'i set et
+    sessionStorage.setItem('logging_out', 'true')
+    
+    // JWT tabanlı sistemde logout API'sine istek atmaya gerek yok
+    // Sadece local state temizle ve yönlendir
     window.location.href = '/auth/login'
+    
+    // Flag'i temizle (yönlendirme sonrası)
+    setTimeout(() => {
+      sessionStorage.removeItem('logging_out')
+      isLoggingOut = false
+    }, 1000)
   }
 }
+
+
+
 

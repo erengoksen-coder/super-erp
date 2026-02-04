@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -17,10 +18,15 @@ type StockCountUpdate = {
 // GET: Stok sayımı detayı
 export const GET = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
     const db = getDatabase()
     const count = db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(resolvedParams.id)
     if (!count) {
@@ -42,11 +48,16 @@ export const GET = withAuth(async (
 // PATCH: Stok sayımı güncelle / tamamla
 export const PATCH = withAuth(async (
   request: NextRequest, user,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  context?: unknown
 ) => {
   try {
-    const resolvedParams = await Promise.resolve(params)
-    const body = await request.json() as StockCountUpdate
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id: string } | Promise<{ id: string }> } | undefined)?.params
+    )
+    if (!resolvedParams?.id) {
+      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+    }
+    const body = await parseJsonBody(request) as StockCountUpdate
     const db = getDatabase()
 
     const count = db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(resolvedParams.id) as any
