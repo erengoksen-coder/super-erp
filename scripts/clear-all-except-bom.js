@@ -163,30 +163,31 @@ try {
       console.warn(`⚠ journal_entries: ${e.message}`);
     }
     
-    // 17. Stok miktarlarını sıfırla (products ve materials)
+    // 17. Materials (Malzemeler) - BOM'da referans olabilir ama kullanıcı istedi
+    try {
+      const deleted = db.prepare('DELETE FROM materials').run();
+      deletedCounts.materials = deleted.changes;
+      console.log(`✓ ${deleted.changes} malzeme silindi`);
+    } catch (e) {
+      console.warn(`⚠ materials: ${e.message}`);
+    }
+    
+    // 18. Accounts (Cari Hesaplar)
+    try {
+      const deleted = db.prepare('DELETE FROM accounts').run();
+      deletedCounts.accounts = deleted.changes;
+      console.log(`✓ ${deleted.changes} cari hesap silindi`);
+    } catch (e) {
+      console.warn(`⚠ accounts: ${e.message}`);
+    }
+    
+    // 19. Stok miktarlarını sıfırla (products)
     try {
       const deleted = db.prepare('UPDATE products SET stock_amount = 0').run();
       deletedCounts.products_stock_reset = deleted.changes;
       console.log(`✓ ${deleted.changes} ürün stoğu sıfırlandı`);
     } catch (e) {
       console.warn(`⚠ products stock reset: ${e.message}`);
-    }
-    
-    try {
-      const deleted = db.prepare('UPDATE materials SET stock_amount = 0').run();
-      deletedCounts.materials_stock_reset = deleted.changes;
-      console.log(`✓ ${deleted.changes} malzeme stoğu sıfırlandı`);
-    } catch (e) {
-      console.warn(`⚠ materials stock reset: ${e.message}`);
-    }
-    
-    // 18. Accounts bakiyelerini sıfırla
-    try {
-      const deleted = db.prepare('UPDATE accounts SET balance = 0').run();
-      deletedCounts.accounts_balance_reset = deleted.changes;
-      console.log(`✓ ${deleted.changes} cari hesap bakiyesi sıfırlandı`);
-    } catch (e) {
-      console.warn(`⚠ accounts balance reset: ${e.message}`);
     }
     
     // NOT: BOM tablosu korunuyor - silinmiyor!
@@ -203,9 +204,7 @@ try {
   console.log('  - bom (Ürün Reçeteleri)');
   console.log('  - bom_versions (BOM Versiyonları)');
   console.log('  - products (Ürünler)');
-  console.log('  - materials (Malzemeler)');
   console.log('  - users (Kullanıcılar)');
-  console.log('  - accounts (Cari Hesaplar)');
   console.log('  - chart_of_accounts (Hesap Planı)');
   console.log('  - unit_conversions (Birim Dönüşümleri)');
   console.log('  - operations (Operasyonlar)');
