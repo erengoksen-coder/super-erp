@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table'
+import { formatDateTime } from '@/lib/utils/dateFormat'
 
 type CostRow = {
   id: string
@@ -113,7 +114,7 @@ export default function ProductionCostsReportPage() {
                   {filtered.map((row) => (
                     <TableRow key={row.id} className="border-gray-800">
                       <TableCell className="text-gray-300 text-xs px-4 py-2">
-                        {row.created_at ? new Date(row.created_at).toLocaleString('tr-TR') : '-'}
+                        {formatDateTime(row.created_at)}
                       </TableCell>
                       <TableCell className="text-white text-xs px-4 py-2">
                         {row.order_number || row.production_order_id}

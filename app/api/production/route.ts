@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
-import { withAuth } from '@/lib/api/withAuth'
-import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
+import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+import { DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { randomUUID } from 'crypto'
 import { calculateProductionCost, calculateProfit } from '@/lib/utils/costCalculator'
@@ -16,7 +16,7 @@ async function getActorId(request: NextRequest) {
 }
 
 // GET: Tüm üretim emirlerini getir
-export const GET = withAuth(async (request: NextRequest) => {
+export const GET = withAuthAndPermission(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const customerName = searchParams.get('customer_name') // Müşteri ismi arama filtresi
@@ -48,7 +48,7 @@ export const GET = withAuth(async (request: NextRequest) => {
       details: error.stack 
     }, { status: 500 })
   }
-})
+}, '/production', 'view')
 
 // POST: Yeni üretim emri oluştur ve stokları düş
 export const POST = withAuth(async (request: NextRequest) => {
@@ -87,7 +87,27 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const findBomProductIdByName = (name: string, excludeId: string) => {
       if (!name) return null
-      const row = db.prepare(`
+      
+      // Ürün adından SKU kısmını çıkar (örn: "PRD-127652 - ATLAS ÜÇLÜ" -> "ATLAS ÜÇLÜ")
+      const extractProductName = (fullName: string): string => {
+        // " - " ile ayrılmış kısımları kontrol et
+        if (fullName.includes(' - ')) {
+          const parts = fullName.split(' - ')
+          // Son kısmı al (genellikle ürün adı)
+          return parts[parts.length - 1].trim()
+        }
+        // SKU formatını kontrol et (PRD-XXXXX ile başlayan)
+        const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
+        if (skuMatch) {
+          return skuMatch[1].trim()
+        }
+        return fullName.trim()
+      }
+      
+      const productNameOnly = extractProductName(name)
+      
+      // Önce tam eşleşme dene
+      let row = db.prepare(`
         SELECT p.id as id
         FROM active_products p
         JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
@@ -97,7 +117,44 @@ export const POST = withAuth(async (request: NextRequest) => {
         ORDER BY COUNT(b.id) DESC
         LIMIT 1
       `).get(name, excludeId) as { id: string } | undefined
-      return row?.id || null
+      
+      if (row) return row.id
+      
+      // Tam eşleşme yoksa, ürün adı kısmını eşleştir
+      if (productNameOnly && productNameOnly !== name) {
+        // Ürün adının sonunda olan kısmı içeren ürünleri bul
+        row = db.prepare(`
+          SELECT p.id as id
+          FROM active_products p
+          JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+          JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+          WHERE (
+            p.name LIKE ? OR 
+            p.name LIKE ? OR
+            (p.name LIKE ? AND p.name NOT LIKE ?)
+          ) AND p.id != ?
+          GROUP BY p.id
+          ORDER BY COUNT(b.id) DESC
+          LIMIT 1
+        `).get(
+          `%${productNameOnly}%`,
+          `% - ${productNameOnly}%`,
+          `%${productNameOnly}%`,
+          `% - %${productNameOnly}%`,
+          excludeId
+        ) as { id: string } | undefined
+        
+        if (row) {
+          logger.info('[BOM EŞLEŞTİRME] Ürün adı kısmı ile eşleşme bulundu', {
+            original_name: name,
+            extracted_name: productNameOnly,
+            matched_product_id: row.id
+          })
+          return row.id
+        }
+      }
+      
+      return null
     }
 
     const actorId = await getActorId(request)

@@ -210,7 +210,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     if (items && items.length > 0) {
       for (const item of items) {
         // BOM maliyetini hesapla
-        const bomItems = db.prepare(`
+        let bomItems = db.prepare(`
           SELECT 
             b.quantity_required as quantity,
             b.unit as unit,
@@ -223,6 +223,74 @@ export const POST = withAuth(async (request: NextRequest) => {
           JOIN materials m ON b.material_id = m.id
           WHERE b.product_id = ? AND b.deleted_at IS NULL
         `).all(item.product_id) as BomItemRow[]
+
+        // Aktif versiyonda BOM bulunamadıysa, fallback mekanizmasına geç (tüm versiyonlarda arama yapma, sadece aktif versiyonu kullan)
+
+        // Eğer hala BOM bulunamadıysa, ürün adına göre eşleştirme yap
+        if (bomItems.length === 0) {
+          const product = db.prepare('SELECT id, name, sku FROM active_products WHERE id = ?').get(item.product_id) as { id: string; name: string; sku: string } | undefined
+          if (product) {
+            // Ürün adından SKU kısmını çıkar (örn: "PRD-127652 - ATLAS ÜÇLÜ" -> "ATLAS ÜÇLÜ")
+            const extractProductName = (fullName: string): string => {
+              if (!fullName) return ''
+              if (fullName.includes(' - ')) {
+                const parts = fullName.split(' - ')
+                return parts[parts.length - 1].trim()
+              }
+              const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
+              if (skuMatch) {
+                return skuMatch[1].trim()
+              }
+              return fullName.trim()
+            }
+
+            const productNameOnly = extractProductName(product.name)
+            
+            if (productNameOnly) {
+              // Aynı isimli ürünlerde BOM ara
+              const fallbackProducts = db.prepare(`
+                SELECT DISTINCT p.id, p.name, p.sku
+                FROM active_products p
+                JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+                JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+                WHERE p.id != ? AND (
+                  p.name = ? OR 
+                  p.name LIKE ? OR
+                  (p.name LIKE ? AND p.name NOT LIKE ?)
+                )
+                GROUP BY p.id, p.name, p.sku
+                ORDER BY COUNT(b.id) DESC
+                LIMIT 1
+              `).all(
+                product.id,
+                productNameOnly,
+                `% - ${productNameOnly}%`,
+                `%${productNameOnly}%`,
+                `% - %${productNameOnly}%`
+              ) as Array<{ id: string; name: string; sku: string }>
+
+              if (fallbackProducts.length > 0) {
+                const fallbackProduct = fallbackProducts[0]
+                console.log(`[Sevkiyat BOM] Fallback: ${product.name} (${product.id}) → ${fallbackProduct.name} (${fallbackProduct.id})`)
+                
+            // Fallback ürün için BOM al (sadece aktif versiyon)
+            bomItems = db.prepare(`
+              SELECT 
+                b.quantity_required as quantity,
+                b.unit as unit,
+                b.fire_percentage,
+                m.unit_price,
+                m.unit as material_unit,
+                m.id as material_id
+              FROM bom b
+              JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+              JOIN materials m ON b.material_id = m.id
+              WHERE b.product_id = ? AND b.deleted_at IS NULL
+            `).all(fallbackProduct.id) as BomItemRow[]
+              }
+            }
+          }
+        }
 
         // Toplam maliyeti hesapla
         let bomCost = 0
@@ -251,8 +319,8 @@ export const POST = withAuth(async (request: NextRequest) => {
     // Eşer total_amount gönderilmişse onu kullan, yoksa hesaplananı kullan
     const baseTotalAmount = total_amount || calculatedTotalAmount
     
-    // İskonto hesaplama (müşterinin iskonto oranı varsa)
-    const discountRate = customer.discount_rate || 0
+    // İskonto: Caride (accounts) kayıtlı iskonto oranı uygulanır
+    const discountRate = customer.discount_rate ?? 0
     const discountAmount = (baseTotalAmount * discountRate) / 100
     const amountAfterDiscount = baseTotalAmount - discountAmount
     
@@ -333,14 +401,15 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
       
       // Müşteri cari hesabına toplam borç yaz (sadece risk limiti aşılmadıysa veya onaylandıysa)
-      // Risk limiti aşıldıysa onay bekliyor, bu yüzden şimdilik bakiye güncellemesi yapmıyoruz
+      // Bakiye, account_transactions'a yazılan tutarların toplamı (iskonto + KDV dahil) ile aynı olmalı (fiş tutarı tutar)
       if (!exceedsRiskLimit) {
+        const balanceUpdateAmount = finalAmount
         db.prepare(`
           UPDATE accounts
           SET balance = balance + ?,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(finalAmount, customer_id)
+        `).run(balanceUpdateAmount, customer_id)
       }
 
       // Sevkiyat kalemlerini ekle ve ürünleri sevkiyata başla
@@ -400,14 +469,28 @@ export const POST = withAuth(async (request: NextRequest) => {
         const product = db.prepare('SELECT name, sku FROM active_products WHERE id = ?').get(item.product_id) as ProductNameSkuRow | undefined
         const productName = product?.name || item.product_name || 'Ürün'
         const productSku = product?.sku || ''
-
-        // Her kalem için cari hesaba ayrı kayıt ekle (BOM fiyatı üzerinden)
-        // itemAmountAfterDiscount zaten yukarıda hesaplandı
+        
+        // KDV dahil tutarı hesapla (kalem bazında orantılı)
+        // Her kalem için: (itemAmountAfterDiscount / amountAfterDiscount) * taxAmount
+        const itemTaxAmount = amountAfterDiscount > 0 ? (itemAmountAfterDiscount / amountAfterDiscount) * taxAmount : 0
+        const itemFinalAmount = itemAmountAfterDiscount + itemTaxAmount
         
         const transactionId = randomUUID()
-        // Açıklamada cari hesaba yazılan tutarla eşleşmeli (iskonto sonrası tutar)
+        // Açıklamada cari hesaba yazılan tutarla eşleşmeli (iskonto sonrası + KDV dahil tutar)
         // BOM fiyatı (iskonto öncesi) ve iskonto bilgisi ayrı kolonlarda gösterilecek
-        const description = `Sevkiyat: ${shipmentNumber} | Ürün: ${productName}${productSku ? ` (${productSku})` : ''} | Adet: ${item.quantity} | Birim Fiyat (BOM): ${unitPrice.toFixed(2)} ₺ | Toplam: ${itemAmountAfterDiscount.toFixed(2)} ₺`
+        let description = `Sevkiyat: ${shipmentNumber} | Ürün: ${productName}${productSku ? ` (${productSku})` : ''} | Adet: ${item.quantity} | Birim Fiyat (BOM): ${unitPrice.toFixed(2)} ₺`
+        
+        // İskonto bilgisini ekle (eğer varsa)
+        if (discountRate > 0 && itemDiscountAmount > 0) {
+          description += ` | İskonto: %${discountRate.toFixed(2)} (${itemDiscountAmount.toFixed(2)} ₺)`
+        }
+        
+        // KDV bilgisini ekle (eğer varsa)
+        if (finalTaxRate > 0 && itemTaxAmount > 0) {
+          description += ` | KDV: %${finalTaxRate.toFixed(2)} (${itemTaxAmount.toFixed(2)} ₺)`
+        }
+        
+        description += ` | Toplam: ${itemFinalAmount.toFixed(2)} ₺`
         
         db.prepare(`
           INSERT INTO account_transactions 
@@ -416,7 +499,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         `).run(
           transactionId,
           customer_id,
-          itemAmountAfterDiscount, // İskonto sonrası tutar (cari hesaba bu tutar yazılır)
+          itemFinalAmount, // İskonto sonrası + KDV dahil tutar (cari hesaba bu tutar yazılır)
           itemId,
           description
         )

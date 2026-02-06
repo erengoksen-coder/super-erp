@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Package, TrendingUp, TrendingDown } from 'lucide-react'
 import { useRealtime } from '@/lib/hooks/useRealtime'
 import { fetchApi } from '@/lib/api/client'
+import { formatDateTime } from '@/lib/utils/dateFormat'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 
@@ -157,10 +158,7 @@ function OrdersRealtimeView({
                     })}
                   </div>
                   <Badge variant="outline" color="secondary" size="sm">
-                    {new Date(order.created_at).toLocaleTimeString('tr-TR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatDateTime(order.created_at)}
                   </Badge>
                 </div>
               </div>

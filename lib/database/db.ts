@@ -209,6 +209,9 @@ function initializeDatabase() {
     db.exec('ALTER TABLE users ADD COLUMN deleted_at TEXT')
   } catch {}
   try {
+    db.exec('ALTER TABLE users ADD COLUMN last_activity TEXT')
+  } catch {}
+  try {
     db.exec(`
       UPDATE users
       SET company_id = '${DEFAULT_COMPANY_ID}'
@@ -1171,6 +1174,92 @@ function initializeDatabase() {
     )
   `)
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_holidays_date ON hr_holidays(date)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_shift_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      break_minutes INTEGER DEFAULT 0,
+      working_days TEXT DEFAULT '1,2,3,4,5',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_shift_templates_name ON hr_shift_templates(name)') } catch {}
+  try { db.exec('ALTER TABLE hr_employee_profiles ADD COLUMN shift_template_id TEXT REFERENCES hr_shift_templates(id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_performance_goals (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      target_value TEXT,
+      current_value TEXT,
+      period_start TEXT,
+      period_end TEXT,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_goals_employee ON hr_performance_goals(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_performance_reviews (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      reviewer_id TEXT,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      rating REAL,
+      comment TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_reviews_employee ON hr_performance_reviews(employee_id)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_job_openings (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      department_id TEXT,
+      location TEXT,
+      description TEXT,
+      status TEXT DEFAULT 'open',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (department_id) REFERENCES hr_departments(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_openings_status ON hr_job_openings(status)') } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hr_job_candidates (
+      id TEXT PRIMARY KEY,
+      job_opening_id TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      status TEXT DEFAULT 'applied',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (job_opening_id) REFERENCES hr_job_openings(id)
+    )
+  `)
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_candidates_job ON hr_job_candidates(job_opening_id)') } catch {}
 
   // Üretim emri operasyonları
   db.exec(`
@@ -2298,6 +2387,26 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)')
+  } catch {}
+
+  // Direkt mesajlaşma (kullanıcılar arası anlık mesaj)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direct_messages (
+      id TEXT PRIMARY KEY,
+      from_user_id TEXT NOT NULL,
+      to_user_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      read_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (from_user_id) REFERENCES users(id),
+      FOREIGN KEY (to_user_id) REFERENCES users(id)
+    )
+  `)
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_direct_messages_from_to ON direct_messages(from_user_id, to_user_id)')
+  } catch {}
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_direct_messages_created_at ON direct_messages(created_at)')
   } catch {}
 
   // Shipment Items (Sevkiyat Kalemleri)

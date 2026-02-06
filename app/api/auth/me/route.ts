@@ -34,12 +34,24 @@ export const GET = withAuth(async (request: NextRequest) => {
       )
     }
 
+    // Çevrimiçi sayılmak için son aktiviteyi güncelle (admin kullanıcı listesinde "Çevrimiçi" görünsün)
+    try {
+      db.prepare('UPDATE users SET last_activity = CURRENT_TIMESTAMP WHERE id = ?').run(userId)
+    } catch {}
+
     const permissions = loadUserPermissions(db, userId)
+
+    // Puantaj için: kullanıcı e-postası ile eşleşen çalışan
+    const employee = db.prepare(`
+      SELECT id FROM hr_employees WHERE email = ? AND deleted_at IS NULL AND status = 'active'
+    `).get(user.email || '') as { id: string } | undefined
+    const employee_id = employee?.id ?? null
 
     return NextResponse.json({
       user: {
         ...user,
         permissions,
+        employee_id,
       },
     })
   } catch (error: any) {

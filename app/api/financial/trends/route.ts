@@ -54,7 +54,7 @@ export const GET = async (request: NextRequest) => {
       }
     )
   }
-})
+}
 
 // POST: Generate Custom Financial Trends
 export const POST = withRouteHandler(async (request: NextRequest) => {

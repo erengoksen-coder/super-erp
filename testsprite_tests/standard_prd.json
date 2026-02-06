@@ -1,0 +1,10 @@
+{
+  "productName": "Super ERP",
+  "overview": "ERP application with auth, dashboard, orders, inventory, BOM, invoices, accounts, HR.",
+  "userStories": [
+    {"id": "US1", "title": "User can log in", "acceptanceCriteria": ["Login page loads", "Valid credentials grant access"]},
+    {"id": "US2", "title": "User can view dashboard", "acceptanceCriteria": ["Dashboard shows stats and overview"]},
+    {"id": "US3", "title": "User can access orders and inventory", "acceptanceCriteria": ["Orders and inventory pages load"]}
+  ],
+  "functionalRequirements": ["Auth", "Dashboard", "Orders", "Inventory", "BOM", "Invoices", "Finance", "HR"]
+}

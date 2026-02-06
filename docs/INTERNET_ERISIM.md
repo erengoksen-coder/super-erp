@@ -69,6 +69,45 @@ http://localhost:4040
 - Ücretli plan: Sabit URL (custom domain)
 - Sunucu kapandığında ngrok da durur
 
+### 🔧 http://localhost:3000 açılmıyor (Connection refused / sayfa gelmiyor)
+- **"✓ Starting..." yeterli değil.** Next.js ilk çalışmada 1–2 dakika derleme yapabilir. Pencerede **"✓ Ready"** veya ilk route adı (örn. `○ Compiling / ...`) görünene kadar bekleyin, **sonra** tarayıcıda adresi açın.
+- **Adres olarak şunu deneyin:** `http://127.0.0.1:3000` (bazı sistemlerde `localhost` çözülmüyor).
+- Sunucu penceresinde **kırmızı hata** varsa (port kullanımda, adres kullanımda, vb.) o pencereyi kapatıp `scripts\sunucu-baslat.bat` ile tekrar başlatın.
+- **Tarayıcı:** Farklı tarayıcı veya gizli pencere deneyin; bazen eklenti veya önbellek engel olur.
+
+### 🔧 "Bağlanmıyor" – Sunucu ve ngrok açık ama sayfa gelmiyor
+Sunucu penceresinde **"✓ Starting..."** ve ngrok **online** görünüyorsa:
+
+1. **"Ready" bekleyin:** Next.js bazen **"Starting..."** yazdıktan sonra 30–60 saniye derleme yapar. Pencerede **"✓ Ready"** veya ilk sayfa adı görünene kadar bekleyin, sonra tarayıcıyı açın.
+2. **Önce localhost deneyin:** Tarayıcıda **http://localhost:3000** açın. Giriş sayfası açılıyorsa sunucu tamam; sorun büyük ihtimalle ngrok adımında.
+3. **Ngrok uyarı sayfası:** Ngrok adresini (örn. `https://....ngrok-free.dev`) açınca **"You are about to visit..."** / **"Visit Site"** / **"Ziyaret et"** çıkarsa **mutlaka bu butona tıklayın**. Tıklamadan sayfa yüklenmez.
+4. **Sayfa boş kalırsa:** "Visit Site" dedikten sonra 2–3 saniye bekleyip sayfayı **yenileyin** (F5).
+
+### 🔧 "Bu sayfaya ulaşılamıyor" (ERR_FAILED) veya bağlanamıyorsanız
+1. **Doğru URL:** Ngrok penceresinde (veya http://localhost:4040) yazan **güncel** `https://....ngrok-free.dev` adresini kullanın. Her ngrok başlatışında URL değişir.
+2. **"Visit Site" / "Ziyaret et":** İlk açılışta ngrok uyarı sayfası çıkarsa **"Visit Site"** butonuna tıklayın; ardından uygulama açılır.
+3. **Sunucu + ngrok açık mı?** Hem "Next.js Sunucusu" hem "Ngrok" penceresinin açık olduğundan emin olun. `scripts\dev-baslat.bat` → E seçerek ikisini birlikte başlatabilirsiniz.
+4. **Yerel test:** Tarayıcıda önce http://localhost:3000 açılıyor mu kontrol edin; açılıyorsa ngrok URL’i de aynı sunucuya gider.
+
+### ❌ ERR_NGROK_8012 – "Sayfa açılmıyor" (Traffic reached ngrok but connection to localhost:3000 refused)
+Bu hata **yerel sunucunun çalışmadığı** anlamına gelir. Ngrok tüneli açık ama bilgisayarınızda **port 3000’de dinleyen uygulama yok**.
+
+**Yapmanız gerekenler (sırayla):**
+1. **Önce sunucuyu başlatın.**  
+   - `scripts\dev-baslat.bat` çalıştırın → **E** (Evet) deyin.  
+   - Veya: Bir terminalde `npm run dev` yazın ve **"HTTP sunucu (port 3000) başlatıldı"** / **Ready** mesajını görünce bekleyin.
+2. **Sunucu penceresini kapatmayın.** "LIVASOFA ERP - Next.js Sunucusu" penceresi açık kalmalı.
+3. **Ngrok’u sunucu hazır olduktan sonra başlatın.** `dev-baslat.bat` ile E seçtiyseniz script zaten 15 saniye bekleyip ngrok’u açıyor; bazen ilk açılışta 20–30 saniye daha gerekebilir. Ngrok penceresini da açık tutun.
+4. **Kontrol:** Tarayıcıda önce **http://localhost:3000** açılıyor mu bakın. Açılıyorsa aynı bilgisayarda ngrok URL’i de çalışır.
+
+**Özet:** Önce `npm run dev` (veya dev-baslat.bat → E), sunucu "Ready" olana kadar bekleyin, sonra ngrok URL’ini kullanın.
+
+### 🔧 "Unable to acquire lock" veya sunucu hiç açılmıyorsa
+1. **Tüm CMD/PowerShell pencerelerini kapatın** (Next.js, Ngrok, Dev Baslat).
+2. **Sadece sunucuyu deneyin:** `scripts\sunucu-baslat.bat` çalıştırın. Sunucu **aynı pencerede** başlar; hata olursa bu pencerede görünür.
+3. **"Ready" veya "Local: http://localhost:3000"** görüyorsanız tarayıcıda http://localhost:3000 açın. Açılıyorsa sunucu tamam; ikinci bir CMD’de `ngrok http 3000` yazıp ngrok’u ayrı başlatın.
+4. Hata mesajı görüyorsanız (lock, port, vb.) o mesajı not alıp proje sahibiyle paylaşın.
+
 ---
 
 ## 🔒 Yöntem 2: Cloudflare Tunnel (Ücretsiz, Kalıcı)

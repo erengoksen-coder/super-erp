@@ -14,6 +14,7 @@ const dev = process.env.NODE_ENV !== 'production'
 const hostname = '0.0.0.0'
 const httpsPort = 3444
 const httpPort = 3001
+const httpPort3000 = 3000
 
 // IP adresini otomatik algıla
 function getLocalIP() {
@@ -270,7 +271,9 @@ function setSecurityHeaders(res) {
     }
   }
 
-  const connectSrc = ["'self'", ...supabaseOrigins].join(' ')
+  const connectSrc = ["'self'", "https://*.ngrok-free.dev", "https://*.ngrok.io", "https://*.ngrok-free.app", ...supabaseOrigins].join(' ')
+  const imgSrc = ["'self'", "data:", "blob:", "https://ngrok.com", "https://*.ngrok.io", "https://*.ngrok-free.dev"].join(' ')
+  const fontSrc = ["'self'", "https://cdn.ngrok.com", "https://assets.ngrok.com"].join(' ')
 
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('X-Frame-Options', 'DENY')
@@ -278,7 +281,7 @@ function setSecurityHeaders(res) {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader(
     'Content-Security-Policy',
-    `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ${connectSrc}; frame-ancestors 'none';`
+    `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src ${imgSrc}; font-src ${fontSrc}; connect-src ${connectSrc}; frame-ancestors 'none';`
   )
 }
 
@@ -434,6 +437,30 @@ app.prepare().then(() => {
     }
   })
   
+  // Port 3000'de de HTTP sunucu başlat (Next.js default port)
+  const httpServer3000 = createHttpServer(async (req, res) => {
+    try {
+      const parsedUrl = parse(req.url, true)
+      await handle(req, res, parsedUrl)
+    } catch (err) {
+      console.error('Error occurred handling', req.url, err)
+      res.statusCode = 500
+      res.end('internal server error')
+    }
+  })
+  
+  httpServer3000.listen(httpPort3000, hostname, (err) => {
+    if (err) {
+      console.error('❌ HTTP sunucu (port 3000) başlatılamadı:', err)
+    } else {
+      console.log(`\n> ✅ HTTP sunucu (port 3000) başlatıldı!`)
+      console.log(`> 📱 Bilgisayar: http://localhost:${httpPort3000}`)
+      if (localIP && localIP !== 'localhost') {
+        console.log(`> 📱 Telefon: http://${localIP}:${httpPort3000}`)
+      }
+    }
+  })
+  
   // Graceful shutdown
   process.on('SIGTERM', () => {
     console.log('SIGTERM signal received: closing servers')
@@ -442,6 +469,9 @@ app.prepare().then(() => {
     })
     httpServer.close(() => {
       console.log('HTTP server closed')
+    })
+    httpServer3000.close(() => {
+      console.log('HTTP server (3000) closed')
     })
   })
   
@@ -452,6 +482,9 @@ app.prepare().then(() => {
     })
     httpServer.close(() => {
       console.log('HTTP server closed')
+    })
+    httpServer3000.close(() => {
+      console.log('HTTP server (3000) closed')
       process.exit(0)
     })
   })

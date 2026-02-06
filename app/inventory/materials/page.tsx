@@ -425,11 +425,8 @@ export default function MaterialsInventoryPage() {
               setShowStockOut(false)
               setShowList(false)
             }}
-            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold ${
-              activeTab === 'stockIn'
-                ? 'bg-green-600 text-white border-2 border-green-500'
-                : 'bg-green-800 text-green-100 hover:bg-green-700 border-2 border-green-600'
-            }`}
+            style={{ backgroundColor: activeTab === 'stockIn' ? '#16a34a' : '#166534' }}
+            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold text-white hover:opacity-90`}
           >
             <ArrowDown size={20} />
             <span>Stok Girişi</span>
@@ -441,11 +438,8 @@ export default function MaterialsInventoryPage() {
               setShowStockIn(false)
               setShowList(false)
             }}
-            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold ${
-              activeTab === 'stockOut'
-                ? 'bg-red-600 text-white border-2 border-red-500'
-                : 'bg-red-800 text-red-100 hover:bg-red-700 border-2 border-red-600'
-            }`}
+            style={{ backgroundColor: activeTab === 'stockOut' ? '#dc2626' : '#991b1b' }}
+            className={`px-3 md:px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation font-bold text-white hover:opacity-90`}
           >
             <ArrowUp size={20} />
             <span>Stok Çıkışı</span>
@@ -467,6 +461,24 @@ export default function MaterialsInventoryPage() {
                 <span>Siparişlerden Kumaş Oluştur</span>
               </>
             )}
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirm('Tüm malzemeleri (hammadde) silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+              try {
+                const res = await fetch('/api/materials?all=1', { method: 'DELETE', credentials: 'include' })
+                if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
+                const data = await res.json()
+                await loadMaterials()
+                alert(data?.message || 'Malzemeler silindi.')
+              } catch (e: any) {
+                alert('Hata: ' + (e.message || 'Malzemeler silinemedi'))
+              }
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation"
+          >
+            <Trash2 size={20} />
+            <span>Tüm Malzemeleri Sil</span>
           </button>
           <Link
             href="/inventory/materials/new"
@@ -560,7 +572,8 @@ export default function MaterialsInventoryPage() {
             </button>
             <button
               onClick={handleStockIn}
-              className="px-6 py-3 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white rounded-lg transition-all duration-200 font-bold text-base border-2 border-green-500"
+              style={{ backgroundColor: '#16a34a' }}
+              className="px-6 py-3 hover:opacity-90 active:opacity-80 text-white rounded-lg transition-all duration-200 font-bold text-base"
             >
               Stok Girişi Yap
             </button>
@@ -627,7 +640,8 @@ export default function MaterialsInventoryPage() {
             </button>
             <button
               onClick={handleStockOut}
-              className="px-6 py-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg transition-all duration-200 font-bold text-base border-2 border-red-500"
+              style={{ backgroundColor: '#dc2626' }}
+              className="px-6 py-3 hover:opacity-90 active:opacity-80 text-white rounded-lg transition-all duration-200 font-bold text-base"
             >
               Stok Çıkışı Yap
             </button>
@@ -665,10 +679,11 @@ export default function MaterialsInventoryPage() {
                       window.scrollTo({ top: 0, behavior: 'smooth' })
                     }, 100)
                   }}
-                  className="w-full py-4 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3 border-2 border-green-500"
+                  style={{ backgroundColor: '#16a34a' }}
+                  className="w-full py-4 hover:opacity-90 active:opacity-80 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3"
                 >
                   <ArrowDown className="w-6 h-6" />
-                  <span>Stok Girişi</span>
+                  <span>↓ Stok Girişi</span>
                 </button>
                 <button
                   onClick={() => {
@@ -684,10 +699,11 @@ export default function MaterialsInventoryPage() {
                       window.scrollTo({ top: 0, behavior: 'smooth' })
                     }, 100)
                   }}
-                  className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3 border-2 border-red-500"
+                  style={{ backgroundColor: '#dc2626' }}
+                  className="w-full py-4 hover:opacity-90 active:opacity-80 text-white rounded-lg transition-all duration-200 font-bold text-lg flex items-center justify-center space-x-3"
                 >
-                  <ArrowUp className="w-5 h-5" />
-                  <span>Stok Çıkışı</span>
+                  <ArrowUp className="w-6 h-6" />
+                  <span>↑ Stok Çıkışı</span>
                 </button>
               </div>
             ) : null}
@@ -958,15 +974,15 @@ export default function MaterialsInventoryPage() {
                                   <button
                                     onClick={() => {
                                       deleteMaterial(material.id, material.name)
-                                      // Sayfayı yukarı kaydır
                                       setTimeout(() => {
                                         window.scrollTo({ top: 0, behavior: 'smooth' })
                                       }, 100)
                                     }}
-                                    className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition text-xs"
-                                    title="Sil"
+                                    className="inline-flex items-center gap-1 px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition text-xs"
+                                    title="Malzemeyi sil"
                                   >
                                     <Trash2 className="w-3 h-3" />
+                                    Sil
                                   </button>
                                 </div>
                               )}

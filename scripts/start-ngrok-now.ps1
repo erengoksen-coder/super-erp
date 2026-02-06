@@ -5,7 +5,8 @@ Write-Host "  Ngrok Baslatiliyor" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$projectPath = "D:\super-erp"
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectPath = Split-Path -Parent $scriptPath
 Set-Location $projectPath
 
 # Sunucu kontrolu
@@ -16,7 +17,7 @@ if (-not $serverRunning) {
     Write-Host "UYARI: Sunucu calismiyor!" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Once sunucuyu baslatin:" -ForegroundColor Cyan
-    Write-Host "   cd D:\super-erp" -ForegroundColor White
+    Write-Host "   cd $projectPath" -ForegroundColor White
     Write-Host "   npm run dev:simple" -ForegroundColor White
     Write-Host ""
     Write-Host "Sunucu basladiktan sonra bu scripti tekrar calistirin." -ForegroundColor Yellow

@@ -7,6 +7,8 @@ import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XC
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
+import { usePolling } from '@/lib/hooks/usePolling'
 
 interface Shipment {
   id: string
@@ -134,6 +136,8 @@ export default function ShipmentsPage() {
   const { data: readyItemsData, isLoading: readyItemsLoading } = useApi<{ items: any[] }>(readyItemsKey)
   const { data: readyProductsData, isLoading: readyProductsLoading } = useApi<{ items: any[] }>(readyProductsKey)
 
+  usePolling(mutateShipments)
+
   const isLoading = shipmentsLoading || readyItemsLoading || readyProductsLoading
 
   useEffect(() => {
@@ -235,7 +239,7 @@ export default function ShipmentsPage() {
       // Tarih ve filtre bilgisi
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      const dateStr = new Date().toLocaleDateString('tr-TR')
+      const dateStr = formatDate(new Date())
       doc.text(toASCII(`Rapor Tarihi: ${dateStr}`), margin, yPos)
       yPos += 5
       
@@ -291,21 +295,7 @@ export default function ShipmentsPage() {
                           'Beklemede'
         
         // Tarih formatla
-        let shipmentDate = ''
-        try {
-          if (shipment.shipment_date) {
-            const date = new Date(shipment.shipment_date)
-            if (!isNaN(date.getTime())) {
-              shipmentDate = date.toLocaleDateString('tr-TR', { 
-                day: '2-digit', 
-                month: '2-digit', 
-                year: 'numeric' 
-              })
-            }
-          }
-        } catch (e) {
-          shipmentDate = shipment.shipment_date || ''
-        }
+        const shipmentDate = formatDate(shipment.shipment_date) || ''
         
         doc.text(shipment.shipment_number, xPos, yPos)
         xPos += colWidths[0]
@@ -714,21 +704,7 @@ export default function ShipmentsPage() {
                     {/* Sevkiyatlar */}
                     <div className="space-y-4">
                       {customerShipments.map((shipment) => {
-                        let shipmentDate = ''
-                        try {
-                          if (shipment.shipment_date) {
-                            const date = new Date(shipment.shipment_date)
-                            if (!isNaN(date.getTime())) {
-                              shipmentDate = date.toLocaleDateString('tr-TR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric'
-                              })
-                            }
-                          }
-                        } catch (e) {
-                          shipmentDate = shipment.shipment_date || ''
-                        }
+                        const shipmentDate = formatDate(shipment.shipment_date) || ''
 
                         return (
                           <div
@@ -820,7 +796,7 @@ export default function ShipmentsPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-gray-300 text-xs px-4 py-2">
-                      {new Date(shipment.shipment_date).toLocaleDateString('tr-TR')}
+                      {formatDate(shipment.shipment_date)}
                     </TableCell>
                     <TableCell className="text-white text-xs px-4 py-2">
                       {shipment.total_quantity} adet

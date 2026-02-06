@@ -41,6 +41,11 @@ export const GET = withAuth(async (request: NextRequest) => {
       return NextResponse.json({ error: 'Kullanıcı bulunamadı' }, { status: 404 })
     }
 
+    // Çevrimiçi sayılmak için son aktiviteyi güncelle (admin listesinde "Çevrimiçi" görünsün)
+    try {
+      db.prepare('UPDATE users SET last_activity = CURRENT_TIMESTAMP WHERE id = ?').run(userId)
+    } catch {}
+
     // İzinleri getir
     const permissions = loadUserPermissions(db, userId)
 

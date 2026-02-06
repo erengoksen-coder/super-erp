@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, Download, ShoppingCart, RefreshCw, Package } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 interface CriticalMaterial {
   id: string
@@ -78,7 +79,7 @@ export default function CriticalStockPage() {
       // Tarih
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      const dateStr = new Date().toLocaleDateString('tr-TR')
+      const dateStr = formatDate(new Date())
       doc.text(`Tarih: ${dateStr}`, margin, yPos)
       yPos += 8
 
@@ -317,10 +318,7 @@ export default function CriticalStockPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {material.last_purchase_date 
-                        ? new Date(material.last_purchase_date).toLocaleDateString('tr-TR')
-                        : '-'
-                      }
+                      {formatDate(material.last_purchase_date)}
                     </td>
                   </tr>
                 )

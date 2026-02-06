@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 interface ProductionOrder {
   id: string
@@ -314,14 +315,14 @@ export default function ProductionOrderDetailPage() {
           <div>
             <div className="text-sm text-gray-400">Oluşturulma</div>
             <div className="text-lg font-semibold text-white">
-              {new Date(order.created_at).toLocaleDateString('tr-TR')}
+              {formatDate(order.created_at)}
             </div>
           </div>
           {order.due_date && (
             <div>
               <div className="text-sm text-gray-400">Teslim Tarihi</div>
               <div className="text-lg font-semibold text-white">
-                {new Date(order.due_date).toLocaleDateString('tr-TR')}
+                {formatDate(order.due_date)}
               </div>
             </div>
           )}

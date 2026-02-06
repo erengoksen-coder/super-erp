@@ -6,6 +6,7 @@ import { FileText } from 'lucide-react'
 import { useApi } from '@/lib/api/client'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type Invoice = {
   id: string
@@ -110,7 +111,7 @@ export default function InvoicesPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-gray-300 text-xs px-4 py-2">
-                      {new Date(invoice.invoice_date).toLocaleDateString('tr-TR')}
+                      {formatDate(invoice.invoice_date)}
                     </TableCell>
                     <TableCell className="text-gray-300 text-xs px-4 py-2">
                       {invoice.type === 'sale' ? 'Satış' : 'Alış'}

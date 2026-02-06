@@ -70,5 +70,5 @@ export const PATCH = withAuth(async (
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 

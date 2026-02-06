@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useEffect, useRef, useState } from 'react'
+import { formatDate } from '@/lib/utils/dateFormat'
 import { fetchApi } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
@@ -300,7 +301,7 @@ export default function CrmClient() {
               <div>
                 <div className="text-xs text-gray-400 mb-1">Oluşturulma</div>
                 <div className="text-sm text-gray-200">
-                  {selectedAccount.created_at ? new Date(selectedAccount.created_at).toLocaleDateString('tr-TR') : '-'}
+                  {formatDate(selectedAccount.created_at)}
                 </div>
               </div>
             </div>

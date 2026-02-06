@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type Account = {
   id: string
@@ -275,7 +276,7 @@ export default function PaymentsPage() {
               payments.map((payment) => (
                 <TableRow key={payment.id}>
                   <TableCell className="text-gray-200">
-                    {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('tr-TR') : '-'}
+                    {formatDate(payment.payment_date)}
                   </TableCell>
                   <TableCell className="text-gray-200">
                     {payment.account_code ? `${payment.account_code} - ${payment.account_name}` : payment.account_name || '-'}

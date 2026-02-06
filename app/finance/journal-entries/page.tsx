@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { BookOpen, Plus, Eye, Calendar } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
+import { toast } from '@/lib/notify'
+import { PageLoader } from '@/components/ui/PageLoader'
+import { getReferenceLink } from '@/lib/utils/journal-reference'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 interface JournalEntry {
   id: string
@@ -37,10 +41,11 @@ export default function JournalEntriesPage() {
       )
       if (!response.ok) throw new Error('Yevmiye kayıtları yüklenemedi')
       const data = await response.json()
-      setEntries(data)
+      const list = Array.isArray(data) ? data : (data?.entries ?? data?.data ?? [])
+      setEntries(Array.isArray(list) ? list : [])
     } catch (error) {
       console.error('Error loading entries:', error)
-      alert('Yevmiye kayıtları yüklenirken hata oluştu')
+      toast.error('Yevmiye kayıtları yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }
@@ -95,10 +100,7 @@ export default function JournalEntriesPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
-        </div>
+        <PageLoader fullScreen label="Yevmiye kayıtları yükleniyor..." />
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <Table>
@@ -108,6 +110,7 @@ export default function JournalEntriesPage() {
                 <TableHead className="h-8">Tarih</TableHead>
                 <TableHead className="h-8">Açıklama</TableHead>
                 <TableHead className="h-8">İşlem Tipi</TableHead>
+                <TableHead className="h-8">İlgili kayıt</TableHead>
                 <TableHead className="h-8 text-right">Borç</TableHead>
                 <TableHead className="h-8 text-right">Alacak</TableHead>
                 <TableHead className="h-8 text-center">Satır</TableHead>
@@ -117,7 +120,7 @@ export default function JournalEntriesPage() {
             <TableBody>
               {entries.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-gray-400 text-xs py-8">
+                  <TableCell colSpan={9} className="text-center text-gray-400 text-xs py-8">
                     Seçilen tarih aralığında yevmiye kaydı bulunamadı
                   </TableCell>
                 </TableRow>
@@ -128,13 +131,25 @@ export default function JournalEntriesPage() {
                       {entry.entry_number}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
-                      {new Date(entry.entry_date).toLocaleDateString('tr-TR')}
+                      {formatDate(entry.entry_date)}
                     </TableCell>
                     <TableCell className="text-white text-xs">
                       {entry.description}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
                       {getReferenceTypeLabel(entry.reference_type)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {(() => {
+                        const ref = getReferenceLink(entry.reference_type, entry.reference_id)
+                        return ref ? (
+                          <Link href={ref.href} className="text-blue-400 hover:text-blue-300">
+                            {ref.label} →
+                          </Link>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell className="text-right text-white text-xs">
                       {entry.total_debit.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
@@ -171,13 +186,13 @@ export default function JournalEntriesPage() {
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
           <div className="text-sm text-gray-400 mb-1">Toplam Borç</div>
           <div className="text-2xl font-bold text-red-400">
-            {entries.reduce((sum, e) => sum + e.total_debit, 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+            {entries.reduce((sum, e) => sum + (Number(e.total_debit) || 0), 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
           </div>
         </div>
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
           <div className="text-sm text-gray-400 mb-1">Toplam Alacak</div>
           <div className="text-2xl font-bold text-green-400">
-            {entries.reduce((sum, e) => sum + e.total_credit, 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+            {entries.reduce((sum, e) => sum + (Number(e.total_credit) || 0), 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
           </div>
         </div>
       </div>

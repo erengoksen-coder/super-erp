@@ -66,7 +66,17 @@ export const PATCH = withAuth(async (
     db.transaction(() => {
       // Eğer iptal ediliyorsa
       if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
-        // 1. Müşteri cari hesabından düş (borç azalt)
+        // 1. Bu sevkiyata ait cari hareketleri kaldır (reference_type = shipment_item, reference_id = shipment_items.id)
+        const itemIds = db.prepare('SELECT id FROM shipment_items WHERE shipment_id = ?').all(shipmentId) as Array<{ id: string }>
+        if (itemIds.length > 0) {
+          const placeholders = itemIds.map(() => '?').join(',')
+          db.prepare(`
+            DELETE FROM account_transactions
+            WHERE reference_type = 'shipment_item' AND reference_id IN (${placeholders})
+          `).run(...itemIds.map((r) => r.id))
+        }
+
+        // 2. Müşteri cari hesabından düş (borç azalt)
         const finalAmount = shipment.final_amount || shipment.total_amount || 0
         db.prepare(`
           UPDATE accounts
@@ -75,7 +85,7 @@ export const PATCH = withAuth(async (
           WHERE id = ?
         `).run(finalAmount, shipment.customer_id)
 
-        // 2. Ürünleri tekrar stoka ekle
+        // 3. Ürünleri tekrar stoka ekle
         const shipmentItems = db.prepare(`
           SELECT si.*, p.sku as product_sku
           FROM shipment_items si
@@ -131,7 +141,7 @@ export const PATCH = withAuth(async (
           }
         }
 
-        // 3. Eğer sevkiyatın faturası varsa iptal et (soft delete)
+        // 4. Eğer sevkiyatın faturası varsa iptal et (soft delete)
         const invoiceId = shipment.invoice_id
         if (invoiceId) {
           db.prepare(`

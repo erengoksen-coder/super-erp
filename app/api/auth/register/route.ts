@@ -34,15 +34,34 @@ export async function POST(request: NextRequest) {
     let body: unknown
     try {
       body = await parseJsonBody(request)
-    } catch {
-      return fail('Geçersiz JSON', { status: 400 })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Geçersiz JSON'
+      return NextResponse.json({ error: msg }, { status: 400 })
     }
-    const parsed = userSchemas.create.safeParse(body)
+    if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json(
+        { error: 'Kayıt bilgileri alınamadı. Sayfayı yenileyip tekrar deneyin.' },
+        { status: 400 }
+      )
+    }
+    const parsed = userSchemas.register.safeParse(body)
     if (!parsed.success) {
-      const message = parsed.error.issues?.[0]?.message || 'Geçersiz istek'
-      return NextResponse.json({ error: message }, { status: 400 })
+      const issues = parsed.error.issues || []
+      const first = issues[0]
+      const field = first?.path?.[0]
+      const message = first?.message || 'Geçersiz istek'
+      const label = field === 'username' ? 'Kullanıcı adı' : field === 'password' ? 'Şifre' : field === 'email' ? 'E-posta' : field === 'full_name' ? 'Ad soyad' : field === 'role' ? 'Rol' : ''
+      const errorText = label ? `${label}: ${message}` : message
+      return NextResponse.json({ error: errorText }, { status: 400 })
     }
-    const { username, email, password, full_name, job_title, role = 'user' } = parsed.data
+    const rawRole = (parsed.data.role || 'user').toString().trim().toLowerCase()
+    const role =
+      rawRole === 'admin' || rawRole === 'manager' || rawRole === 'viewer' ? rawRole
+      : /y[oö]netici/.test(rawRole) ? 'manager'
+      : /g[oö]r[uü]nt[uü]leyici/.test(rawRole) ? 'viewer'
+      : /kullan[iı]c[iı]/.test(rawRole) ? 'user'
+      : 'user'
+    const { username, email, password, full_name, job_title } = parsed.data
 
     const db = getDatabase()
     const passwordHash = hashPassword(password)
@@ -66,12 +85,17 @@ export async function POST(request: NextRequest) {
     db.prepare(`
       INSERT INTO users (id, username, email, password_hash, full_name, role, job_title, is_approved, company_id, branch_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(userId, username, email || null, passwordHash, full_name || null, role, job_title, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    `).run(userId, username, email ?? null, passwordHash, full_name ?? null, role, job_title ?? null, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
+    const roleId = role === 'admin' ? 'role_admin' : role === 'manager' ? 'role_manager' : role === 'viewer' ? 'role_viewer' : 'role_user'
+    db.prepare(`
+      INSERT OR IGNORE INTO roles (id, name, description, company_id, branch_id)
+      VALUES (?, ?, NULL, ?, ?)
+    `).run(roleId, role, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
     db.prepare(`
       INSERT OR IGNORE INTO user_roles (id, user_id, role_id, company_id, branch_id)
       VALUES (?, ?, ?, ?, ?)
-    `).run(`ur_${userId}_role_user`, userId, 'role_user', DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    `).run(`ur_${userId}_${roleId}`, userId, roleId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
     return ok(
       {

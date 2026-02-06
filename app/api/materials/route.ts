@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
-import { withAuth } from '@/lib/api/withAuth'
+import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
@@ -9,14 +9,14 @@ import { getDatabase } from '@/lib/database/db'
 import { materialSchemas, validateRequest } from '@/lib/validation/schemas'
 
 // GET: Tüm hammaddeleri getir
-export const GET = withAuth(async () => {
+export const GET = withAuthAndPermission(async () => {
   try {
     const materials = materialsRepo.getAll()
     return ok(materials, { headers: CACHE_HEADERS_SHORT })
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-})
+}, '/inventory/materials', 'view')
 
 // POST: Yeni hammadde ekle
 export const POST = withAuth(async (request: NextRequest) => {
@@ -87,4 +87,19 @@ export const POST = withAuth(async (request: NextRequest) => {
   }
 })
 
+// DELETE: Tüm malzemeleri sil (all=1, sadece admin)
+export const DELETE = withAuth(async (request: NextRequest) => {
+  try {
+    const { searchParams } = new URL(request.url)
+    const all = searchParams.get('all')
+    if (all !== '1' && all !== 'true') {
+      return fail('Tümünü silmek için ?all=1 gerekli', { status: 400 })
+    }
+    const db = getDatabase()
+    const result = db.prepare('UPDATE materials SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
+    return ok({ deleted_count: result.changes }, { message: `${result.changes} malzeme silindi` })
+  } catch (error: any) {
+    return fail(error.message || 'Silinemedi', { status: 500 })
+  }
+}, ['admin'])
 

@@ -42,7 +42,7 @@ export default function PrintBarcodeLabelPage() {
     product_name_font_size: '16',
     barcode_height: '18',
     qr_code_size: '28',
-    detail_font_size: '11',
+    detail_font_size: '13',
     label_width: '100',
     label_height: '100',
     label_padding: '2'
@@ -517,14 +517,16 @@ export default function PrintBarcodeLabelPage() {
               </div>
             )}
             {(() => {
-              // Notes'tan kumaş, ayak, kasa bilgilerini çıkar
+              // Notes'tan kumaş, ayak, kasa, kirlent bilgilerini çıkar
               const notes = barcodeData.notes || ''
               const fabricMatch = notes.match(/Kumaş:\s*([^|]+)/i)
               const caseMatch = notes.match(/Kasa:\s*([^|]+)/i)
               const legMatch = notes.match(/Ayak:\s*([^|]+)/i)
+              const cushionMatch = notes.match(/Kirlent:\s*([^|]+)/i)
               const fabricCode = fabricMatch ? fabricMatch[1].trim() : null
               const caseInfo = caseMatch ? caseMatch[1].trim() : null
               const legInfo = legMatch ? legMatch[1].trim() : null
+              const cushionInfo = cushionMatch ? cushionMatch[1].trim() : null
               
               return (
                 <>
@@ -546,6 +548,11 @@ export default function PrintBarcodeLabelPage() {
                       <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{caseInfo.substring(0, 22)}</span>
                     </div>
                   )}
+                  {/* Kırlent detayı - etikette her zaman gösterilir */}
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KIRLENT:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{(cushionInfo || '-').substring(0, 22)}</span>
+                  </div>
                 </>
               )
             })()}

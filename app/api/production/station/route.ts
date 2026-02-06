@@ -205,10 +205,15 @@ export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     
-    // Kart bazlı istasyon takibi için product_serial_numbers tablosundan say
-    // Her kartın kendi current_station'ına göre say
-    // Eğer kartın current_station'ı yoksa, üretim emrinin current_station'ını kullan
-      // Aktif istasyonlar için kart bazlı sayım
+    // Barkod yönetimi ile uyumlu: Bekleyen = üretim emri atanmış ama henüz istasyona girmemiş (barkod listesi ile aynı kapsam)
+      const pendingStats = db.prepare(`
+        SELECT COUNT(psn.id) as count FROM product_serial_numbers psn
+        WHERE psn.status = 'pending'
+          AND psn.production_order_id IS NOT NULL AND psn.production_order_id != ''
+      `).get() as { count: number }
+      const pendingCount = Number((pendingStats as any).count ?? 0)
+
+      // Aktif istasyonlar: üretim emrine bağlı kartlar
       const activeStats = db.prepare(`
         SELECT 
           COALESCE(psn.current_station, po.current_station) as station,
@@ -222,51 +227,61 @@ export const GET = withAuth(async (request) => {
         GROUP BY COALESCE(psn.current_station, po.current_station)
       `).all() as Array<{ station: string | null; count: number | null; total_quantity: number | null }>
       
-      // Mamül Depo (completed) için sayım - Sevk edilmiş ürünleri hariç tut
-      const completedStats = db.prepare(`
+      // Barkodsuz üretim emirleri (Devam Eden) - istasyon sayılarına ekle
+      const noBarcodeStats = db.prepare(`
         SELECT 
-          COUNT(psn.id) as count,
-          COUNT(psn.id) as total_quantity
-        FROM product_serial_numbers psn
-        JOIN production_orders po ON psn.production_order_id = po.id
-        WHERE (psn.current_station = 'completed' OR psn.current_station IS NULL)
-          AND psn.status IN ('available', 'in_stock')
-          AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
-      `).get() as { count: number | null; total_quantity: number | null } | undefined
+          COALESCE(po.current_station, 'iskelet') as station,
+          COUNT(po.id) as po_count,
+          COALESCE(SUM(po.quantity), 0) as total_quantity
+        FROM production_orders po
+        WHERE po.deleted_at IS NULL
+          AND po.status != 'completed'
+          AND po.status != 'cancelled'
+          AND NOT EXISTS (SELECT 1 FROM product_serial_numbers psn WHERE psn.production_order_id = po.id)
+        GROUP BY COALESCE(po.current_station, 'iskelet')
+      `).all() as Array<{ station: string; po_count: number; total_quantity: number }>
       
-      // Sevkiyat (shipped) için sayım - Sevk edilmiş ürünler
-      const shippedStats = db.prepare(`
-        SELECT 
-          COUNT(psn.id) as count,
-          COUNT(psn.id) as total_quantity
-        FROM product_serial_numbers psn
-        WHERE psn.shipment_id IS NOT NULL
-          AND psn.shipment_id != ''
-      `).get() as { count: number | null; total_quantity: number | null } | undefined
-      
-      // Aktif istasyonları birleştir
-      const stats = [...activeStats]
-      
-      // Sevkiyat istatistiklerini ekle
-      if (shippedStats && (shippedStats.count || 0) > 0) {
-        stats.push({
-          station: 'sevkiyat',
-          count: shippedStats.count || 0,
-          total_quantity: shippedStats.total_quantity || 0
-        })
+      for (const row of noBarcodeStats) {
+        const existing = activeStats.find((s) => s.station === row.station)
+        const addCount = Number(row.po_count ?? 0)
+        const addQty = Number(row.total_quantity ?? 0)
+        if (existing) {
+          existing.count = (existing.count ?? 0) + addCount
+          existing.total_quantity = (existing.total_quantity ?? 0) + addQty
+        } else {
+          activeStats.push({ station: row.station, count: addCount, total_quantity: addQty })
+        }
       }
       
-      // Mamül Depo istatistiklerini ekle
-      if (completedStats && (completedStats.count || 0) > 0) {
-        stats.push({
-          station: 'completed',
-          count: completedStats.count || 0,
-          total_quantity: completedStats.total_quantity || 0
-        })
+      // Mamül Depo: barkod yönetimi ile aynı mantık - depoda/sevk edilmemiş tüm mamüller (JOIN şartı yok)
+      const completedStats = db.prepare(`
+        SELECT COUNT(id) as count FROM product_serial_numbers psn
+        WHERE psn.status IN ('available', 'in_stock')
+          AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+      `).get() as { count: number | null }
+      const completedCount = Number(completedStats?.count ?? 0)
+      
+      // Sevkiyat (shipped) için sayım
+      const shippedStats = db.prepare(`
+        SELECT COUNT(id) as count FROM product_serial_numbers psn
+        WHERE psn.shipment_id IS NOT NULL AND psn.shipment_id != ''
+      `).get() as { count: number | null }
+      const shippedCount = Number(shippedStats?.count ?? 0)
+      
+      const stats: Array<{ station: string | null; count: number | null; total_quantity: number | null }> = [
+        { station: 'pending', count: pendingCount, total_quantity: pendingCount }
+      ]
+      stats.push(...activeStats)
+      if (shippedCount > 0) {
+        stats.push({ station: 'sevkiyat', count: shippedCount, total_quantity: shippedCount })
+      }
+      if (completedCount > 0) {
+        stats.push({ station: 'completed', count: completedCount, total_quantity: completedCount })
       }
 
-    const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
+    const stationOrder = ['pending', 'iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
     const stationNames: Record<string, string> = {
+      pending: 'Bekleyen',
       iskelet: 'İskelet',
       terzihane: 'Terzihane',
       berjer: 'Berjer',
@@ -297,7 +312,9 @@ export const GET = withAuth(async (request) => {
     for (const station of stationOrder) {
       let details: Array<{ order_number: string; count: number; product_name: string }>
       
-      if (station === 'completed') {
+      if (station === 'pending') {
+        details = []
+      } else if (station === 'completed') {
         // Mamül Depo için özel sorgu - Sevk edilmiş ürünleri hariç tut
         details = db.prepare(`
           SELECT 

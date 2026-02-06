@@ -75,7 +75,7 @@ export const GET = async (request: NextRequest) => {
       }
     )
   }
-})
+}
 
 // POST: Calculate Custom Financial Metrics
 export const POST = withRouteHandler(async (request: NextRequest) => {

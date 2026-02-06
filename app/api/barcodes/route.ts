@@ -5,6 +5,38 @@ import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateBarcode, generateSerialNumber } from '@/lib/utils/barcodeGenerator'
 
+// DELETE: Tüm barkodları sil (all=1) veya üretim emri olmayanları tek seferlik sil (no_production_order=1)
+export const DELETE = withAuth(async (request: NextRequest) => {
+  try {
+    const { searchParams } = new URL(request.url)
+    const all = searchParams.get('all')
+    const noProductionOrder = searchParams.get('no_production_order')
+    const db = getDatabase()
+    if (noProductionOrder === '1' || noProductionOrder === 'true') {
+      const result = db.prepare(`
+        DELETE FROM product_serial_numbers
+        WHERE production_order_id IS NULL OR production_order_id = ''
+      `).run()
+      return NextResponse.json({
+        success: true,
+        deleted_count: result.changes,
+        message: `Üretim emri olmayan ${result.changes} barkod kaydı sistemden kaldırıldı`,
+      })
+    }
+    if (all !== '1' && all !== 'true') {
+      return NextResponse.json({ error: 'Tümünü silmek için ?all=1, üretim emri olmayanları silmek için ?no_production_order=1 gerekli' }, { status: 400 })
+    }
+    const result = db.prepare('DELETE FROM product_serial_numbers').run()
+    return NextResponse.json({
+      success: true,
+      deleted_count: result.changes,
+      message: `${result.changes} barkod kaydı silindi`,
+    })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Silinemedi' }, { status: 500 })
+  }
+})
+
 // GET: Barkodları listele
 export const GET = withAuth(async (request: NextRequest) => {
   try {
@@ -12,6 +44,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const productId = searchParams.get('product_id')
     const status = searchParams.get('status')
     const barcode = searchParams.get('barcode')
+    const inSystem = searchParams.get('in_system') === '1' || searchParams.get('in_system') === 'true'
 
     const db = getDatabase()
     let query = `
@@ -37,7 +70,7 @@ export const GET = withAuth(async (request: NextRequest) => {
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       LEFT JOIN active_orders o ON po.id = o.production_order_id
       LEFT JOIN shipments s ON psn.shipment_id = s.id
-      WHERE 1=1
+      WHERE (psn.production_order_id IS NOT NULL AND psn.production_order_id != '')
     `
     const params: any[] = []
 
@@ -49,6 +82,10 @@ export const GET = withAuth(async (request: NextRequest) => {
     if (status) {
       query += ' AND psn.status = ?'
       params.push(status)
+    }
+
+    if (inSystem && !status) {
+      query += " AND psn.status NOT IN ('sold', 'shipped')"
     }
 
     if (barcode) {

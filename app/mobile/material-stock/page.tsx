@@ -516,22 +516,16 @@ export default function MaterialStockPage() {
                 <div className="flex space-x-2">
                   <button
                     onClick={() => setStockType('in')}
-                    className={`flex-1 py-2 rounded-lg transition font-semibold flex items-center justify-center space-x-2 ${
-                      stockType === 'in'
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-700 text-gray-300'
-                    }`}
+                    style={{ backgroundColor: stockType === 'in' ? '#16a34a' : '#374151' }}
+                    className="flex-1 py-2 rounded-lg transition font-semibold flex items-center justify-center space-x-2 text-white hover:opacity-90"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Giriş</span>
                   </button>
                   <button
                     onClick={() => setStockType('out')}
-                    className={`flex-1 py-2 rounded-lg transition font-semibold flex items-center justify-center space-x-2 ${
-                      stockType === 'out'
-                        ? 'bg-red-600 text-white'
-                        : 'bg-gray-700 text-gray-300'
-                    }`}
+                    style={{ backgroundColor: stockType === 'out' ? '#dc2626' : '#374151' }}
+                    className="flex-1 py-2 rounded-lg transition font-semibold flex items-center justify-center space-x-2 text-white hover:opacity-90"
                   >
                     <Minus className="w-4 h-4" />
                     <span>Çıkış</span>

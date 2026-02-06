@@ -9,23 +9,31 @@
 1. Giriş yaptıktan sonra şu adrese gidin:
    https://dashboard.ngrok.com/get-started/your-authtoken
 
-2. Veya:
+2. **TOKEN YAPIŞTIRMA ALANI (dosya):**
+   - Proje klasöründe **`NGROK_TOKEN_YAPISTIR.txt`** dosyasını açın.
+   - İçinde `BURAYA_TOKEN_YAPISTIR` yazan satırı **silin**.
+   - Dashboard'dan kopyaladığınız token'ı **oraya yapıştırıp** dosyayı kaydedin.
+   - Sonra `npm run baslat` çalıştırın; script token'ı bu dosyadan okuyacak.
+
+3. Veya:
    - Dashboard'a gidin
    - Sol menüden "Your Authtoken" seçin
-   - Token'ı kopyalayın (örnek: `2abc123def456ghi789jkl012mno345pqr678`)
+   - Token'ı kopyalayın (yukarıdaki "TOKEN YAPIŞTIRMA ALANI"na veya PowerShell'e yapıştıracaksınız)
 
 ## Adım 3: Token'ı Ayarlama
 
-PowerShell'de şu komutu çalıştırın (YOUR_TOKEN yerine kopyaladığınız token'ı yapıştırın):
+**ÖNEMLİ:** `BURAYA_YAPISTIR` veya `YOUR_TOKEN` yazmayın. Sadece dashboard'dan **Copy** ile kopyaladığınız token'ı yapıştırın.
 
+**Yöntem A – Tek komut (önerilen):**
 ```powershell
-ngrok config add-authtoken YOUR_TOKEN
+npm run baslat
 ```
+Script token isteyecek; dashboard'dan kopyalayıp yapıştırın. Sonra sunucu ve ngrok otomatik açılır.
 
-### Örnek:
-```powershell
-ngrok config add-authtoken 2abc123def456ghi789jkl012mno345pqr678
-```
+**Yöntem B – Sadece token kaydetmek:**
+1. PowerShell'de yazın: `ngrok config add-authtoken ` (sonunda boşluk, Enter'a basmayın)
+2. Dashboard'dan token'ı kopyalayıp **sağ tık → Yapıştır** ile yapıştırın
+3. Enter'a basın
 
 ## Adım 4: Test Etme
 

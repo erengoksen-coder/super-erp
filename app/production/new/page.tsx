@@ -120,12 +120,20 @@ export default function NewProductionOrderPage() {
 
   async function loadProducts() {
     try {
-      // Local database kullan
-      const { localDB } = await import('@/lib/database/client')
-      const data = await localDB.getProducts() as Product[]
+      // Sadece BOM'u tanımlı ürünleri getir (Koltuk Modeli listesinde yalnızca bunlar gösterilir)
+      const url = '/api/products?has_bom=1'
+      const data = await fetchApi<Product[]>(url, { cache: 'no-store' })
+
+      if (!Array.isArray(data)) {
+        console.error('[Ürün Yükleme] API geçersiz veri döndü:', data)
+        setProducts([])
+        return
+      }
+
       setProducts(data)
     } catch (error) {
-      console.error('Ürünler yüklenirken hata:', error)
+      console.error('[Ürün Yükleme] Hata:', error)
+      setProducts([])
     }
   }
 
@@ -145,10 +153,16 @@ export default function NewProductionOrderPage() {
   async function findProductWithBom(candidates: Product[]) {
     for (const candidate of candidates) {
       try {
-        const bomData = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
+        // Önce direkt BOM kontrolü yap
+        let bomData = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
         if (Array.isArray(bomData) && bomData.length > 0) {
           return candidate
         }
+        
+        // Eğer direkt BOM yoksa, ürün adına göre backend'de eşleştirme yapılacak
+        // Backend API zaten fallback mekanizması içeriyor, bu yüzden tekrar denememize gerek yok
+        // Ama yine de kontrol edelim
+        console.log(`[BOM Kontrolü] ${candidate.name} (${candidate.id}) için BOM bulunamadı`)
       } catch (error) {
         console.warn(`[Ürün Eşleştirme] BOM kontrolü başarısız: ${candidate.id}`, error)
       }
@@ -159,20 +173,86 @@ export default function NewProductionOrderPage() {
   async function resolveBomProductId(productId: string) {
     if (!productId) return ''
 
-    const baseProduct = products.find(p => p.id === productId)
-    if (!baseProduct) return productId
+    // Önce direkt BOM kontrolü yap - Backend'in fallback mekanizması çalışacak
+    try {
+      const bomData = await fetchApi<any[]>(`/api/bom?product_id=${productId}`)
+      if (Array.isArray(bomData) && bomData.length > 0) {
+        console.log(`[BOM Eşleştirme] Direkt BOM bulundu: ${productId} (${bomData.length} adet)`)
+        return productId // Direkt BOM bulundu
+      }
+    } catch (error) {
+      console.warn(`[BOM Eşleştirme] Direkt BOM kontrolü başarısız: ${productId}`, error)
+    }
 
-    const sameNameCandidates = products.filter(p =>
-      p.name.toLowerCase().trim() === baseProduct.name.toLowerCase().trim()
-    )
+    // Eğer products array'i doluysa, ürün adı eşleştirmesi yap
+    if (products.length > 0) {
+      const baseProduct = products.find(p => p.id === productId)
+      if (!baseProduct) {
+        console.warn(`[BOM Eşleştirme] Ürün bulunamadı: ${productId}`)
+        return productId
+      }
 
-    const orderedCandidates = [
-      baseProduct,
-      ...sameNameCandidates.filter(p => p.id !== baseProduct.id),
-    ]
+      // Ürün adından SKU kısmını çıkar (örn: "PRD-127652 - ATLAS ÜÇLÜ" -> "ATLAS ÜÇLÜ")
+      const extractProductName = (fullName: string): string => {
+        if (!fullName) return ''
+        // " - " ile ayrılmış kısımları kontrol et
+        if (fullName.includes(' - ')) {
+          const parts = fullName.split(' - ')
+          // Son kısmı al (genellikle ürün adı)
+          return parts[parts.length - 1].trim()
+        }
+        // SKU formatını kontrol et (PRD-XXXXX ile başlayan)
+        const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
+        if (skuMatch) {
+          return skuMatch[1].trim()
+        }
+        return fullName.trim()
+      }
 
-    const withBom = await findProductWithBom(orderedCandidates)
-    return withBom?.id || productId
+      const productNameOnly = extractProductName(baseProduct.name)
+      
+      // Aynı ürün adına sahip tüm ürünleri bul
+      const sameNameCandidates = products.filter(p => {
+        if (p.id === productId) return false // Kendisini hariç tut
+        const pNameOnly = extractProductName(p.name)
+        return pNameOnly.toLowerCase().trim() === productNameOnly.toLowerCase().trim()
+      })
+
+      // Önce aynı isimli ürünlerde BOM ara
+      if (sameNameCandidates.length > 0) {
+        const orderedCandidates = [
+          ...sameNameCandidates,
+        ]
+        const withBom = await findProductWithBom(orderedCandidates)
+        if (withBom) {
+          console.log(`[BOM Eşleştirme] Ürün adı eşleşmesi ile BOM bulundu: ${baseProduct.name} (${productId}) -> ${withBom.name} (${withBom.id})`)
+          return withBom.id
+        }
+      }
+
+      // Kısmi eşleşme dene (ürün adının bir kısmını içeren)
+      if (productNameOnly) {
+        const partialMatches = products.filter(p => {
+          if (p.id === productId) return false
+          const pNameLower = (p.name || '').toLowerCase()
+          const searchNameLower = productNameOnly.toLowerCase()
+          return pNameLower.includes(searchNameLower) || searchNameLower.includes(pNameLower)
+        })
+
+        if (partialMatches.length > 0) {
+          const withBom = await findProductWithBom(partialMatches)
+          if (withBom) {
+            console.log(`[BOM Eşleştirme] Kısmi eşleşme ile BOM bulundu: ${baseProduct.name} (${productId}) -> ${withBom.name} (${withBom.id})`)
+            return withBom.id
+          }
+        }
+      }
+    } else {
+      console.warn(`[BOM Eşleştirme] Products array boş, backend fallback mekanizmasına güveniliyor`)
+    }
+
+    // Backend'in fallback mekanizması çalışacak, productId'yi döndür
+    return productId
   }
 
   // Sipariş seçildiğinde ürün ve miktarı otomatik doldur
@@ -550,23 +630,92 @@ export default function NewProductionOrderPage() {
         console.log(`[BOM Yükleme] ⚠️ Ürün BOM'u isim eşleşmesi ile bulundu: ${productId} → ${bomProductId}`)
       }
 
-      const response = await fetch(`/api/bom?product_id=${bomProductId}`)
-      if (!response.ok) {
-        console.error(`[BOM Yükleme] API hatası: ${response.status} ${response.statusText}`)
-        throw new Error('BOM yüklenemedi')
+      // Önce resolve edilmiş product_id ile dene
+      let response = await fetch(`/api/bom?product_id=${bomProductId}`)
+      let bomData: any[] = []
+      
+      if (response.ok) {
+        bomData = await response.json()
+        console.log(`[BOM Yükleme] API yanıtı (${bomProductId}): ${bomData?.length || 0} adet BOM öğesi`)
+      } else {
+        console.warn(`[BOM Yükleme] İlk deneme başarısız: ${response.status} ${response.statusText}`)
       }
-      const bomData = await response.json()
-      console.log(`[BOM Yükleme] API yanıtı: ${bomData?.length || 0} adet BOM öğesi`)
+
+      // Eğer hala BOM bulunamadıysa, backend'in fallback mekanizması çalışacak
+      // Ama yine de tüm ürünlerde arama yapalım
+      if (!bomData || bomData.length === 0) {
+        console.log(`[BOM Yükleme] BOM bulunamadı, tüm ürünlerde arama yapılıyor...`)
+        
+        // Ürün adından SKU kısmını çıkar
+        const extractProductName = (fullName: string): string => {
+          if (!fullName) return ''
+          if (fullName.includes(' - ')) {
+            const parts = fullName.split(' - ')
+            return parts[parts.length - 1].trim()
+          }
+          const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
+          if (skuMatch) {
+            return skuMatch[1].trim()
+          }
+          return fullName.trim()
+        }
+        
+        const productNameOnly = product ? extractProductName(product.name) : ''
+        
+        // Aynı ürün adına sahip tüm ürünlerde BOM ara
+        if (productNameOnly) {
+          const candidates = products.filter(p => {
+            if (p.id === productId) return false
+            const pNameOnly = extractProductName(p.name)
+            return pNameOnly.toLowerCase().trim() === productNameOnly.toLowerCase().trim()
+          })
+          
+          for (const candidate of candidates) {
+            try {
+              const candidateBom = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
+              if (Array.isArray(candidateBom) && candidateBom.length > 0) {
+                console.log(`[BOM Yükleme] ✅ Alternatif üründe BOM bulundu: ${candidate.name} (${candidate.id})`)
+                bomData = candidateBom
+                break
+              }
+            } catch (error) {
+              console.warn(`[BOM Yükleme] Alternatif ürün kontrolü başarısız: ${candidate.id}`, error)
+            }
+          }
+        }
+      }
 
       if (!bomData || bomData.length === 0) {
-        console.warn(`[BOM Yükleme] ⚠️ Ürün için BOM bulunamadı: ${product?.name} (ID: ${productId}, SKU: ${product?.sku})`)
-        setBomItems([])
-        setStockCheck({
-          allAvailable: false,
-          insufficientItems: [],
-        })
-        alert(`Bu ürün için reçete (BOM) bulunamadı: ${product?.name || product?.sku || productId}\n\nLütfen önce ürün reçetesini oluşturun.`)
-        return
+        const productInfo = product ? `${product.name} (${product.sku})` : `ID: ${productId}`
+        console.warn(`[BOM Yükleme] ⚠️ Ürün için BOM bulunamadı: ${productInfo}`)
+        console.warn(`[BOM Yükleme] ⚠️ resolveBomProductId sonucu: ${bomProductId} (orijinal: ${productId})`)
+        
+        // Son bir deneme daha: Backend'in fallback mekanizması çalışmış olabilir, tekrar kontrol et
+        if (bomProductId !== productId) {
+          console.log(`[BOM Yükleme] ⚠️ Eşleştirilmiş product_id ile tekrar deniyor: ${bomProductId}`)
+          try {
+            const retryResponse = await fetch(`/api/bom?product_id=${bomProductId}`)
+            if (retryResponse.ok) {
+              const retryBom = await retryResponse.json()
+              if (Array.isArray(retryBom) && retryBom.length > 0) {
+                console.log(`[BOM Yükleme] ✅ Eşleştirilmiş product_id ile BOM bulundu: ${retryBom.length} adet`)
+                bomData = retryBom
+              }
+            }
+          } catch (retryError) {
+            console.warn(`[BOM Yükleme] Retry başarısız:`, retryError)
+          }
+        }
+        
+        if (!bomData || bomData.length === 0) {
+          setBomItems([])
+          setStockCheck({
+            allAvailable: false,
+            insufficientItems: [],
+          })
+          alert(`Bu ürün için reçete (BOM) bulunamadı: ${productInfo}\n\nLütfen önce ürün reçetesini oluşturun.`)
+          return
+        }
       }
 
       // Seçili siparişteki kumaş kodunu çıkar
@@ -1144,6 +1293,7 @@ export default function NewProductionOrderPage() {
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-gray-500">Sadece reçetesi (BOM) tanımlı koltuk modelleri listelenir.</p>
                 {selectedProductId && getDealerForProduct(selectedProductId, null) && (
                   <p className="mt-2 text-sm text-gray-400">
                     Bu ürün <span className="text-blue-400 font-medium">{getDealerForProduct(selectedProductId, null)}</span> bayisine ait

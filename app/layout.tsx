@@ -6,6 +6,7 @@ import './mobile-optimization.css'
 import './animations.css'
 import './performance.css'
 import Sidebar from '@/components/Sidebar'
+import { SidebarProvider } from '@/components/SidebarContext'
 import AuthGuard from '@/components/AuthGuard'
 import { I18nProvider } from '@/lib/i18n'
 import SWRProvider from '@/components/SWRProvider'
@@ -15,6 +16,7 @@ import { ThemeProvider } from '@/lib/theme'
 import ScrollToTop from '@/components/ScrollToTop'
 import MainShell from '@/components/MainShell'
 import SuppressHydrationWarnings from './suppress-hydration-warnings'
+import { Toaster } from 'sonner'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -40,12 +42,15 @@ export default function RootLayout({
           <I18nProvider>
             <SWRProvider>
               <AuthGuard>
-              <ServiceWorker />
-              <GlobalBarcodeListener />
-              <ScrollToTop />
-              <Sidebar />
-              <MainShell>{children}</MainShell>
-            </AuthGuard>
+                <ServiceWorker />
+                <GlobalBarcodeListener />
+                <ScrollToTop />
+                <Toaster richColors position="top-right" closeButton />
+                <SidebarProvider>
+                  <Sidebar />
+                  <MainShell>{children}</MainShell>
+                </SidebarProvider>
+              </AuthGuard>
           </SWRProvider>
         </I18nProvider>
       </ThemeProvider>

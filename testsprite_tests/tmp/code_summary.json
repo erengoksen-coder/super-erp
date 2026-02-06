@@ -1,0 +1,74 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "Next.js 16",
+    "React 19",
+    "Supabase (PostgreSQL, Auth, Realtime)",
+    "Tailwind CSS",
+    "Zod",
+    "SWR",
+    "Zustand",
+    "Jose (JWT)",
+    "Recharts",
+    "html5-qrcode",
+    "jsbarcode",
+    "better-sqlite3"
+  ],
+  "features": [
+    {
+      "name": "auth",
+      "description": "Login, register, session, JWT, permissions",
+      "files": ["app/auth/login/page.tsx", "app/auth/register/page.tsx", "lib/auth.ts", "lib/auth/jwt.ts", "lib/auth/session.ts", "lib/auth/permissions.ts", "lib/store/authStore.ts", "middleware.ts", "components/AuthGuard.tsx"]
+    },
+    {
+      "name": "dashboard",
+      "description": "Main dashboard with stats and overview",
+      "files": ["app/dashboard/page.tsx", "app/page.tsx", "app/durum/page.tsx", "app/api/dashboard/stats/route.ts"]
+    },
+    {
+      "name": "bom",
+      "description": "Bill of materials management",
+      "files": ["app/bom/page.tsx", "app/api/bom/route.ts", "lib/utils/bomLogic.ts"]
+    },
+    {
+      "name": "orders",
+      "description": "Production and sales orders",
+      "files": ["app/orders/page.tsx", "app/api/orders/route.ts", "app/production/page.tsx", "app/production/new/page.tsx", "app/production/[id]/page.tsx", "app/api/production/route.ts", "app/api/production/station/route.ts"]
+    },
+    {
+      "name": "inventory",
+      "description": "Materials, products, stock",
+      "files": ["app/inventory/page.tsx", "app/inventory/materials/page.tsx", "app/inventory/materials/[id]/page.tsx", "app/inventory/products/page.tsx", "app/api/inventory/route.ts", "lib/materials/stock.ts", "lib/repositories/materials.ts"]
+    },
+    {
+      "name": "barcodes",
+      "description": "Barcode management and scanning",
+      "files": ["app/barcodes/page.tsx", "app/barcodes/scan/page.tsx", "app/api/barcodes/route.ts", "lib/utils/barcodeGenerator.ts"]
+    },
+    {
+      "name": "invoices",
+      "description": "Invoicing and shipments",
+      "files": ["app/invoices/page.tsx", "app/invoices/[id]/page.tsx", "app/invoices/new/page.tsx", "app/shipments/page.tsx", "app/api/invoices/route.ts", "app/api/shipments/route.ts"]
+    },
+    {
+      "name": "accounts",
+      "description": "Accounting and finance",
+      "files": ["app/accounts/page.tsx", "app/accounts/[id]/page.tsx", "app/finance/page.tsx", "app/api/accounts/route.ts", "lib/repositories/accounts.ts", "lib/financial/reporting.ts"]
+    },
+    {
+      "name": "hr",
+      "description": "HR, departments, employees",
+      "files": ["app/hr/page.tsx", "app/api/hr/departments/route.ts", "app/api/hr/employees/route.ts", "app/api/hr/teams/route.ts", "app/api/hr/workplaces/route.ts"]
+    },
+    {
+      "name": "api-client",
+      "description": "API client, auth, validation",
+      "files": ["lib/api/client.ts", "lib/api/withAuth.ts", "lib/api/validate.ts", "lib/api/response.ts", "lib/supabase/client.ts", "lib/supabase/server.ts"]
+    },
+    {
+      "name": "ui-layout",
+      "description": "Layout, theme, i18n",
+      "files": ["app/layout.tsx", "lib/theme.tsx", "lib/i18n.tsx", "lib/cn.ts", "app/globals.css", "components/AuthGuard.tsx"]
+    }
+  ]
+}

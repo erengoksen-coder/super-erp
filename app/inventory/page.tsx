@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { cn } from '@/lib/cn'
+import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 
 // Barkod ve QR Kod Component
 function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip }: { 
@@ -332,6 +333,23 @@ export function InventoryPage() {
     return sum + (item.stock_amount * price)
   }, 0)
 
+  async function handleDeleteItem(item: MaterialItem | ProductItem, type: InventoryType) {
+    const isMaterial = type === 'materials'
+    const label = isMaterial ? 'malzeme' : 'ürün'
+    if (!confirm(`"${item.name}" ${label} kaydını silmek istediğinize emin misiniz?`)) return
+    try {
+      const url = isMaterial ? `/api/materials/${item.id}` : `/api/products/${item.id}`
+      const res = await fetch(url, { method: 'DELETE', cache: 'no-store' })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Silinemedi')
+      }
+      await loadInventory()
+    } catch (e: any) {
+      alert('Hata: ' + (e.message || 'Kayıt silinemedi'))
+    }
+  }
+
   const InventoryCard = ({ item, type }: { item: MaterialItem | ProductItem, type: InventoryType }) => {
     const isMaterial = type === 'materials'
     const code = isMaterial ? (item as MaterialItem).code : (item as ProductItem).sku
@@ -364,6 +382,19 @@ export function InventoryPage() {
                   Kritik
                 </Badge>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDeleteItem(item, type)
+                }}
+                title="Kaydı sil"
+              >
+                <Trash2 className="w-4 h-4" />
+                Sil
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -883,9 +914,7 @@ export function InventoryPage() {
                       <div>
                         <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
                         <div className="text-white text-sm">
-                          {item.order_date
-                            ? new Date(item.order_date).toLocaleDateString('tr-TR')
-                            : '-'}
+                          {formatDate(item.order_date)}
                         </div>
                       </div>
                       <div>
@@ -902,25 +931,7 @@ export function InventoryPage() {
                         barcode={item.barcode} 
                         serialNumber={item.serial_number || ''}
                         barcodeId={item.barcode_id}
-                        entryDate={
-                          item.production_order_completed_at
-                            ? new Date(item.production_order_completed_at).toLocaleDateString('tr-TR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : item.barcode_created_at
-                            ? new Date(item.barcode_created_at).toLocaleDateString('tr-TR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : '-'
-                        }
+                        entryDate={formatDateTime(item.production_order_completed_at || item.barcode_created_at)}
                         onPrintLabel={() => {
                           window.open(`/inventory/products/print-barcode-label?barcodeId=${item.barcode}`, '_blank')
                         }}

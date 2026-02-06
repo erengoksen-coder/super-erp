@@ -6,6 +6,7 @@ import { Plus, Search, Factory } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { fetchApi } from '@/lib/api/client'
 import { type ProductionOrder } from '@/components/production/KanbanBoard'
+import { formatOrderDateDisplay } from '@/lib/utils/dateFormat'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -20,6 +21,8 @@ export default function ProductionPage() {
   const router = useRouter()
   const [orders, setOrders] = useState<ProductionOrder[]>([])
   const [pendingOrders, setPendingOrders] = useState<any[]>([])
+  const [inProgressOrdersCount, setInProgressOrdersCount] = useState(0)
+  const [completedOrdersCount, setCompletedOrdersCount] = useState(0)
   const [convertingOrderId, setConvertingOrderId] = useState<string | null>(null)
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,6 +60,20 @@ export default function ProductionPage() {
     }
   }, [])
 
+  // Devam Eden / Tamamlanan sayıları liste ile aynı kaynaktan al (entegrasyon)
+  const loadOrdersCountsByStatus = useCallback(async () => {
+    try {
+      const [inProgress, completed] = await Promise.all([
+        fetchApi('/api/orders?status=in_production').then((d) => (Array.isArray(d) ? d.length : 0)),
+        fetchApi('/api/orders?status=completed').then((d) => (Array.isArray(d) ? d.length : 0)),
+      ])
+      setInProgressOrdersCount(inProgress)
+      setCompletedOrdersCount(completed)
+    } catch (error) {
+      console.error('Error loading order counts by status:', error)
+    }
+  }, [])
+
   const normalizeNotes = useCallback((value: unknown) => String(value ?? ''), [])
   const normalize = useCallback((value: unknown) => String(value ?? '').toLowerCase(), [])
 
@@ -76,12 +93,68 @@ export default function ProductionPage() {
     )
   }, [pendingOrders, searchTerm, normalize])
 
+  // Sekme sayıları tutarlı olsun: Tümü = Beklemede + Devam Eden + Tamamlanan
+  const pendingCount = orders.filter((o) => o.status === 'pending').length + pendingOrders.length
+  const totalCount = pendingCount + inProgressOrdersCount + completedOrdersCount
+
   const filteredPendingCards = useMemo(() => {
+    let filtered = []
     if (statusFilter === 'all' || statusFilter === 'pending') {
-      return pendingCards
+      filtered = pendingCards
     }
-    return []
+    // Müşteri ismine göre sırala
+    return [...filtered].sort((a, b) => {
+      const customerA = (a.customer_name || '').toLowerCase().trim()
+      const customerB = (b.customer_name || '').toLowerCase().trim()
+      if (customerA < customerB) return -1
+      if (customerA > customerB) return 1
+      return 0
+    })
   }, [pendingCards, statusFilter])
+
+  // Filtreye göre siparişleri yükle
+  const loadOrdersByStatus = useCallback(async (status: string) => {
+    try {
+      let url = '/api/orders'
+      if (status === 'in_progress') {
+        url = '/api/orders?status=in_production'
+      } else if (status === 'completed') {
+        url = '/api/orders?status=completed'
+      } else if (status === 'pending') {
+        url = '/api/orders?status=pending'
+      }
+      const data = await fetchApi(url)
+      const ordersList = Array.isArray(data) ? data : []
+      // Arama terimine göre filtrele
+      const search = normalize(searchTerm).trim()
+      if (search) {
+        return ordersList.filter((order: any) =>
+          [
+            order.order_number,
+            order.product_name,
+            order.product_sku,
+            order.customer_name,
+            order.dealer_name,
+            order.configuration,
+          ].some((value) => normalize(value).includes(search))
+        )
+      }
+      return ordersList
+    } catch (error) {
+      console.error('Error loading orders by status:', error)
+      return []
+    }
+  }, [searchTerm, normalize])
+
+  const [filteredOrdersByStatus, setFilteredOrdersByStatus] = useState<any[]>([])
+
+  useEffect(() => {
+    if (statusFilter === 'in_progress' || statusFilter === 'completed') {
+      loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
+    } else {
+      setFilteredOrdersByStatus([])
+    }
+  }, [statusFilter, searchTerm, loadOrdersByStatus])
 
   const createProductionFromOrder = useCallback(
     async (orderId: string) => {
@@ -121,9 +194,8 @@ export default function ProductionPage() {
   useEffect(() => {
     loadOrders()
     loadPendingOrders()
-    const interval = setInterval(loadOrders, 30000) // 30 saniyede bir güncelle
-    return () => clearInterval(interval)
-  }, [loadOrders, loadPendingOrders])
+    loadOrdersCountsByStatus()
+  }, [loadOrders, loadPendingOrders, loadOrdersCountsByStatus])
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -207,7 +279,7 @@ export default function ProductionPage() {
                 size="sm"
                 onClick={() => setStatusFilter('all')}
               >
-                Tümü ({orders.length + pendingOrders.length})
+                Tümü ({totalCount})
               </Button>
               <Button
                 variant={statusFilter === 'pending' ? 'solid' : 'outline'}
@@ -215,7 +287,7 @@ export default function ProductionPage() {
                 size="sm"
                 onClick={() => setStatusFilter('pending')}
               >
-                Beklemede ({orders.filter(o => o.status === 'pending').length + pendingOrders.length})
+                Beklemede ({pendingCount})
               </Button>
               <Button
                 variant={statusFilter === 'in_progress' ? 'solid' : 'outline'}
@@ -223,7 +295,7 @@ export default function ProductionPage() {
                 size="sm"
                 onClick={() => setStatusFilter('in_progress')}
               >
-                Devam Eden ({orders.filter(o => o.status === 'in_progress').length})
+                Devam Eden ({inProgressOrdersCount})
               </Button>
               <Button
                 variant={statusFilter === 'completed' ? 'solid' : 'outline'}
@@ -231,32 +303,192 @@ export default function ProductionPage() {
                 size="sm"
                 onClick={() => setStatusFilter('completed')}
               >
-                Tamamlanan ({orders.filter(o => o.status === 'completed').length})
+                Tamamlanan ({completedOrdersCount})
               </Button>
             </div>
           </div>
         </CardBody>
       </Card>
 
-      <ProductionRealtime onUpdate={loadOrders} />
+      <ProductionRealtime onUpdate={() => { loadOrders(); loadPendingOrders(); loadOrdersCountsByStatus(); }} />
 
       <Card>
-        <CardHeader title="Yeni Siparişler (Üretim Emirlerine Dönüştür)" />
+        <CardHeader title={
+          statusFilter === 'in_progress' ? 'Devam Eden Siparişler' :
+          statusFilter === 'completed' ? 'Tamamlanan Siparişler' :
+          'Yeni Siparişler (Üretim Emirlerine Dönüştür)'
+        } />
         <CardBody>
-          {filteredPendingCards.length === 0 ? (
+          {statusFilter === 'in_progress' ? (
+            filteredOrdersByStatus.length === 0 ? (
+              <div className="text-sm text-gray-500">Devam eden sipariş yok.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filteredOrdersByStatus.map((order) => {
+                  const notesText = normalizeNotes(order.notes).trim()
+                  const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                  const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                  const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                  const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
+                  const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                  const cleanedNotes = notesText
+                    .replace(/Kumaş:\s*[^|]+/gi, '')
+                    .replace(/Kasa:\s*[^|]+/gi, '')
+                    .replace(/Ayak:\s*[^|]+/gi, '')
+                    .replace(/Kirlent:\s*[^|]+/gi, '')
+                    .replace(/Birim:\s*[^|]+/gi, '')
+                    .replace(/\|\s*\|\s*/g, '|')
+                    .replace(/^\|\s*|\s*\|$/g, '')
+                    .trim()
+                  const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
+
+                  return (
+                    <div
+                      key={order.id}
+                      className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 max-w-5xl mx-auto"
+                    >
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
+                          <div className="text-white text-sm font-mono">{order.order_number || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                          <div className="text-white text-sm">{order.dealer_name || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                          <div className="text-white text-sm">{order.product_name || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                          <div className="text-white text-sm">{order.configuration || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                          <div className="text-white text-sm break-words whitespace-normal">
+                            {cleanedNotes || '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
+                          <div className="text-white text-sm">
+                            {order.quantity || '-'} {quantityUnit || 'ADET'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Durum</div>
+                          <div>
+                            <span className="px-2 py-1 rounded text-xs border bg-blue-900/30 text-blue-400 border-blue-700">
+                              Devam Eden
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
+                          <div className="text-white text-sm">
+                            {formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          ) : statusFilter === 'completed' ? (
+            filteredOrdersByStatus.length === 0 ? (
+              <div className="text-sm text-gray-500">Tamamlanan sipariş yok.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filteredOrdersByStatus.map((order) => {
+                  const notesText = normalizeNotes(order.notes).trim()
+                  const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                  const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                  const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                  const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
+                  const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                  const cleanedNotes = notesText
+                    .replace(/Kumaş:\s*[^|]+/gi, '')
+                    .replace(/Kasa:\s*[^|]+/gi, '')
+                    .replace(/Ayak:\s*[^|]+/gi, '')
+                    .replace(/Kirlent:\s*[^|]+/gi, '')
+                    .replace(/Birim:\s*[^|]+/gi, '')
+                    .replace(/\|\s*\|\s*/g, '|')
+                    .replace(/^\|\s*|\s*\|$/g, '')
+                    .trim()
+                  const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
+
+                  return (
+                    <div
+                      key={order.id}
+                      className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 max-w-5xl mx-auto"
+                    >
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
+                          <div className="text-white text-sm font-mono">{order.order_number || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                          <div className="text-white text-sm">{order.dealer_name || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                          <div className="text-white text-sm">{order.product_name || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                          <div className="text-white text-sm">{order.configuration || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                          <div className="text-white text-sm break-words whitespace-normal">
+                            {cleanedNotes || '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
+                          <div className="text-white text-sm">
+                            {order.quantity || '-'} {quantityUnit || 'ADET'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Durum</div>
+                          <div>
+                            <span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">
+                              Tamamlandı
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
+                          <div className="text-white text-sm">
+                            {formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          ) : filteredPendingCards.length === 0 ? (
             <div className="text-sm text-gray-500">Bekleyen sipariş yok.</div>
           ) : (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {filteredPendingCards.map((order) => {
                 const notesText = normalizeNotes(order.notes).trim()
                 const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
                 const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
                 const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
                 const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
                 const cleanedNotes = notesText
                   .replace(/Kumaş:\s*[^|]+/gi, '')
                   .replace(/Kasa:\s*[^|]+/gi, '')
                   .replace(/Ayak:\s*[^|]+/gi, '')
+                  .replace(/Kirlent:\s*[^|]+/gi, '')
                   .replace(/Birim:\s*[^|]+/gi, '')
                   .replace(/\|\s*\|\s*/g, '|')
                   .replace(/^\|\s*|\s*\|$/g, '')
@@ -266,7 +498,7 @@ export default function ProductionPage() {
                 return (
                   <div
                     key={order.id}
-                    className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4"
+                    className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 max-w-5xl mx-auto"
                   >
                     <div className="flex flex-wrap items-center justify-end gap-2 mb-3">
                       <Button
@@ -282,6 +514,7 @@ export default function ProductionPage() {
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {/* Sol Sütun */}
                       <div>
                         <div className="text-xs text-gray-400 mb-1">Seç</div>
                         <div>
@@ -293,50 +526,47 @@ export default function ProductionPage() {
                         <div className="text-white text-sm font-mono">{order.order_number || '-'}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                        <div className="text-white text-sm">{order.configuration || '-'}</div>
+                        <div className="text-xs text-gray-400 mb-1">KASA</div>
+                        <div className="text-white text-sm">
+                          {caseMatch ? caseMatch[1].trim() : '-'}
+                        </div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-400 mb-1">Durum</div>
-                        <div className="space-y-2">
+                        <div>
                           {order.display_status === 'shipped' ? (
                             <span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">
                               Sevk Edildi
                             </span>
                           ) : (
-                            <span className="px-2 py-1 rounded text-xs border bg-yellow-900/30 text-yellow-400 border-yellow-700">
-                              Beklemede
-                            </span>
-                          )}
-                          {order.display_status !== 'shipped' && (
-                            <div>
+                            <>
+                              <span className="px-2 py-1 rounded text-xs border bg-yellow-900/30 text-yellow-400 border-yellow-700 block mb-2">
+                                Beklemede
+                              </span>
                               <Button
                                 variant="solid"
                                 color="error"
                                 size="sm"
-                                className="!bg-red-600 !text-white hover:!bg-red-700 active:!bg-red-800"
+                                className="!bg-red-600 !text-white hover:!bg-red-700 active:!bg-red-800 w-full"
                                 onClick={() => cancelOrder(order.id)}
                                 disabled={cancellingOrderId === order.id}
                               >
                                 {cancellingOrderId === order.id ? 'İptal...' : 'İptal'}
                               </Button>
-                            </div>
+                            </>
                           )}
                         </div>
                       </div>
-                      <div>
-                        <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
-                        <div className="text-white text-sm">-</div>
-                      </div>
 
+                      {/* Orta Sol Sütun */}
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                        <div className="text-white text-sm">{order.customer_name || '-'}</div>
+                        <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                        <div className="text-white text-sm">{order.dealer_name || '-'}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                        <div className="text-white text-sm">
-                          {order.product_name || order.matched_product_name || '-'}
+                        <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                        <div className="text-white text-sm break-words whitespace-normal">
+                          {cleanedNotes || '-'}
                         </div>
                       </div>
                       <div>
@@ -346,12 +576,17 @@ export default function ProductionPage() {
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                        <div className="text-white text-sm break-words whitespace-normal">
-                          {cleanedNotes || '-'}
-                        </div>
+                        <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
+                        <div className="text-white text-sm">-</div>
                       </div>
 
+                      {/* Orta Sağ Sütun */}
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                        <div className="text-white text-sm">
+                          {order.product_name || order.matched_product_name || '-'}
+                        </div>
+                      </div>
                       <div>
                         <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
                         <div className="text-white text-sm">
@@ -359,28 +594,31 @@ export default function ProductionPage() {
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">KASA</div>
-                        <div className="text-white text-sm">
-                          {caseMatch ? caseMatch[1].trim() : '-'}
-                        </div>
+                        <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                        <div className="text-white text-sm">{order.configuration || '-'}</div>
                       </div>
+
+                      {/* Sağ Sütun */}
                       <div>
                         <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
                         <div className="text-white text-sm">
-                          {order.order_date
-                            ? new Date(order.order_date).toLocaleDateString('tr-TR')
-                            : '-'}
+                          {formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                        <div className="text-white text-sm">{order.dealer_name || '-'}</div>
+                        <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
+                        <div className="text-white text-sm">{order.customer_name || '-'}</div>
                       </div>
-
                       <div>
                         <div className="text-xs text-gray-400 mb-1">AYAK</div>
                         <div className="text-white text-sm">
                           {legMatch ? legMatch[1].trim() : '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">KİRLENT</div>
+                        <div className="text-white text-sm">
+                          {cushionMatch ? cushionMatch[1].trim() : '-'}
                         </div>
                       </div>
                     </div>

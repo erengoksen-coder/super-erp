@@ -2,21 +2,16 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { 
-  LayoutDashboard, 
-  Package, 
-  Factory, 
+import {
+  LayoutDashboard,
+  Package,
+  Factory,
   Menu,
   X,
-  Barcode,
-  Calendar,
+  LogOut,
   ShoppingCart,
-  Truck,
-  Shield,
-  FileSpreadsheet,
   ClipboardList,
   BarChart3,
-  Bell,
   Wallet,
   BookOpen,
   Users,
@@ -27,32 +22,37 @@ import {
   Sun,
   Moon,
   Search,
-  Plus
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { LogoWithBackground } from './Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { useTheme } from '@/lib/theme'
 import { logout } from '@/lib/auth'
-import { canAccessPath } from '@/lib/auth/permissions-check'
-import { useI18n } from '@/lib/i18n'
+import { useSidebar } from './SidebarContext'
+import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/cn'
 
-const menuItems = [
-  {
-    name: 'Kontrol Paneli',
-    href: '/',
-    icon: LayoutDashboard,
-    description: 'Genel bakış'
-  },
+type SubItem = { name: string; href: string }
+type MenuItem = {
+  name: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  group?: string
+  submenu?: SubItem[]
+}
+
+const menuItems: MenuItem[] = [
+  { name: 'Kontrol Paneli', href: '/', icon: LayoutDashboard, group: '' },
   {
     name: 'Üretim',
     href: '/production',
     icon: Factory,
-    description: 'Üretim yönetimi',
+    group: 'Üretim & Stok',
     submenu: [
       { name: 'Üretim Emirleri', href: '/production' },
       { name: 'Yeni Üretim', href: '/production/new' },
@@ -63,61 +63,55 @@ const menuItems = [
       { name: 'Üretim Operasyonları', href: '/production/order-operations' },
       { name: 'MRP', href: '/production/mrp' },
       { name: 'Üretim Takvimi', href: '/production/calendar' },
-      { name: 'Usta Terminali', href: '/mobile/workstation' }
-    ]
+      { name: 'Usta Terminali', href: '/mobile/workstation' },
+    ],
   },
   {
     name: 'Stok',
     href: '/inventory',
     icon: Package,
-    description: 'Depo yönetimi',
+    group: 'Üretim & Stok',
     submenu: [
       { name: 'Depo Genel', href: '/inventory' },
       { name: 'Hammadde', href: '/inventory/materials' },
-      { name: 'Hammadde Fiyat Geçmişi', href: '/inventory/materials/price-history' },
-      { name: 'Hammadde Rezervasyon', href: '/inventory/materials/reservations' },
+      { name: 'Fiyat Geçmişi', href: '/inventory/materials/price-history' },
+      { name: 'Rezervasyon', href: '/inventory/materials/reservations' },
       { name: 'Mamül', href: '/inventory/products' },
-      { name: 'Etiket Yazdır', href: '/inventory/products/print-label' },
-      { name: 'Barkod Etiketi', href: '/inventory/products/print-barcode-label' },
+      { name: 'Etiket / Barkod', href: '/inventory/products/print-barcode-label' },
       { name: 'Barkod Yönetimi', href: '/barcodes' },
-      { name: 'Depo Hızlı İşlem', href: '/mobile/material-stock' }
-    ]
+      { name: 'Depo Hızlı İşlem', href: '/mobile/material-stock' },
+    ],
   },
   {
     name: 'Satış',
     href: '/orders',
     icon: ShoppingCart,
-    description: 'Sipariş yönetimi',
+    group: 'Satış & Tedarik',
     submenu: [
       { name: 'Siparişler', href: '/orders' },
       { name: 'Satış Siparişleri', href: '/sales-orders' },
       { name: 'Sevkiyat', href: '/shipments' },
       { name: 'Faturalar', href: '/invoices' },
-      { name: 'Yeni Fatura', href: '/invoices/new' }
-    ]
+      { name: 'Yeni Fatura', href: '/invoices/new' },
+    ],
   },
   {
     name: 'Satın Alma',
     href: '/purchase-requests',
     icon: ClipboardList,
-    description: 'Tedarik zinciri',
+    group: 'Satış & Tedarik',
     submenu: [
       { name: 'Talepler', href: '/purchase-requests' },
       { name: 'Siparişler', href: '/purchase-orders' },
-      { name: 'Kritik Stok', href: '/purchase/critical-stock' }
-    ]
+      { name: 'Kritik Stok', href: '/purchase/critical-stock' },
+    ],
   },
-  {
-    name: 'Tedarik',
-    href: '/procurement',
-    icon: ClipboardList,
-    description: 'Satın alma yönetimi',
-  },
+  { name: 'Tedarik', href: '/procurement', icon: ClipboardList, group: 'Satış & Tedarik' },
   {
     name: 'Finans',
     href: '/finance',
     icon: Wallet,
-    description: 'Finans yönetimi',
+    group: 'Finans',
     submenu: [
       { name: 'Cari Hesaplar', href: '/accounts' },
       { name: 'Ödemeler', href: '/payments' },
@@ -125,63 +119,102 @@ const menuItems = [
       { name: 'Yeni Fiş', href: '/finance/new' },
       { name: 'Hesap Planı', href: '/finance/chart-of-accounts' },
       { name: 'Büyük Defter', href: '/finance/general-ledger' },
-      { name: 'Fire Analizi', href: '/finance/fire-analysis' },
-      { name: 'Maliyet Analizi', href: '/finance/cost-analysis' }
-    ]
+      { name: 'Mizan', href: '/finance/trial-balance' },
+      { name: 'Gelir Tablosu', href: '/finance/income-statement' },
+      { name: 'Bilanço', href: '/finance/balance-sheet' },
+      { name: 'Nakit Akışı', href: '/finance/cash-flow' },
+      { name: 'Fire / Maliyet', href: '/finance/fire-analysis' },
+    ],
   },
-  {
-    name: 'Muhasebe',
-    href: '/accounting',
-    icon: BookOpen,
-    description: 'Mali tablolar',
-  },
+  { name: 'Muhasebe', href: '/accounting', icon: BookOpen, group: 'Finans' },
   {
     name: 'İnsan Kaynakları',
     href: '/hr',
     icon: Users,
-    description: 'Personel yönetimi',
+    group: 'Diğer',
+    submenu: [
+      { name: 'Özet', href: '/hr' },
+      { name: 'İzinler', href: '/hr/leave' },
+      { name: 'Bordro', href: '/hr/payroll' },
+      { name: 'Performans', href: '/hr/performance' },
+      { name: 'İşe Alım', href: '/hr/recruitment' },
+      { name: 'Vardiya', href: '/hr/shifts' },
+      { name: 'Devam / Puantaj', href: '/hr/attendance' },
+    ],
   },
-  {
-    name: 'CRM',
-    href: '/crm',
-    icon: Handshake,
-    description: 'Müşteri ilişkileri',
-  },
-  {
-    name: 'Sabit Kıymet',
-    href: '/fixed-assets',
-    icon: Landmark,
-    description: 'Varlık yönetimi',
-  },
+  { name: 'CRM', href: '/crm', icon: Handshake, group: 'Diğer' },
+  { name: 'Sabit Kıymet', href: '/fixed-assets', icon: Landmark, group: 'Diğer' },
   {
     name: 'Raporlar',
     href: '/reports',
     icon: BarChart3,
-    description: 'Analiz ve raporlar',
+    group: 'Diğer',
     submenu: [
-      { name: 'Genel Raporlar', href: '/reports' },
-      { name: 'Üretim Maliyet Raporu', href: '/reports/costs' },
-      { name: 'Fire Analizi', href: '/reports/fire' }
-    ]
+      { name: 'Genel', href: '/reports' },
+      { name: 'Maliyet', href: '/reports/costs' },
+      { name: 'Fire', href: '/reports/fire' },
+    ],
   },
   {
     name: 'Ayarlar',
     href: '/settings',
     icon: Settings,
-    description: 'Sistem ayarları',
+    group: 'Sistem',
     submenu: [
-      { name: 'Genel Ayarlar', href: '/settings' },
-      { name: 'Kullanıcı Yönetimi', href: '/users' },
+      { name: 'Genel', href: '/settings' },
+      { name: 'Kullanıcılar', href: '/users' },
+      { name: 'Mesajlaşma (Admin)', href: '/admin/messaging' },
       { name: 'Birim Çevrimleri', href: '/units/conversions' },
       { name: 'Bildirimler', href: '/notifications' },
-      { name: 'API Katalogu', href: '/api-catalog' }
-    ]
-  }
+      { name: 'API Katalogu', href: '/api-catalog' },
+    ],
+  },
 ]
 
-// TÜM menü isimlerini component DIŞINDA hesapla - SSR/hydration hatası önlemek için
-// ARTIK KULLANILMIYOR - menüler her zaman açık
-// const ALL_MENU_NAMES = menuItems.map((item) => item.name)
+const GROUP_ORDER = ['', 'Üretim & Stok', 'Satış & Tedarik', 'Finans', 'Diğer', 'Sistem']
+
+function buildMenuGroups() {
+  const map = new Map<string, MenuItem[]>()
+  menuItems.forEach((item) => {
+    const key = item.group ?? ''
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(item)
+  })
+  return GROUP_ORDER.filter((g) => map.has(g)).map((label) => ({
+    label: label || undefined,
+    items: map.get(label)!,
+  }))
+}
+
+const menuGroups = buildMenuGroups()
+
+function filterMenuByPermissions(
+  groups: { label?: string; items: MenuItem[] }[],
+  permissions: { page_path: string; can_view: number }[],
+  isAdmin: boolean
+): { label?: string; items: MenuItem[] }[] {
+  if (isAdmin) return groups
+  return groups
+    .map((g) => ({
+      ...g,
+      items: g.items
+        .map((item) => {
+          if (item.submenu?.length) {
+            const allowedSub = item.submenu.filter((sub) =>
+              canAccessPath(permissions, sub.href, 'view')
+            )
+            const canViewParent = canAccessPath(permissions, item.href, 'view')
+            if (allowedSub.length > 0 || canViewParent) {
+              return { ...item, submenu: allowedSub.length > 0 ? allowedSub : undefined }
+            }
+            return null
+          }
+          return canAccessPath(permissions, item.href, 'view') ? item : null
+        })
+        .filter((x): x is MenuItem => x !== null),
+    }))
+    .filter((g) => g.items.length > 0)
+}
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -189,314 +222,373 @@ export default function Sidebar() {
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const pathname = usePathname()
+  const { collapsed, toggle } = useSidebar()
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     menuItems.forEach((item) => {
-      if (item.submenu && item.submenu.length > 0 && pathname?.startsWith(item.href)) {
-        initial[item.name] = true
-      }
+      if (item.submenu?.length && pathname?.startsWith(item.href)) initial[item.name] = true
     })
     return initial
   })
-  const { t } = useI18n()
-  const user = useAuthStore((state) => state.user)
+  const user = useAuthStore((s) => s.user)
   const { mode, toggleMode } = useTheme()
 
-  // Filter menu items based on user permissions
-  const filteredMenuItems = menuItems // Simplified for now - show all items
-
-  const toggleExpanded = (name: string) => {
-    setExpandedMenus((prev) => ({
-      ...prev,
-      [name]: !prev[name],
-    }))
-  }
+  const isAdmin = isAdminRole(user?.role)
+  const permissions = user?.permissions ?? []
+  const visibleMenuGroups = useMemo(
+    () => filterMenuByPermissions(menuGroups, permissions, isAdmin),
+    [isAdmin, permissions]
+  )
 
   useEffect(() => {
-    const activeParent = menuItems.find(
-      (item) => item.submenu && item.submenu.some((sub) => pathname?.startsWith(sub.href))
+    const parent = menuItems.find(
+      (item) => item.submenu?.some((sub) => pathname?.startsWith(sub.href))
     )
-    if (!activeParent) return
-    setExpandedMenus((prev) => {
-      if (prev[activeParent.name]) return prev
-      return { ...prev, [activeParent.name]: true }
-    })
+    if (!parent) return
+    setExpandedMenus((prev) => (prev[parent.name] ? prev : { [parent.name]: true }))
   }, [pathname])
 
-  const isItemActive = (href: string) => {
-    if (href === '/') return pathname === '/'
-    return pathname.startsWith(href)
+  const isItemActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href)
+
+  const filteredSearchResults = useMemo(() => {
+    if (!searchTerm.trim()) return []
+    const term = searchTerm.toLowerCase()
+    const source = isAdmin
+      ? menuItems
+      : visibleMenuGroups.flatMap((g) => g.items)
+    return source
+      .flatMap((item) => [
+        { ...item, parent: null as string | null },
+        ...(item.submenu || []).map((sub) => ({
+          name: sub.name,
+          href: sub.href,
+          icon: item.icon,
+          parent: item.name,
+        })),
+      ])
+      .filter((x) => x.name.toLowerCase().includes(term))
+      .slice(0, 8)
+  }, [searchTerm, isAdmin, visibleMenuGroups])
+
+  const openSearch = () => {
+    setIsSearchOpen(true)
+    setTimeout(() => document.querySelector<HTMLInputElement>('[data-search-input]')?.focus(), 50)
   }
 
-  const filteredSearchResults = searchTerm
-    ? filteredMenuItems.flatMap(item => [
-        item,
-        ...(item.submenu || []).map(sub => ({ ...sub, parent: item.name }))
-      ]).filter(item => 
-        item.name.toLowerCase().includes(searchTerm.toLowerCase())
-      ).slice(0, 5) as any
-    : []
+  if (pathname === '/auth/login' || pathname === '/auth/register') return null
 
-  // Login/Register sayfalarında sidebar'ı gösterme
-  if (pathname === '/auth/login' || pathname === '/auth/register') {
-    return null
-  }
-
-  return (
-    <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setIsOpen(false)}
-          suppressHydrationWarning
-        />
+  const navContent = (
+    <nav
+      className={cn(
+        'flex-1 overflow-y-auto overflow-x-hidden py-3 min-h-0',
+        collapsed ? 'px-2' : 'px-3'
       )}
-
-      {/* Sidebar */}
-      <aside 
-        className={cn(
-          'fixed top-0 left-0 z-50 w-64 h-full bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto',
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-        suppressHydrationWarning
-      >
-        {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <Link href="/" className="flex items-center space-x-3">
-            <LogoWithBackground size="sm" />
-            <div className="leading-tight">
-              <span className="text-xl font-bold text-gray-900">LIVASOFA</span>
-              <div className="text-xs text-gray-500">Menü v2</div>
-            </div>
-          </Link>
-          
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsOpen(false)}
-            className="lg:hidden"
-          >
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* User Info */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-primary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">
-                {user?.full_name || user?.username || 'Kullanıcı'}
-              </p>
-              <p className="text-xs text-gray-500 truncate">
-                {user?.role || 'Admin'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto h-[calc(100vh-180px)]">
-          {filteredMenuItems.map((item) => {
+    >
+      {!collapsed && (
+        <button
+          type="button"
+          onClick={openSearch}
+          data-command-palette-trigger
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mb-3 border border-gray-700/50"
+        >
+          <Search className="w-4 h-4 flex-shrink-0" />
+          <span className="text-sm">Ara...</span>
+          <span className="ml-auto text-[10px] text-gray-500">Ctrl+K</span>
+        </button>
+      )}
+      {collapsed && (
+        <button
+          type="button"
+          onClick={openSearch}
+          data-command-palette-trigger
+          className="w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mb-2"
+          title="Ara (Ctrl+K)"
+        >
+          <Search className="w-5 h-5" />
+        </button>
+      )}
+      {visibleMenuGroups.map((group) => (
+        <div key={group.label ?? 'main'} className={cn(group.label && 'mt-4')}>
+          {group.label && !collapsed && (
+            <p className="px-3 mb-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-500">
+              {group.label}
+            </p>
+          )}
+          {group.items.map((item) => {
             const isActive = isItemActive(item.href)
             const isExpanded = !!expandedMenus[item.name]
             const hasSubmenu = item.submenu && item.submenu.length > 0
+            const Icon = item.icon
+
+            const linkClass = cn(
+              'w-full flex items-center gap-3 rounded-lg transition-all duration-150',
+              collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5 text-left',
+              isActive
+                ? 'bg-blue-500/15 text-blue-400 border-l-2 border-blue-500'
+                : 'text-gray-300 hover:bg-white/5 hover:text-gray-100 border-l-2 border-transparent'
+            )
 
             return (
-              <div key={item.name}>
+              <div key={item.name} className="mb-0.5">
                 {hasSubmenu ? (
-                  <button
-                    onClick={() => toggleExpanded(item.name)}
-                    className={cn(
-                      'w-full flex items-center justify-between px-4 py-3 text-sm rounded-lg transition-colors duration-150',
-                      isActive 
-                        ? 'bg-primary/10 text-primary font-medium' 
-                        : 'text-gray-700 hover:bg-gray-100'
-                    )}
-                  >
-                    <span className="flex items-center space-x-3 flex-1">
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      <span className="flex-1 text-left">
-                        <span>{item.name}</span>
-                        {item.description && (
-                          <span className="block text-xs text-gray-500">{item.description}</span>
-                        )}
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        'transform transition-transform duration-200',
-                        isExpanded ? 'rotate-90' : ''
-                      )}
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextExpanded = !expandedMenus[item.name]
+                        setExpandedMenus(nextExpanded ? { [item.name]: true } : { ...expandedMenus, [item.name]: false })
+                      }}
+                      className={cn(linkClass, collapsed && 'justify-center')}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </span>
-                  </button>
-                ) : (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'w-full flex items-center justify-between px-4 py-3 text-sm rounded-lg transition-colors duration-150',
-                      isActive 
-                        ? 'bg-primary/10 text-primary font-medium' 
-                        : 'text-gray-700 hover:bg-gray-100'
+                      <Icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 text-sm font-medium">{item.name}</span>
+                          <ChevronRight
+                            className={cn(
+                              'w-4 h-4 flex-shrink-0 transition-transform',
+                              isExpanded && 'rotate-90'
+                            )}
+                          />
+                        </>
+                      )}
+                    </button>
+                    {hasSubmenu && isExpanded && !collapsed && (
+                      <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-700/50 pl-2">
+                        {item.submenu!.map((sub) => (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            className={cn(
+                              'flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
+                              pathname === sub.href
+                                ? 'bg-blue-500/10 text-blue-400'
+                                : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+                            )}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </div>
                     )}
-                  >
-                    <span className="flex items-center space-x-3 flex-1">
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      <span className="flex-1 text-left">
-                        <span>{item.name}</span>
-                        {item.description && (
-                          <span className="block text-xs text-gray-500">{item.description}</span>
-                        )}
-                      </span>
-                    </span>
+                  </>
+                ) : (
+                  <Link href={item.href} className={linkClass}>
+                    <Icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
+                    {!collapsed && (
+                      <span className="flex-1 text-sm font-medium">{item.name}</span>
+                    )}
                   </Link>
-                )}
-
-                {hasSubmenu && isExpanded && (
-                  <div className="ml-4 mt-1 space-y-1">
-                    {item.submenu.map((subItem) => (
-                      <Link
-                        key={subItem.href}
-                        href={subItem.href}
-                        className={cn(
-                          'flex items-center px-4 py-2 text-sm rounded-lg transition-colors duration-150',
-                          pathname === subItem.href
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        )}
-                      >
-                        <div className="w-2 h-2 bg-current rounded-full mr-3 opacity-50" />
-                        {subItem.name}
-                      </Link>
-                    ))}
-                  </div>
                 )}
               </div>
             )
           })}
-        </nav>
+        </div>
+      ))}
+    </nav>
+  )
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center space-x-2">
+  return (
+    <>
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setIsOpen(false)}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={cn(
+          'fixed top-0 left-0 z-50 h-full flex flex-col bg-slate-900 border-r border-slate-700/80 transform transition-all duration-300 ease-in-out',
+          'lg:static lg:z-auto',
+          collapsed ? 'w-[72px] lg:w-[72px]' : 'w-64 lg:w-64',
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        )}
+        suppressHydrationWarning
+      >
+        {/* Logo + collapse */}
+        <div className="flex items-center justify-between h-14 px-3 border-b border-slate-700/80 gap-2">
+          <Link
+            href="/"
+            className={cn(
+              'flex items-center gap-2 overflow-hidden min-w-0',
+              collapsed ? 'justify-center w-full' : 'flex-1'
+            )}
+          >
+            <div className="shrink-0 flex items-center justify-center h-12 w-auto max-w-[180px]">
+              <LogoWithBackground size="xs" className="!h-12 !w-auto !max-h-12 object-contain" />
+            </div>
+            {!collapsed && (
+              <div className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-white truncate">LIVASOFA</span>
+                <span className="block text-[10px] text-gray-500 truncate">ERP</span>
+              </div>
+            )}
+          </Link>
+          {!collapsed && (
             <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={toggleMode}
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsOpen(false)}
+              className="lg:hidden shrink-0 text-gray-400 hover:text-white"
             >
-              {mode === 'light' ? (
-                <Moon className="w-4 h-4" />
-              ) : (
-                <Sun className="w-4 h-4" />
-              )}
+              <X className="w-5 h-5" />
             </Button>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              disabled={isLoggingOut}
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (!isLoggingOut) {
-                  setIsLoggingOut(true)
-                  logout()
-                }
-              }}
-            >
-              {isLoggingOut ? 'Çıkış Yapılıyor...' : 'Çıkış'}
-            </Button>
+          )}
+        </div>
+
+        {/* User */}
+        <div
+          className={cn(
+            'flex items-center gap-2 border-b border-slate-700/80',
+            collapsed ? 'justify-center py-3 px-2' : 'p-3'
+          )}
+        >
+          <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
+            <User className="w-4 h-4 text-slate-300" />
           </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white truncate">
+                {user?.full_name || user?.username || 'Kullanıcı'}
+              </p>
+              <p className="text-[10px] text-gray-500 truncate">{user?.role || 'Admin'}</p>
+            </div>
+          )}
+        </div>
+
+        {navContent}
+
+        {/* Footer */}
+        <div
+          className={cn(
+            'shrink-0 p-2 border-t border-slate-700/80',
+            collapsed ? 'flex justify-center gap-1' : 'flex items-center gap-2'
+          )}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggle}
+            className="shrink-0 text-gray-400 hover:text-white hidden lg:flex"
+            title={collapsed ? 'Menüyü aç' : 'Menüyü daralt'}
+          >
+            {collapsed ? (
+              <PanelLeft className="w-5 h-5" />
+            ) : (
+              <PanelLeftClose className="w-5 h-5" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleMode}
+            className="shrink-0 text-gray-400 hover:text-white"
+            title={mode === 'dark' ? 'Açık tema' : 'Koyu tema'}
+          >
+            {mode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size={collapsed ? 'icon' : 'sm'}
+            className="shrink-0 text-gray-400 hover:text-red-400"
+            title="Çıkış"
+            disabled={isLoggingOut}
+            onClick={(e) => {
+              e.preventDefault()
+              if (!isLoggingOut) {
+                setIsLoggingOut(true)
+                logout()
+              }
+            }}
+          >
+            {collapsed ? (
+              <LogOut className="w-4 h-4" />
+            ) : (
+              <span className="text-xs">{isLoggingOut ? '...' : 'Çıkış'}</span>
+            )}
+          </Button>
         </div>
       </aside>
 
-      {/* Mobile Menu Button */}
-      <div className="lg:hidden fixed bottom-4 left-4 z-50" suppressHydrationWarning>
+      {/* Mobile menu button */}
+      <div className="lg:hidden fixed bottom-4 left-4 z-50">
         <Button
           variant="solid"
-          color="primary"
+          className="rounded-full shadow-lg bg-slate-700 hover:bg-slate-600 text-white"
           size="lg"
-          className="rounded-full shadow-lg"
           onClick={() => setIsOpen(true)}
-          suppressHydrationWarning
         >
           <Menu className="w-6 h-6" />
         </Button>
       </div>
 
-      {/* Command Palette (Ctrl+K) */}
+      {/* Command palette */}
       {isSearchOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20">
-          <div 
-            className="fixed inset-0 bg-black/50"
+        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
+          <div
+            className="fixed inset-0 bg-black/70"
             onClick={() => {
               setIsSearchOpen(false)
               setSearchTerm('')
             }}
           />
-          <div className="relative w-full max-w-2xl mx-4">
-            <div className="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
-              <div className="p-4 border-b border-gray-200">
+          <div className="relative w-full max-w-xl mx-4">
+            <div className="bg-slate-800 rounded-xl shadow-2xl border border-slate-600 overflow-hidden">
+              <div className="p-3 border-b border-slate-600 flex items-center gap-2">
+                <Search className="w-5 h-5 text-gray-400 shrink-0" />
                 <Input
-                  placeholder="Komut veya menü ara..."
-                  autoFocus
+                  data-search-input
+                  placeholder="Sayfa veya menü ara..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  leftIcon={<Search className="w-4 h-4" />}
-                  fullWidth
+                  className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-gray-500"
                 />
               </div>
-              
-              {searchTerm && (
-                <div className="max-h-96 overflow-y-auto">
-                  {filteredSearchResults.map((item: any, index: number) => (
+              <div className="max-h-[60vh] overflow-y-auto">
+                {filteredSearchResults.length > 0 ? (
+                  filteredSearchResults.map((item: any, i) => (
                     <Link
-                      key={index}
+                      key={`${item.href}-${i}`}
                       href={item.href}
-                      className="flex items-center px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700/50 transition-colors border-b border-slate-700/50 last:border-0"
                       onClick={() => {
                         setIsSearchOpen(false)
                         setSearchTerm('')
                       }}
                     >
                       {item.icon && (
-                        <item.icon className="w-4 h-4 mr-3 text-gray-400" />
+                        <item.icon className="w-4 h-4 text-gray-400 shrink-0" />
                       )}
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-gray-900">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-white block truncate">
                           {item.name}
-                        </div>
+                        </span>
                         {item.parent && (
-                          <div className="text-xs text-gray-500">
-                            {item.parent}
-                          </div>
+                          <span className="text-xs text-gray-500">{item.parent}</span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-400">
-                        ↵
-                      </div>
+                      <span className="text-xs text-gray-500">↵</span>
                     </Link>
-                  ))}
-                </div>
-              )}
+                  ))
+                ) : (
+                  searchTerm && (
+                    <p className="px-4 py-6 text-sm text-gray-500 text-center">
+                      Sonuç bulunamadı
+                    </p>
+                  )
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Global Keyboard Shortcut */}
       <script
         dangerouslySetInnerHTML={{
-          __html: `document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.querySelector('[data-command-palette-trigger]')?.click();}});`
+          __html: `document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.querySelector('[data-command-palette-trigger]')?.click();}});`,
         }}
       />
     </>

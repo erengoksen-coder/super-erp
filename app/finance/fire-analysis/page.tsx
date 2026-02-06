@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { AlertTriangle, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
+import { toast } from '@/lib/notify'
 
 interface FireAnalysis {
   material_id: string
@@ -39,7 +40,7 @@ export default function FireAnalysisPage() {
       setAnalysis(data)
     } catch (error) {
       console.error('Error loading analysis:', error)
-      alert('Analiz yüklenirken hata oluştu')
+      toast.error('Analiz yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }

@@ -1,9 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Package, Search, Printer, Download, Eye, EyeOff, QrCode, X } from 'lucide-react'
+import { Package, Search, Printer, Download, Eye, EyeOff, QrCode, X, Trash2 } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { getAuthHeaders } from '@/lib/api/client'
+import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
+import { isDepodaStatus } from '@/lib/barcodeStatus'
+import { usePolling } from '@/lib/hooks/usePolling'
 
 interface Barcode {
   id: string
@@ -96,7 +100,7 @@ function BarcodeVisual({ barcode, serialNumber }: { barcode: string; serialNumbe
           title="QR Kod"
         >
           {showQR ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-          <span>QR</span>
+          <span>QR Kod</span>
         </button>
       </div>
       {showVisual && (
@@ -106,7 +110,7 @@ function BarcodeVisual({ barcode, serialNumber }: { barcode: string; serialNumbe
       )}
       {showQR && (
         <div className="bg-white p-2 rounded border border-gray-600 inline-block">
-          <img src={qrCodeUrl} alt="QR Code" className="w-20 h-20" />
+          <img src={qrCodeUrl} alt="QR Kod" className="w-20 h-20" />
         </div>
       )}
     </div>
@@ -117,7 +121,7 @@ export default function BarcodesPage() {
   const [barcodes, setBarcodes] = useState<Barcode[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<string>('in_system')
   const [showQRScanner, setShowQRScanner] = useState(false)
   const [scannedBarcodeData, setScannedBarcodeData] = useState<Barcode | null>(null)
   const qrScannerRef = useRef<any>(null)
@@ -126,6 +130,8 @@ export default function BarcodesPage() {
   useEffect(() => {
     loadBarcodes()
   }, [filterStatus])
+
+  usePolling(loadBarcodes)
 
   useEffect(() => {
     if (showQRScanner && typeof window !== 'undefined') {
@@ -223,16 +229,27 @@ export default function BarcodesPage() {
 
   async function loadBarcodes() {
     try {
-      const url = filterStatus === 'all' 
-        ? '/api/barcodes'
-        : `/api/barcodes?status=${filterStatus}`
-      
-      const response = await fetch(url)
-      if (!response.ok) throw new Error('Barkodlar yüklenemedi')
+      let url: string
+      if (filterStatus === 'all') {
+        url = '/api/barcodes'
+      } else if (filterStatus === 'in_system') {
+        url = '/api/barcodes?in_system=1'
+      } else {
+        url = `/api/barcodes?status=${filterStatus}`
+      }
+      const response = await fetch(url, {
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}))
+        const msg = (errBody as any)?.error || (response.status === 401 ? 'Oturum süresi dolmuş olabilir, tekrar giriş yapın.' : 'Barkodlar yüklenemedi')
+        throw new Error(msg)
+      }
       const data = await response.json()
-      setBarcodes(data)
+      setBarcodes(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('Error loading barcodes:', error)
+      console.error('Barkodlar yüklenemedi:', error)
     } finally {
       setLoading(false)
     }
@@ -263,13 +280,15 @@ export default function BarcodesPage() {
     }
     
     const statusMap: Record<string, { label: string; className: string }> = {
-      in_stock: { label: 'Depoda', className: 'bg-green-900 text-green-300' },
+      in_stock: { label: 'Mamül Depoda', className: 'bg-green-900 text-green-300' },
+      available: { label: 'Mamül Depoda', className: 'bg-green-900 text-green-300' },
       in_production: { label: 'Üretim Aşamasında', className: 'bg-orange-900 text-orange-300' },
+      pending: { label: 'Beklemede', className: 'bg-gray-700 text-gray-300' },
       sold: { label: 'Satıldı', className: 'bg-blue-900 text-blue-300' },
       reserved: { label: 'Rezerve', className: 'bg-yellow-900 text-yellow-300' },
       shipped: { label: 'Sevk Edildi', className: 'bg-purple-900 text-purple-300' },
     }
-    const statusInfo = statusMap[barcode.status] || { label: barcode.status, className: 'bg-gray-800 text-gray-300' }
+    const statusInfo = statusMap[barcode.status] || { label: barcode.status || 'Bilinmiyor', className: 'bg-gray-800 text-gray-300' }
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${statusInfo.className}`}>
         {statusInfo.label}
@@ -398,14 +417,14 @@ export default function BarcodesPage() {
                 <div>
                   <div className="text-xs text-gray-400 mb-1">ÜRETİM TARİHİ</div>
                   <div className="text-white text-sm">
-                    {new Date(scannedBarcodeData.production_order_created_at).toLocaleDateString('tr-TR')}
+                    {formatDateTime(scannedBarcodeData.production_order_created_at)}
                   </div>
                 </div>
               )}
               <div>
                 <div className="text-xs text-gray-400 mb-1">OLUŞTURULMA TARİHİ</div>
                 <div className="text-white text-sm">
-                  {new Date(scannedBarcodeData.created_at).toLocaleDateString('tr-TR')}
+                  {formatDateTime(scannedBarcodeData.created_at)}
                 </div>
               </div>
             </div>
@@ -447,6 +466,7 @@ export default function BarcodesPage() {
               onChange={(e) => setFilterStatus(e.target.value)}
               className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
+              <option value="in_system">Sistemde olanlar</option>
               <option value="all">Tümü</option>
               <option value="in_stock">Depoda</option>
               <option value="in_production">Üretim Aşamasında</option>
@@ -455,10 +475,49 @@ export default function BarcodesPage() {
               <option value="shipped">Sevk Edildi</option>
             </select>
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end gap-2">
+            <button
+              onClick={async () => {
+                if (!confirm('Üretim emri girilmemiş tüm barkod kayıtlarını sistemden kaldırmak istediğinize emin misiniz? Bu işlem tek seferliktir ve geri alınamaz.')) return
+                try {
+                  const res = await fetch('/api/barcodes?no_production_order=1', { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' })
+                  if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
+                  const data = await res.json()
+                  setBarcodes([])
+                  loadBarcodes()
+                  alert(data?.message || 'Üretim emri olmayan kayıtlar kaldırıldı.')
+                } catch (e: any) {
+                  alert('Hata: ' + (e.message || 'İşlem yapılamadı'))
+                }
+              }}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center justify-center space-x-2"
+              title="Üretim emri girilmemiş kayıtları tek seferlik siler"
+            >
+              <Trash2 size={20} />
+              <span>Üretim Emri Olmayanları Kaldır</span>
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Tüm barkod kayıtlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+                try {
+                  const res = await fetch('/api/barcodes?all=1', { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' })
+                  if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
+                  const data = await res.json()
+                  setBarcodes([])
+                  loadBarcodes()
+                  alert(data?.message || 'Barkodlar silindi.')
+                } catch (e: any) {
+                  alert('Hata: ' + (e.message || 'Barkodlar silinemedi'))
+                }
+              }}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center justify-center space-x-2"
+            >
+              <Trash2 size={20} />
+              <span>Tüm Barkodları Sil</span>
+            </button>
             <button
               onClick={() => setShowQRScanner(true)}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center space-x-2"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center space-x-2"
             >
               <QrCode size={20} />
               <span>QR Kod Okut</span>
@@ -523,24 +582,7 @@ export default function BarcodesPage() {
                       {barcode.production_order_number || '-'}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
-                      {barcode.production_order_created_at 
-                        ? new Date(barcode.production_order_created_at).toLocaleString('tr-TR', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })
-                        : barcode.created_at
-                          ? new Date(barcode.created_at).toLocaleString('tr-TR', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })
-                          : '-'
-                      }
+                      {formatDateTime(barcode.production_order_created_at || barcode.created_at)}
                     </TableCell>
                     <TableCell className="text-gray-300 text-xs">
                       {barcode.dealer_name || '-'}
@@ -549,7 +591,7 @@ export default function BarcodesPage() {
                       {barcode.customer_name || '-'}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
-                      {new Date(barcode.created_at).toLocaleDateString('tr-TR')}
+                      {formatDateTime(barcode.created_at)}
                     </TableCell>
                     <TableCell>
                       <button
@@ -568,7 +610,7 @@ export default function BarcodesPage() {
         </div>
       )}
 
-      {/* İstatistikler */}
+      {/* İstatistikler - Depoda: in_stock veya available (API/Genel Durum ile aynı tanım) */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
           <div className="text-sm text-gray-400 mb-1">Toplam Barkod</div>
@@ -577,7 +619,7 @@ export default function BarcodesPage() {
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
           <div className="text-sm text-gray-400 mb-1">Depoda</div>
           <div className="text-2xl font-bold text-green-400">
-            {barcodes.filter((b) => b.status === 'in_stock').length}
+            {barcodes.filter((b) => isDepodaStatus(b.status)).length}
           </div>
         </div>
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">

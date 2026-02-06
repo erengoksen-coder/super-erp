@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { useParams, useRouter } from 'next/navigation'
 import { Printer, ArrowLeft, Truck, Calendar, User, Package, CheckCircle, Edit, Save, X, AlertCircle, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/lib/store/authStore'
@@ -289,41 +290,7 @@ export default function ShipmentDetailPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Tarih:</span>
                   <span className="font-semibold text-gray-900">
-                    {(() => {
-                      const rawDate = shipment.shipment_date || ''
-                      const hasTime = rawDate.includes('T') || rawDate.includes(':')
-                      let datePart: Date | null = null
-                      if (rawDate) {
-                        if (hasTime) {
-                          datePart = new Date(rawDate)
-                        } else {
-                          const [y, m, d] = rawDate.split('-').map(Number)
-                          if (y && m && d) {
-                            datePart = new Date(y, m - 1, d, 0, 0, 0)
-                          }
-                        }
-                      }
-                      const timeSource = hasTime
-                        ? datePart
-                        : (shipment.created_at ? new Date(shipment.created_at) : datePart)
-                      const dateLabel = datePart
-                        ? datePart.toLocaleDateString('tr-TR', {
-                            day: '2-digit',
-                            month: 'long',
-                            year: 'numeric',
-                            timeZone: 'Europe/Istanbul',
-                          })
-                        : ''
-                      const timeLabel = timeSource
-                        ? timeSource.toLocaleTimeString('tr-TR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                            timeZone: 'Europe/Istanbul',
-                          })
-                        : ''
-                      return `${dateLabel} ${timeLabel}`.trim()
-                    })()}
+                    {formatDateTime(shipment.shipment_date || shipment.created_at)}
                   </span>
                 </div>
                 {shipment.approval_status === 'pending' && (
@@ -341,7 +308,7 @@ export default function ShipmentDetailPage() {
                       {shipment.approved_by_name} ({shipment.approved_by_username || 'Kullanıcı'})
                       {shipment.approved_at && (
                         <span className="text-gray-500 ml-2">
-                          - {new Date(shipment.approved_at).toLocaleString('tr-TR')}
+                          - {formatDateTime(shipment.approved_at)}
                         </span>
                       )}
                     </span>
@@ -545,7 +512,7 @@ export default function ShipmentDetailPage() {
           {/* Alt Bilgi */}
           <div className="mt-8 pt-4 border-t-2 border-gray-300 text-center text-xs text-gray-500">
             <p>Bu belge LIVASOFA ERP sistemi tarafından otomatik oluşturulmuştur.</p>
-            <p className="mt-1">Yazdırma Tarihi: {new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR')}</p>
+            <p className="mt-1">Yazdırma Tarihi: {formatDateTime(new Date())}</p>
           </div>
         </div>
       </div>

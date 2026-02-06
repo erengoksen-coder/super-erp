@@ -7,7 +7,7 @@ import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
 import { logAudit as logAuditEntry } from '@/lib/audit/logger'
-import { withAuth } from '@/lib/api/withAuth'
+import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -39,6 +39,7 @@ type ManualOrderInput = {
   fabric_code?: string
   case_info?: string
   leg_info?: string
+  cushion_info?: string
   unit?: string
   product_id?: string | null
   product_sku?: string | null
@@ -185,7 +186,7 @@ function createMaterialIfNotExists(db: Db, fabricCode: string | null, unit?: str
 }
 
 // GET: Tüm siparişleri getir
-export const GET = withAuth(async (request) => {
+export const GET = withAuthAndPermission(async (request) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -331,7 +332,7 @@ export const GET = withAuth(async (request) => {
     } catch {}
     return fail(error.message, { status: 500 })
   }
-}, ['admin', 'manager', 'sales'])
+}, '/orders', 'view')
 
 // POST: Manuel sipariş oluştur
 export const POST = withAuth(async (request, user) => {
@@ -377,6 +378,9 @@ export const POST = withAuth(async (request, user) => {
         }
         if (order.leg_info) {
           combinedNotes += (combinedNotes ? ' | ' : '') + `Ayak: ${order.leg_info}`
+        }
+        if (order.cushion_info) {
+          combinedNotes += (combinedNotes ? ' | ' : '') + `Kirlent: ${order.cushion_info}`
         }
         if (order.unit) {
           combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${order.unit}`
@@ -537,15 +541,22 @@ export const PATCH = withAuth(async (request: NextRequest, user) => {
   }
 })
 
-// DELETE: Sipariş sil
+// DELETE: Sipariş sil (tek veya tümü - all=1 sadece admin)
 export const DELETE = withAuth(async (request: NextRequest, user) => {
   try {
     const db = getDatabase()
-
     const { searchParams } = new URL(request.url)
+    const all = searchParams.get('all')
+
+    if (all === '1' || all === 'true') {
+      const result = db.prepare('UPDATE orders SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
+      logger.info(`[Orders API - DELETE] Tüm siparişler silindi`, { deleted_count: result.changes })
+      return ok({ deleted_count: result.changes }, { message: `${result.changes} sipariş silindi` })
+    }
+
     const id = searchParams.get('id')
     if (!id) {
-      return fail('Sipariş id gerekli', { status: 400 })
+      return fail('Sipariş id gerekli (veya all=1 ile tümünü sil)', { status: 400 })
     }
 
     const order = db.prepare('SELECT * FROM active_orders WHERE id = ? AND deleted_at IS NULL').get(id) as OrderRow | undefined

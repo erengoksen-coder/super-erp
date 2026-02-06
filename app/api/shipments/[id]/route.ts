@@ -240,20 +240,16 @@ export const DELETE = withAuth(
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `).run(item.quantity, item.product_id)
+      }
 
-        // Cari hesap işlemlerini iptal et (ters kayıt ekle)
-        const transactionId = randomUUID()
+      // Cari hesaptan bu sevkiyata ait hareketleri kaldır (veriyi sil)
+      const itemIds = items.map((i) => i.id)
+      if (itemIds.length > 0) {
+        const placeholders = itemIds.map(() => '?').join(',')
         db.prepare(`
-          INSERT INTO account_transactions 
-          (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
-          VALUES (?, ?, 'credit', ?, 'shipment_return', ?, ?, CURRENT_TIMESTAMP)
-        `).run(
-          transactionId,
-          shipment.customer_id,
-          item.total_price || 0,
-          item.id,
-          `Sevkiyat İptali: ${shipment.shipment_number} - ${item.product_name} (${item.quantity} adet) - İade: ${(item.total_price || 0).toFixed(2)} ₺`
-        )
+          DELETE FROM account_transactions
+          WHERE reference_type = 'shipment_item' AND reference_id IN (${placeholders})
+        `).run(...itemIds)
       }
 
       // Cari hesap bakiyesini düşür (borç azalt)

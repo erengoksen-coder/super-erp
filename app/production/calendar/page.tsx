@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { KanbanBoard } from '@/components/production/KanbanBoard'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 interface ProductionOrder {
   id: string
@@ -13,6 +14,9 @@ interface ProductionOrder {
   sku: string
   quantity: number
   status: string
+  current_station?: string | null
+  /** Kartların bulunduğu istasyonlar (Usta Terminali ile entegre) */
+  stations?: string[]
   created_at: string
   customer_name?: string | null
   dealer_name?: string | null
@@ -39,7 +43,7 @@ export default function ProductionCalendarPage() {
   async function loadOrders() {
     try {
       const data = await fetchApi<ProductionOrder[]>('/api/production')
-      setOrders(data)
+      setOrders(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error loading orders:', error)
     } finally {
@@ -228,8 +232,8 @@ export default function ProductionCalendarPage() {
             </button>
             <div className="text-white font-semibold">
               {viewMode === 'week' 
-                ? `${days[0].toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })} - ${days[6].toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}`
-                : currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+                ? `${formatDate(days[0])} - ${formatDate(days[6])}`
+                : `${String(currentDate.getMonth() + 1).padStart(2, '0')}.${currentDate.getFullYear()}`
               }
             </div>
           </div>

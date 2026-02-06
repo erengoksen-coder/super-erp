@@ -41,7 +41,27 @@ export const POST = withAuth(async (request: NextRequest) => {
 
   function findBomProductIdByName(db: ReturnType<typeof getDatabase>, name: string, excludeId: string) {
     if (!name) return null
-    const row = db.prepare(`
+    
+    // Ürün adından SKU kısmını çıkar (örn: "PRD-127652 - ATLAS ÜÇLÜ" -> "ATLAS ÜÇLÜ")
+    const extractProductName = (fullName: string): string => {
+      // " - " ile ayrılmış kısımları kontrol et
+      if (fullName.includes(' - ')) {
+        const parts = fullName.split(' - ')
+        // Son kısmı al (genellikle ürün adı)
+        return parts[parts.length - 1].trim()
+      }
+      // SKU formatını kontrol et (PRD-XXXXX ile başlayan)
+      const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
+      if (skuMatch) {
+        return skuMatch[1].trim()
+      }
+      return fullName.trim()
+    }
+    
+    const productNameOnly = extractProductName(name)
+    
+    // Önce aktif versiyonlarda tam eşleşme dene
+    let row = db.prepare(`
       SELECT p.id as id
       FROM active_products p
       JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
@@ -51,7 +71,88 @@ export const POST = withAuth(async (request: NextRequest) => {
       ORDER BY COUNT(b.id) DESC
       LIMIT 1
     `).get(name, excludeId) as { id: string } | undefined
-    return row?.id || null
+    
+    if (row) return row.id
+    
+    // Aktif versiyonlarda yoksa, tüm versiyonlarda ara
+    row = db.prepare(`
+      SELECT p.id as id
+      FROM active_products p
+      JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+      JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+      WHERE p.name = ? AND p.id != ?
+      GROUP BY p.id
+      ORDER BY COUNT(b.id) DESC
+      LIMIT 1
+    `).get(name, excludeId) as { id: string } | undefined
+    
+    if (row) return row.id
+    
+    // Tam eşleşme yoksa, ürün adı kısmını eşleştir (önce aktif versiyonlarda)
+    if (productNameOnly && productNameOnly !== name) {
+      row = db.prepare(`
+        SELECT p.id as id
+        FROM active_products p
+        JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+        WHERE (
+          p.name LIKE ? OR 
+          p.name LIKE ? OR
+          (p.name LIKE ? AND p.name NOT LIKE ?)
+        ) AND p.id != ?
+        GROUP BY p.id
+        ORDER BY COUNT(b.id) DESC
+        LIMIT 1
+      `).get(
+        `%${productNameOnly}%`,
+        `% - ${productNameOnly}%`,
+        `%${productNameOnly}%`,
+        `% - %${productNameOnly}%`,
+        excludeId
+      ) as { id: string } | undefined
+      
+      if (row) {
+        logger.info('[BOM EŞLEŞTİRME] Ürün adı kısmı ile eşleşme bulundu (aktif versiyon)', {
+          original_name: name,
+          extracted_name: productNameOnly,
+          matched_product_id: row.id
+        })
+        return row.id
+      }
+      
+      // Aktif versiyonlarda yoksa, tüm versiyonlarda ara
+      row = db.prepare(`
+        SELECT p.id as id
+        FROM active_products p
+        JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+        JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+        WHERE (
+          p.name LIKE ? OR 
+          p.name LIKE ? OR
+          (p.name LIKE ? AND p.name NOT LIKE ?)
+        ) AND p.id != ?
+        GROUP BY p.id
+        ORDER BY COUNT(b.id) DESC
+        LIMIT 1
+      `).get(
+        `%${productNameOnly}%`,
+        `% - ${productNameOnly}%`,
+        `%${productNameOnly}%`,
+        `% - %${productNameOnly}%`,
+        excludeId
+      ) as { id: string } | undefined
+      
+      if (row) {
+        logger.info('[BOM EŞLEŞTİRME] Ürün adı kısmı ile eşleşme bulundu (tüm versiyonlar)', {
+          original_name: name,
+          extracted_name: productNameOnly,
+          matched_product_id: row.id
+        })
+        return row.id
+      }
+    }
+    
+    return null
   }
 
     // �NCE: Tüm siparişler için BOM ve stok kontrolü yap
@@ -274,7 +375,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
       logger.info(`[BOM KONTROL�S] Sipariş: ${order.order_number}, �Srün: ${product.name} (ID: ${order.product_id}, SKU: ${product.sku}), Konfigürasyon: ${order.configuration}`)
 
-      // BOM kontrolü
+      // BOM kontrolü - Önce aktif versiyonları kontrol et
       let bomProductId = order.product_id
       let bom = db.prepare(`
         SELECT 
@@ -294,10 +395,44 @@ export const POST = withAuth(async (request: NextRequest) => {
         WHERE b.product_id = ? AND b.deleted_at IS NULL
       `).all(bomProductId) as any[]
 
+      // Eğer aktif versiyonda BOM yoksa, tüm versiyonları kontrol et
+      if (bom.length === 0) {
+        bom = db.prepare(`
+          SELECT 
+            b.material_id,
+            b.quantity_required,
+            b.unit as unit,
+            m.name as material_name,
+            m.code as material_code,
+            m.category as material_category,
+            m.stock_amount,
+            m.unit as material_unit,
+            m.reserved_quantity,
+            COALESCE(b.fire_percentage, 0) as fire_percentage
+          FROM bom b
+          JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+          JOIN materials m ON b.material_id = m.id
+          WHERE b.product_id = ? AND b.deleted_at IS NULL
+          ORDER BY bv.version_no DESC
+          LIMIT 100
+        `).all(bomProductId) as any[]
+        
+        if (bom.length > 0) {
+          logger.info('[BOM KONTROLÜ] Aktif olmayan versiyondan BOM bulundu', {
+            order_number: order.order_number,
+            product_id: order.product_id,
+            product_name: product.name,
+            bom_count: bom.length
+          })
+        }
+      }
+
+      // Hala BOM yoksa, ürün adına göre eşleştirme yap
       if (bom.length === 0) {
         const fallbackId = findBomProductIdByName(db, product.name, order.product_id)
         if (fallbackId) {
           bomProductId = fallbackId
+          // Önce aktif versiyonları kontrol et
           bom = db.prepare(`
             SELECT 
               b.material_id,
@@ -316,13 +451,127 @@ export const POST = withAuth(async (request: NextRequest) => {
             WHERE b.product_id = ? AND b.deleted_at IS NULL
           `).all(bomProductId) as any[]
 
+          // Aktif versiyonda yoksa, tüm versiyonları kontrol et
+          if (bom.length === 0) {
+            bom = db.prepare(`
+              SELECT 
+                b.material_id,
+                b.quantity_required,
+                b.unit as unit,
+                m.name as material_name,
+                m.code as material_code,
+                m.category as material_category,
+                m.stock_amount,
+                m.unit as material_unit,
+                m.reserved_quantity,
+                COALESCE(b.fire_percentage, 0) as fire_percentage
+              FROM bom b
+              JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+              JOIN materials m ON b.material_id = m.id
+              WHERE b.product_id = ? AND b.deleted_at IS NULL
+              ORDER BY bv.version_no DESC
+              LIMIT 100
+            `).all(bomProductId) as any[]
+          }
+
           if (bom.length > 0) {
             logger.info('[BOM KONTROLÜ] İsim eşleşmesi ile BOM bulundu', {
               order_number: order.order_number,
               product_id: order.product_id,
               fallback_product_id: bomProductId,
               product_name: product.name,
+              bom_count: bom.length
             })
+          }
+        }
+      }
+
+      // EN SON ÇARE: Ürün adında "ATLAS ÜÇLÜ" veya benzeri kelimeler içeren TÜM ürünlerde BOM ara
+      if (bom.length === 0 && product.name) {
+        const productNameLower = product.name.toLowerCase()
+        // "atlas", "üçlü", "uclu" gibi kelimeleri çıkar
+        const keywords = productNameLower
+          .split(/\s+/)
+          .filter((word: string) => word.length > 2 && !word.match(/^(prd|-\d+)$/i))
+          .slice(0, 3) // İlk 3 önemli kelimeyi al
+        
+        if (keywords.length > 0) {
+          // SQL sorgusu için parametreleri hazırla
+          const placeholders = keywords.map(() => 'LOWER(p.name) LIKE ?').join(' OR ')
+          const params: any[] = [order.product_id]
+          keywords.forEach((k: string) => params.push(`%${k}%`))
+          
+          const allProductsWithBom = db.prepare(`
+            SELECT DISTINCT p.id, p.name, p.sku, COUNT(b.id) as bom_count
+            FROM active_products p
+            JOIN bom b ON b.product_id = p.id AND b.deleted_at IS NULL
+            JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+            WHERE p.id != ? AND (
+              ${placeholders}
+            )
+            GROUP BY p.id, p.name, p.sku
+            HAVING COUNT(b.id) > 0
+            ORDER BY COUNT(b.id) DESC
+            LIMIT 5
+          `).all(...params) as Array<{ id: string; name: string; sku: string; bom_count: number }>
+
+          if (allProductsWithBom.length > 0) {
+            const bestMatch = allProductsWithBom[0]
+            bomProductId = bestMatch.id
+            
+            // Önce aktif versiyonları kontrol et
+            bom = db.prepare(`
+              SELECT 
+                b.material_id,
+                b.quantity_required,
+                b.unit as unit,
+                m.name as material_name,
+                m.code as material_code,
+                m.category as material_category,
+                m.stock_amount,
+                m.unit as material_unit,
+                m.reserved_quantity,
+                COALESCE(b.fire_percentage, 0) as fire_percentage
+              FROM bom b
+              JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+              JOIN materials m ON b.material_id = m.id
+              WHERE b.product_id = ? AND b.deleted_at IS NULL
+            `).all(bomProductId) as any[]
+
+            // Aktif versiyonda yoksa, tüm versiyonları kontrol et
+            if (bom.length === 0) {
+              bom = db.prepare(`
+                SELECT 
+                  b.material_id,
+                  b.quantity_required,
+                  b.unit as unit,
+                  m.name as material_name,
+                  m.code as material_code,
+                  m.category as material_category,
+                  m.stock_amount,
+                  m.unit as material_unit,
+                  m.reserved_quantity,
+                  COALESCE(b.fire_percentage, 0) as fire_percentage
+                FROM bom b
+                JOIN bom_versions bv ON b.version_id = bv.id AND bv.deleted_at IS NULL
+                JOIN materials m ON b.material_id = m.id
+                WHERE b.product_id = ? AND b.deleted_at IS NULL
+                ORDER BY bv.version_no DESC
+                LIMIT 100
+              `).all(bomProductId) as any[]
+            }
+
+            if (bom.length > 0) {
+              logger.info('[BOM KONTROLÜ] Anahtar kelime eşleşmesi ile BOM bulundu', {
+                order_number: order.order_number,
+                product_id: order.product_id,
+                matched_product_id: bomProductId,
+                matched_product_name: bestMatch.name,
+                product_name: product.name,
+                keywords: keywords,
+                bom_count: bom.length
+              })
+            }
           }
         }
       }

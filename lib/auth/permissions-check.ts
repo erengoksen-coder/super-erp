@@ -1,9 +1,15 @@
-﻿export type Permission = {
+export type Permission = {
   page_path: string
   can_view: number
   can_create: number
   can_edit: number
   can_delete: number
+}
+
+/** Admin/yönetici rolü tüm menü ve API erişimine sahip; izin kontrolü atlanır. */
+export function isAdminRole(role: string | undefined | null): boolean {
+  const r = (role ?? '').toString().trim().toLowerCase()
+  return r === 'admin' || r === 'yönetici' || r === 'yonetici'
 }
 
 export type PermissionAction = 'view' | 'create' | 'edit' | 'delete'

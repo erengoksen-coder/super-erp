@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type Material = {
   id: string
@@ -274,9 +275,7 @@ export default function MaterialReservationsPage() {
                   {filteredReservations.map((reservation) => (
                     <TableRow key={reservation.id} className="border-gray-800">
                       <TableCell className="text-gray-300 text-xs px-4 py-2">
-                        {reservation.created_at
-                          ? new Date(reservation.created_at).toLocaleDateString('tr-TR')
-                          : '-'}
+                        {formatDate(reservation.created_at)}
                       </TableCell>
                       <TableCell className="text-white text-xs px-4 py-2">
                         {materialLabel(reservation.material_id)}

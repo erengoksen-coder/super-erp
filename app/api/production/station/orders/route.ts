@@ -130,6 +130,39 @@ export const GET = withAuth(async (request: NextRequest) => {
       ORDER BY po.created_at ASC, psn.created_at ASC
     `).all(station) as Array<ProductionOrderRow & { psn_id: string; barcode: string | null; serial_number: string | null }>
     
+    // Barkodsuz üretim emirleri (Devam Eden ama henüz kart atanmamış) - Usta Terminali'nde görünsün
+    const poWithoutBarcodes = db.prepare(`
+      SELECT 
+        po.id as production_order_id,
+        po.order_number,
+        po.quantity,
+        po.status,
+        po.current_station,
+        po.created_at,
+        po.iskelet_started_at,
+        po.iskelet_completed_at,
+        po.terzihane_started_at,
+        po.terzihane_completed_at,
+        po.berjer_started_at,
+        po.berjer_completed_at,
+        po.döseme_started_at,
+        po.döseme_completed_at,
+        po.montaj_started_at,
+        po.montaj_completed_at,
+        po.sevkiyat_started_at,
+        po.sevkiyat_completed_at,
+        p.name as product_name,
+        p.sku as product_sku
+      FROM production_orders po
+      JOIN products p ON po.product_id = p.id AND p.deleted_at IS NULL
+      WHERE po.deleted_at IS NULL
+        AND po.status != 'completed'
+        AND po.status != 'cancelled'
+        AND COALESCE(po.current_station, 'iskelet') = ?
+        AND NOT EXISTS (SELECT 1 FROM product_serial_numbers psn WHERE psn.production_order_id = po.id)
+      ORDER BY po.created_at ASC
+    `).all(station) as Array<ProductionOrderRow & { production_order_id: string; [key: string]: unknown }>
+    
     // Her kart için orders tablosundan bayi/müşteri bilgisini al
     // Aynı production_order_id'ye sahip kartları grupla ve item_index hesapla
     const ordersByProductionOrder = new Map<string, Array<typeof serialNumbers[0]>>()
@@ -190,6 +223,51 @@ export const GET = withAuth(async (request: NextRequest) => {
           serial_number: card.serial_number
         } as StationOrderCard)
       })
+    }
+    
+    // Barkodsuz üretim emirlerini ekle (Devam Eden - henüz kart atanmamış)
+    for (const po of poWithoutBarcodes) {
+      const orderInfo = db
+        .prepare('SELECT dealer_name, customer_name, id, notes, configuration, product_name FROM active_orders WHERE production_order_id = ?')
+        .get(po.production_order_id) as OrderInfoRow | undefined
+      const qty = Math.max(1, po.quantity || 1)
+      for (let i = 0; i < qty; i++) {
+        orders.push({
+          id: po.production_order_id,
+          order_number: po.order_number,
+          quantity: qty,
+          status: po.status || 'in_progress',
+          current_station: po.current_station || station,
+          created_at: po.created_at,
+          iskelet_started_at: po.iskelet_started_at,
+          iskelet_completed_at: po.iskelet_completed_at,
+          terzihane_started_at: po.terzihane_started_at,
+          terzihane_completed_at: po.terzihane_completed_at,
+          berjer_started_at: po.berjer_started_at,
+          berjer_completed_at: po.berjer_completed_at,
+          döseme_started_at: po.döseme_started_at,
+          döseme_completed_at: po.döseme_completed_at,
+          montaj_started_at: po.montaj_started_at,
+          montaj_completed_at: po.montaj_completed_at,
+          sevkiyat_started_at: po.sevkiyat_started_at,
+          sevkiyat_completed_at: po.sevkiyat_completed_at,
+          product_name: po.product_name,
+          product_sku: po.product_sku,
+          dealer_name: orderInfo?.dealer_name || null,
+          customer_name: orderInfo?.customer_name || null,
+          order_id: orderInfo?.id || null,
+          order_production_order_id: orderInfo ? po.production_order_id : null,
+          order_notes: orderInfo?.notes || null,
+          order_configuration: orderInfo?.configuration || null,
+          order_product_name: orderInfo?.product_name || null,
+          item_index: i + 1,
+          item_total: qty,
+          display_quantity: 1,
+          completed_count: 0,
+          barcode: null,
+          serial_number: null
+        } as StationOrderCard)
+      }
     }
     
     // Debug: İlk siparişin bayi/müşteri bilgisini logla
@@ -454,7 +532,7 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
         
         // Tamamlanan kart sayacını azalt
         const completedCountColumn = `${currentStation}_completed_count`
-        const currentCompleted = order[completedCountColumn] || 0
+        const currentCompleted = Number(order[completedCountColumn]) || 0
         
         if (currentCompleted > 0) {
           const newCompleted = currentCompleted - 1
@@ -608,6 +686,8 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
           } else {
             timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
           }
+          // Üretim panosu/takvim entegrasyonu: siparişin görüneceği sütun = kartın gittiği istasyon
+          db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
           console.log('[PATCH] Time update result:', timeUpdateResult.changes)
           
           const allCompleted = newCompleted >= order.quantity
@@ -754,6 +834,8 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
         } else {
           db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
         }
+        // Üretim panosu entegrasyonu: siparişin panoda görüneceği sütun
+        db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
         
         return NextResponse.json({
           success: true,
@@ -871,6 +953,8 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
         
         // Sadece bu kartı tamamla
         db.prepare(`UPDATE production_orders SET ${completedCountColumn} = ? WHERE id = ?`).run(newCompleted, order_id)
+        // Üretim panosu entegrasyonu: siparişin panoda görüneceği sütun
+        db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
         
         // Tüm kartlar tamamlandı mı kontrol et
         if (newCompleted >= order.quantity) {

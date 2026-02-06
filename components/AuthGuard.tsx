@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/lib/store/authStore'
-import { fetchApi } from '@/lib/api/client'
-import { canAccessPath } from '@/lib/auth/permissions-check'
+import { fetchApi, clearStoredAuthToken } from '@/lib/api/client'
+import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
 
-const publicPaths = ['/auth/login', '/auth/register']
+const publicPaths = ['/auth/login', '/auth/register', '/durum']
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -53,6 +53,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           return
         } catch {
           clearAuth()
+          clearStoredAuthToken()
           if (typeof window !== 'undefined' && pathname !== '/auth/login') {
             window.location.href = '/auth/login'
             return
@@ -72,8 +73,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!user) {
       return
     }
-    const role = (user.role || '').toLowerCase()
-    const isAdmin = role === 'admin' || role === 'yönetici' || role === 'yonetici'
+    const isAdmin = isAdminRole(user.role)
     if (!isAdmin) {
       const permissions = user.permissions || []
       const normalizedPath = pathname || '/'

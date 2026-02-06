@@ -1,11 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, BellOff, Send, AlertTriangle } from 'lucide-react'
+import { Bell, BellOff, Send, AlertTriangle, Volume2, VolumeX } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
+import { usePreferencesStore } from '@/lib/store/preferencesStore'
 import { fetchApi } from '@/lib/api/client'
 import { subscribeToTable } from '@/lib/supabase/realtime'
+import { toast } from '@/lib/notify'
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -20,6 +22,7 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export default function NotificationsPage() {
   const userId = useAuthStore((state) => state.user?.id ?? null)
+  const { notificationSound, setNotificationSound } = usePreferencesStore()
   const [supported, setSupported] = useState(false)
   const [permission, setPermission] = useState<NotificationPermission>('default')
   const [subscribed, setSubscribed] = useState(false)
@@ -124,7 +127,7 @@ export default function NotificationsPage() {
       setSubscribed(true)
       setPermission(Notification.permission)
     } catch (error: any) {
-      alert(error.message || 'Bildirim aboneliği oluşturulamadı')
+      toast.error(error.message || 'Bildirim aboneliği oluşturulamadı')
     } finally {
       setLoading(false)
     }
@@ -148,7 +151,7 @@ export default function NotificationsPage() {
       })
       setSubscribed(false)
     } catch (error: any) {
-      alert(error.message || 'Abonelik kaldırılamadı')
+      toast.error(error.message || 'Abonelik kaldırılamadı')
     } finally {
       setLoading(false)
     }
@@ -158,9 +161,9 @@ export default function NotificationsPage() {
     setLoading(true)
     try {
       const data = await fetchApi<{ sent?: number }>('/api/notifications/test', { method: 'POST' })
-      alert(`Test bildirimi gönderildi. Basarili: ${data.sent || 0}`)
+      toast.success(`Test bildirimi gönderildi. Başarılı: ${data.sent || 0}`)
     } catch (error: any) {
-      alert(error.message || 'Test bildirimi gönderilemedi')
+      toast.error(error.message || 'Test bildirimi gönderilemedi')
     } finally {
       setLoading(false)
     }
@@ -175,19 +178,25 @@ export default function NotificationsPage() {
       })
       loadAlerts()
     } catch (error: any) {
-      alert(error.message || 'Uyarı kapatılamadı')
+      toast.error(error.message || 'Uyarı kapatılamadı')
     }
   }
 
   return (
     <div className="min-h-screen">
-      <div className="flex items-center space-x-4 mb-6">
+      <div className="flex items-center gap-4 mb-6">
         <h1 className="text-3xl font-bold text-white">Bildirimler</h1>
-        <LogoWithBackground size="sm" />
+        <div className="shrink-0 h-20 w-auto max-w-[200px] flex items-center justify-center">
+          <LogoWithBackground size="sm" className="!h-20 !w-auto !max-h-20 object-contain" />
+        </div>
       </div>
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-4">
         <p className="text-gray-400">{statusLabel}</p>
+
+        <p className="text-sm text-gray-300">
+          Yeni giriş yaptığınızda ve anlık bildirim geldiğinde mesaj ekranda (sağ üst) görünür. Bildirimleri açıp sesli uyarıyı etkinleştirirseniz ses de çalar.
+        </p>
 
         <div className="flex flex-wrap gap-3">
           <button
@@ -208,6 +217,15 @@ export default function NotificationsPage() {
           >
             <BellOff size={18} />
             <span>Bildirimleri Kapat</span>
+          </button>
+
+          <button
+            onClick={() => setNotificationSound(!notificationSound)}
+            className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition inline-flex items-center space-x-2"
+            type="button"
+          >
+            {notificationSound ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            <span>Sesli Uyarı {notificationSound ? 'Açık' : 'Kapalı'}</span>
           </button>
 
           <button

@@ -51,7 +51,8 @@ export default function MrpPage() {
 
   async function loadProducts() {
     try {
-      const data = await fetchApi<Product[]>('/api/products')
+      // Sadece BOM'da (reçetede) kayıtlı ürünler listelenir
+      const data = await fetchApi<Product[]>('/api/products?has_bom=1')
       setProducts(data)
       if (data.length && !productId) {
         setProductId(data[0].id)

@@ -5,6 +5,7 @@ import { Plus, X, ClipboardList } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type Account = {
   id: string
@@ -191,7 +192,7 @@ export default function SalesOrdersPage() {
                     {order.order_number || '-'}
                   </TableCell>
                   <TableCell className="text-gray-300 text-xs px-4 py-2">
-                    {order.order_date ? new Date(order.order_date).toLocaleDateString('tr-TR') : '-'}
+                    {formatDate(order.order_date)}
                   </TableCell>
                   <TableCell className="text-gray-200 text-xs px-4 py-2">
                     {order.customer_name || '-'}

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { fetchApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type FixedAsset = {
   id: string
@@ -112,7 +113,7 @@ export default function FixedAssetsClient() {
                     <td className="py-2">{asset.code}</td>
                     <td className="py-2">{asset.name}</td>
                     <td className="py-2">{asset.category}</td>
-                    <td className="py-2">{new Date(asset.acquisition_date).toLocaleDateString('tr-TR')}</td>
+                    <td className="py-2">{formatDate(asset.acquisition_date)}</td>
                     <td className="py-2 text-right">₺{asset.acquisition_cost.toLocaleString('tr-TR')}</td>
                     <td className="py-2">{asset.location || '—'}</td>
                     <td className="py-2">

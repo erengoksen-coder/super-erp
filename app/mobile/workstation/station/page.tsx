@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Factory, CheckCircle, Clock, Package, ArrowLeft, Edit, RotateCcw } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { LogoWithBackground } from '@/components/Logo'
+import { formatDateTime } from '@/lib/utils/dateFormat'
 
 interface ProductionOrder {
   id: string
@@ -324,7 +325,7 @@ export default function StationPage() {
                       <div className="flex items-center space-x-2 mb-2">
                         <span className="font-mono text-sm text-blue-400">{order.order_number}</span>
                         <span className="text-xs text-gray-500">
-                          {new Date(order.created_at).toLocaleDateString('tr-TR')}
+                          {formatDateTime(order.created_at)}
                         </span>
                       </div>
                       <h3 className="text-lg font-semibold text-white mb-1">
@@ -390,7 +391,7 @@ export default function StationPage() {
                         {startTime && (
                           <span className="text-gray-400">
                             <Clock className="w-4 h-4 inline mr-1" />
-                            {new Date(startTime).toLocaleString('tr-TR')}
+                            {formatDateTime(startTime)}
                           </span>
                         )}
                       </div>

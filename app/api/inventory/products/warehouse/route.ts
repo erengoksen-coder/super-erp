@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { DEPODA_STATUSES } from '@/lib/barcodeStatus'
 
 // GET: Mamül depodaki ürünleri sipariş kartları ve barkod detaylarıyla getir
+// Sadece status = in_stock veya available olanlar (Barkod listesi / Genel Durum ile aynı tanım)
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const db = getDatabase()
+    const statusList = DEPODA_STATUSES.map(() => '?').join(', ')
     
-    // Mamül depodaki ürünleri getir (completed durumundaki)
-    // Sadece products tablosundan gelen kayıtları göster (hammaddeler değil)
-    // Her barkod için sipariş ve müşteri bilgileriyle birlikte
     const warehouseItems = db.prepare(`
       SELECT 
         psn.id as barcode_id,
@@ -42,11 +42,11 @@ export const GET = withAuth(async (request: NextRequest) => {
       LEFT JOIN production_orders po ON psn.production_order_id = po.id
       LEFT JOIN active_orders o ON po.id = o.production_order_id
       LEFT JOIN accounts a ON psn.customer_id = a.id
-      WHERE psn.current_station = 'completed'
+      WHERE psn.status IN (${statusList})
         AND p.id IS NOT NULL
         AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
       ORDER BY po.completed_at DESC, psn.created_at DESC
-    `).all() as any[]
+    `).all(...DEPODA_STATUSES) as any[]
     
     console.log(`[Warehouse API] Found ${warehouseItems.length} items in warehouse`)
     

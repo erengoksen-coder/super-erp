@@ -7,8 +7,11 @@ import { ok, fail } from '@/lib/api/response'
 type ShipmentRow = {
   id: string
   customer_id: string
+  shipment_number?: string | null
   total_amount?: number | null
   final_amount?: number | null
+  discount_rate?: number | null
+  discount_amount?: number | null
 }
 
 type ShipmentTaxInput = {
@@ -45,9 +48,12 @@ export const PATCH = withAuth(async (
 
     // KDV hesapla
     const totalAmount = shipment.total_amount || 0
+    const discountRate = shipment.discount_rate || 0
+    const discountAmount = shipment.discount_amount || 0
+    const amountAfterDiscount = totalAmount - discountAmount
     const newTaxRate = parseFloat(tax_rate.toString())
-    const newTaxAmount = (totalAmount * newTaxRate) / 100
-    const newFinalAmount = totalAmount + newTaxAmount
+    const newTaxAmount = (amountAfterDiscount * newTaxRate) / 100
+    const newFinalAmount = amountAfterDiscount + newTaxAmount
 
     // Eski ve yeni farkı hesapla (cari hesap bakiyesi için)
     const oldFinalAmount = shipment.final_amount || shipment.total_amount || 0
@@ -63,6 +69,58 @@ export const PATCH = withAuth(async (
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(newTaxRate, newTaxAmount, newFinalAmount, shipmentId)
+
+      // Account transactions'ları güncelle (KDV dahil tutar)
+      const items = db.prepare(`
+        SELECT si.*, p.name as product_name, p.sku as product_sku
+        FROM shipment_items si
+        JOIN active_products p ON si.product_id = p.id
+        WHERE si.shipment_id = ? AND si.deleted_at IS NULL
+      `).all(shipmentId) as Array<{
+        id: string
+        total_price: number
+        quantity: number
+        unit_price: number
+        product_name: string
+        product_sku: string
+      }>
+
+      for (const item of items) {
+        // Kalem bazında iskonto ve KDV hesapla
+        const itemTotal = item.total_price || 0
+        const itemDiscountAmount = (itemTotal * discountRate) / 100
+        const itemAmountAfterDiscount = itemTotal - itemDiscountAmount
+        const itemTaxAmount = amountAfterDiscount > 0 ? (itemAmountAfterDiscount / amountAfterDiscount) * newTaxAmount : 0
+        const itemFinalAmount = itemAmountAfterDiscount + itemTaxAmount
+
+        // Account transaction'ı bul ve güncelle
+        const transaction = db.prepare(`
+          SELECT * FROM account_transactions 
+          WHERE reference_id = ? AND reference_type = 'shipment_item'
+        `).get(item.id)
+
+        if (transaction) {
+          // Açıklamayı güncelle
+          let description = `Sevkiyat: ${shipment.shipment_number} | Ürün: ${item.product_name}${item.product_sku ? ` (${item.product_sku})` : ''} | Adet: ${item.quantity} | Birim Fiyat (BOM): ${item.unit_price.toFixed(2)} ₺`
+          
+          if (discountRate > 0 && itemDiscountAmount > 0) {
+            description += ` | İskonto: %${discountRate.toFixed(2)} (${itemDiscountAmount.toFixed(2)} ₺)`
+          }
+          
+          if (newTaxRate > 0 && itemTaxAmount > 0) {
+            description += ` | KDV: %${newTaxRate.toFixed(2)} (${itemTaxAmount.toFixed(2)} ₺)`
+          }
+          
+          description += ` | Toplam: ${itemFinalAmount.toFixed(2)} ₺`
+
+          // Transaction'ı güncelle
+          db.prepare(`
+            UPDATE account_transactions 
+            SET amount = ?, description = ?
+            WHERE id = ?
+          `).run(itemFinalAmount, description, transaction.id)
+        }
+      }
 
       // Müşteri cari hesap bakiyesini güncelle
       if (balanceDifference !== 0) {

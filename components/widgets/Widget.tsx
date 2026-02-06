@@ -49,12 +49,12 @@ export const StatWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200', className)}>
+    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
       <CardBody className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1 flex-1">
             <p className="text-sm font-medium text-gray-600">{title}</p>
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
+            <p className="text-2xl lg:text-3xl font-bold text-gray-900">{value}</p>
             {change && (
               <div className="flex items-center space-x-1">
                 <span
@@ -114,7 +114,7 @@ export const ChartWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200', className)}>
+    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl overflow-hidden', className)}>
       <CardHeader
         title={title}
         subtitle={subtitle}
@@ -174,7 +174,7 @@ export const ListWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200', className)}>
+    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
       <CardHeader title={`${title} (${items.length})`} />
       <CardBody>
         {items.length === 0 ? (

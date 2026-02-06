@@ -3,12 +3,33 @@ import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import * as XLSX from 'xlsx'
 
-// GET: Tüm siparişleri Excel formatında export et
+// GET: Siparişleri Excel formatında export et (filtreler: status, search)
 export const GET = withAuth(async (request: NextRequest) => {
   try {
+    const { searchParams } = new URL(request.url)
+    const statusParam = searchParams.get('status')?.trim() || ''
+    const searchParam = searchParams.get('search')?.trim() || ''
+
     const db = getDatabase()
-    
-    // Tüm siparişleri al
+
+    let whereClause = ' WHERE 1=1'
+    const params: unknown[] = []
+
+    if (statusParam && statusParam !== 'all') {
+      const statusValue = statusParam === 'shipped' ? 'completed' : statusParam
+      whereClause += ' AND o.status = ?'
+      params.push(statusValue)
+    }
+
+    if (searchParam) {
+      const likeTerm = `%${searchParam}%`
+      whereClause += ` AND (
+        o.order_number LIKE ? OR o.dealer_name LIKE ? OR o.customer_name LIKE ? OR
+        o.product_name LIKE ? OR o.product_sku LIKE ?
+      )`
+      params.push(likeTerm, likeTerm, likeTerm, likeTerm, likeTerm)
+    }
+
     const orders = db.prepare(`
       SELECT 
         o.order_number as "TAKİP NO",
@@ -27,8 +48,9 @@ export const GET = withAuth(async (request: NextRequest) => {
         o.notes as "AÇIKLAMA",
         o.created_at as "Oluşturulma Tarihi"
       FROM active_orders o
+      ${whereClause}
       ORDER BY o.created_at DESC
-    `).all() as any[]
+    `).all(...params) as any[]
     
     // Notlar alanından kumaş, kasa, ayak, birim bilgilerini çıkar
     const processedOrders = orders.map(order => {

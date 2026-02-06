@@ -63,5 +63,36 @@ export const getProductionOrders = async (filters: ProductionOrderFilters) => {
   }
 
   query += ' ORDER BY po.created_at DESC'
-  return db.prepare(query).all(...params)
+  const rows = db.prepare(query).all(...params) as any[]
+
+  // Usta Terminali / Genel Durum ile entegre: Her siparişin kartlarının bulunduğu TÜM istasyonlar (aynı sipariş birden fazla sütunda görünsün)
+  const cardStations = db.prepare(`
+    SELECT production_order_id, current_station
+    FROM product_serial_numbers
+    WHERE production_order_id IS NOT NULL
+  `).all() as Array<{ production_order_id: string; current_station: string | null }>
+
+  const orderIds = new Set(rows.map((r: any) => r.id))
+  const stationsByOrderId = new Map<string, Set<string>>()
+  for (const { production_order_id, current_station } of cardStations) {
+    if (!orderIds.has(production_order_id)) continue
+    const st = (current_station && current_station.trim()) ? current_station.trim() : 'iskelet'
+    if (!stationsByOrderId.has(production_order_id)) {
+      stationsByOrderId.set(production_order_id, new Set())
+    }
+    stationsByOrderId.get(production_order_id)!.add(st)
+  }
+
+  for (const row of rows) {
+    const stationsSet = stationsByOrderId.get(row.id)
+    if (stationsSet && stationsSet.size > 0) {
+      row.stations = Array.from(stationsSet)
+      row.current_station = row.stations[0] // leading için ilk (geriye uyumluluk)
+    } else {
+      const fallback = (row.current_station && String(row.current_station).trim()) || 'iskelet'
+      row.current_station = fallback
+      row.stations = [fallback]
+    }
+  }
+  return rows
 }

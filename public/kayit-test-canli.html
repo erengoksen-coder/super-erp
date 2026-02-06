@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Kayıt - Canlı Test</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; background: #1a1a2e; color: #eee; }
+    h1 { color: #4ade80; }
+    .step { background: #16213e; padding: 1rem; margin: 1rem 0; border-radius: 8px; border-left: 4px solid #4ade80; }
+    .step h3 { margin-top: 0; color: #94a3b8; }
+    pre { background: #0f172a; padding: 0.75rem; overflow-x: auto; font-size: 13px; }
+    .gonderilen { border-left-color: #f59e0b; }
+    .apiye-giden { border-left-color: #22c55e; }
+    .sonuc { border-left-color: #3b82f6; }
+    .hata { border-left-color: #ef4444; background: #450a0a; }
+    button { background: #4ade80; color: #0f172a; border: none; padding: 0.75rem 1.5rem; font-size: 1rem; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    button:hover { background: #22c55e; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>Kayıt API – Canlı test</h1>
+  <p>Bu sayfa yaptığım işlemi adım adım gösterir: "yönetici" → API'ye "manager" olarak gider.</p>
+
+  <div class="step">
+    <h3>1. Senin yazdığın (formdan gelen)</h3>
+    <pre id="girdi">role: "yönetici"</pre>
+  </div>
+
+  <div class="step gonderilen">
+    <h3>2. Dönüşüm (kodda yaptığım)</h3>
+    <pre id="donusum">roleInput = "yönetici"  →  roleForApi = "manager"</pre>
+  </div>
+
+  <div class="step apiye-giden">
+    <h3>3. API'ye giden body</h3>
+    <pre id="body">{}</pre>
+  </div>
+
+  <div class="step sonuc">
+    <h3>4. API yanıtı</h3>
+    <pre id="yanit">Henüz istek atılmadı.</pre>
+  </div>
+
+  <button id="btn">Kayıt dene (canlitest2 + yönetici)</button>
+
+  <script>
+    const API = window.location.origin + '/api/auth/register';
+
+    function normalizeRole(val) {
+      const r = String(val || '').trim().toLowerCase();
+      if (r === 'admin' || r === 'manager' || r === 'viewer') return r;
+      if (/y[oö]netici/.test(r)) return 'manager';
+      if (/g[oö]r[uü]nt[uü]leyici/.test(r)) return 'viewer';
+      if (/kullan[iı]c[iı]/.test(r)) return 'user';
+      return 'user';
+    }
+
+    document.getElementById('btn').onclick = async function () {
+      const btn = this;
+      btn.disabled = true;
+      const roleInput = 'yönetici';
+      const roleForApi = normalizeRole(roleInput);
+
+      document.getElementById('girdi').textContent = 'role: "yönetici" (Görev/Ünvan alanı)';
+      document.getElementById('donusum').textContent = `roleInput = "${roleInput}"  →  roleForApi = "${roleForApi}"`;
+
+      const payload = {
+        username: 'canlitest2_' + Date.now(),
+        password: 'Test1234',
+        full_name: 'Canli Test',
+        email: 'canli2_' + Date.now() + '@test.local',
+        role: roleForApi
+      };
+      document.getElementById('body').textContent = JSON.stringify(payload, null, 2);
+
+      try {
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        const el = document.getElementById('yanit');
+        el.textContent = JSON.stringify(data, null, 2);
+        el.parentElement.className = 'step ' + (res.ok ? 'sonuc' : 'hata');
+      } catch (e) {
+        document.getElementById('yanit').textContent = 'Hata: ' + e.message;
+        document.getElementById('yanit').parentElement.className = 'step hata';
+      }
+      btn.disabled = false;
+    };
+  </script>
+</body>
+</html>

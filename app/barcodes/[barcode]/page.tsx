@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { QrCode, Printer } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils/dateFormat'
 
 export default function BarcodePrintPage() {
   const params = useParams()
@@ -130,7 +131,7 @@ export default function BarcodePrintPage() {
         <div className="border-2 border-black p-6 print:border-0 print:p-4">
           {/* Üst Bilgi */}
           <div className="flex justify-between items-start mb-4 text-xs print:text-[10px]">
-            <div>{new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div>{formatDateTime(new Date())}</div>
             <div className="font-semibold">Barkod: {barcodeData.barcode}</div>
           </div>
 
@@ -183,7 +184,7 @@ export default function BarcodePrintPage() {
           <div className="mt-6 flex justify-between items-end text-xs print:text-[10px] print:mt-4">
             <div className="text-gray-500">LIVASOFA ERP</div>
             <div className="text-gray-500">
-              {new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+              {formatDateTime(new Date())}
             </div>
           </div>
         </div>

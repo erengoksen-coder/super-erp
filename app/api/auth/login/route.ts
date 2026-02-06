@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       ipAddress: request.headers.get('x-forwarded-for'),
     })
 
+    // accessToken body'de de dönülür; ngrok/farklı domain'de cookie gitmeyince client Authorization header ile gönderir
     const response = ok({
       user: {
         id: user.id,
@@ -129,6 +130,7 @@ export async function POST(request: NextRequest) {
         job_title: user.job_title,
         permissions,
       },
+      accessToken,
     })
     setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)
     return response

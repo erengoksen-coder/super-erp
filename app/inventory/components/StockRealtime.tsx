@@ -93,12 +93,14 @@ function StockRealtimeView({
   error: Error | null
 }) {
   const [showDetails, setShowDetails] = useState(false)
-  const { lowStockItems, totalStockValue } = useMemo(() => {
+  const { lowStockItems, totalStockValue, activeProductCount } = useMemo(() => {
     const lowStock = inventory.filter(
       (item) => (item.stock_amount ?? 0) < (item.min_stock_level ?? 0)
     )
     const total = inventory.reduce((sum, item) => sum + (item.stock_amount ?? 0), 0)
-    return { lowStockItems: lowStock, totalStockValue: total }
+    // Aktif ürünler = stokta miktarı > 0 olanlar (veri olarak "stokta olan" sayılır)
+    const activeCount = inventory.filter((item) => (item.stock_amount ?? 0) > 0).length
+    return { lowStockItems: lowStock, totalStockValue: total, activeProductCount: activeCount }
   }, [inventory])
 
   if (loading) return <div>Yükleniyor...</div>
@@ -140,7 +142,7 @@ function StockRealtimeView({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Aktif Ürünler</p>
-                <p className="text-2xl font-semibold text-gray-900">{inventory.length}</p>
+                <p className="text-2xl font-semibold text-gray-900">{activeProductCount}</p>
                 <p className="text-xs text-gray-500">stokta</p>
               </div>
               <TrendingUp className="h-5 w-5 text-gray-400" />

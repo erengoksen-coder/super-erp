@@ -1,13 +1,19 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { REALTIME_POLL_INTERVAL_MS } from '@/lib/realtime-config'
 
 type ProductionRealtimeProps = {
   onUpdate: () => void
+  /** Polling aralığı (ms). 0 ise sadece Supabase. Varsayılan: merkezi config */
+  pollIntervalMs?: number
 }
 
-export default function ProductionRealtime({ onUpdate }: ProductionRealtimeProps) {
+export default function ProductionRealtime({ onUpdate, pollIntervalMs = REALTIME_POLL_INTERVAL_MS }: ProductionRealtimeProps) {
+  const onUpdateRef = useRef(onUpdate)
+  onUpdateRef.current = onUpdate
+
   useEffect(() => {
     const supabase = createClient()
     if (!supabase) return
@@ -17,16 +23,28 @@ export default function ProductionRealtime({ onUpdate }: ProductionRealtimeProps
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'production_orders' },
-        () => {
-          onUpdate()
-        }
+        () => { onUpdateRef.current() }
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  useEffect(() => {
+    if (pollIntervalMs <= 0) return
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        onUpdateRef.current()
+      }
     }
-  }, [onUpdate])
+    const onVisible = () => { onUpdateRef.current() }
+    const interval = setInterval(tick, pollIntervalMs)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [pollIntervalMs])
 
   return null
 }

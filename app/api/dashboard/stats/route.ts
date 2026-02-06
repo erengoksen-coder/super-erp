@@ -8,6 +8,7 @@ import { getOrSetCache } from '@/lib/cache/memory'
 type MaterialStockRow = {
   stock_amount: number | null
   min_stock_level: number | null
+  unit_price: number | null
 }
 
 type CountRow = {
@@ -31,11 +32,11 @@ export const GET = withAuth(async (request) => {
     const data = await getOrSetCache('dashboard:stats', 15_000, async () => {
       const db = getDatabase()
 
-      // 1. Toplam Stok Değeri (Hammaddeler)
+      // 1. Toplam Stok Değeri (Hammaddeler: miktar * birim fiyat)
       const materials = db
-        .prepare('SELECT stock_amount, min_stock_level FROM materials')
+        .prepare('SELECT stock_amount, min_stock_level, COALESCE(unit_price, 0) as unit_price FROM materials WHERE deleted_at IS NULL')
         .all() as MaterialStockRow[]
-      const totalStockValue = materials.reduce((sum, m) => sum + (m.stock_amount || 0), 0)
+      const totalStockValue = materials.reduce((sum, m) => sum + (m.stock_amount || 0) * (m.unit_price ?? 0), 0)
 
       // 2. Bekleyen Üretimler
       const pendingProduction = db.prepare(`
@@ -44,11 +45,11 @@ export const GET = withAuth(async (request) => {
         WHERE status IN ('pending', 'in_progress')
       `).get() as CountRow | undefined
 
-      // 3. Kritik Stok Uyarıları
+      // 3. Kritik Stok Uyarıları (min seviye tanımlı ve stok onun altında)
       const criticalStock = db.prepare(`
         SELECT COUNT(*) as count 
         FROM materials 
-        WHERE stock_amount < min_stock_level
+        WHERE deleted_at IS NULL AND min_stock_level IS NOT NULL AND (stock_amount IS NULL OR stock_amount < min_stock_level)
       `).get() as CountRow | undefined
 
       // 4. Son 7 günlük üretim trendi
@@ -81,6 +82,14 @@ export const GET = withAuth(async (request) => {
         })
       }
 
+      // Bekleyen: barkod listesi ile aynı kapsam - üretim emri atanmış pending (product_serial_numbers)
+      const pendingStats = db.prepare(`
+        SELECT COUNT(id) as count FROM product_serial_numbers
+        WHERE status = 'pending'
+          AND production_order_id IS NOT NULL AND production_order_id != ''
+      `).get() as { count: number }
+      const pendingCount = Number((pendingStats as any).count ?? 0)
+
       // Aktif istasyonlar için kart bazlı sayım
       const activeStats = db.prepare(`
         SELECT 
@@ -95,51 +104,23 @@ export const GET = withAuth(async (request) => {
         GROUP BY COALESCE(psn.current_station, po.current_station)
       `).all() as StationStatRow[]
       
-      // Mamül Depo (completed) için sayım - Sevk edilmiş ürünleri hariç tut
+      // Mamül Depo: depoda ve sevk edilmemiş tüm mamüller (barkod yönetimi ile aynı)
       const completedStats = db.prepare(`
-        SELECT 
-          COUNT(psn.id) as count,
-          COUNT(psn.id) as total_quantity
-        FROM product_serial_numbers psn
-        JOIN production_orders po ON psn.production_order_id = po.id
-        WHERE (psn.current_station = 'completed' OR psn.current_station IS NULL)
-          AND psn.status IN ('available', 'in_stock')
+        SELECT COUNT(id) as count FROM product_serial_numbers psn
+        WHERE psn.status IN ('available', 'in_stock')
           AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
-      `).get() as { count: number | null; total_quantity: number | null } | undefined
+      `).get() as { count: number | null }
+      const completedCount = Number(completedStats?.count ?? 0)
       
-      // Sevkiyat (shipped) için sayım - Sevk edilmiş ürünler
       const shippedStats = db.prepare(`
-        SELECT 
-          COUNT(psn.id) as count,
-          COUNT(psn.id) as total_quantity
-        FROM product_serial_numbers psn
-        WHERE psn.shipment_id IS NOT NULL
-          AND psn.shipment_id != ''
-      `).get() as { count: number | null; total_quantity: number | null } | undefined
+        SELECT COUNT(id) as count FROM product_serial_numbers psn
+        WHERE psn.shipment_id IS NOT NULL AND psn.shipment_id != ''
+      `).get() as { count: number | null }
+      const shippedCount = Number(shippedStats?.count ?? 0)
       
-      // Aktif istasyonları birleştir
-      const stationStats = [...activeStats]
-      
-      // Sevkiyat istatistiklerini ekle
-      if (shippedStats && (shippedStats.count || 0) > 0) {
-        stationStats.push({
-          current_station: 'sevkiyat',
-          count: shippedStats.count || 0,
-          total_quantity: shippedStats.total_quantity || 0
-        })
-      }
-      
-      // Mamül Depo istatistiklerini ekle
-      if (completedStats && (completedStats.count || 0) > 0) {
-        stationStats.push({
-          current_station: 'completed',
-          count: completedStats.count || 0,
-          total_quantity: completedStats.total_quantity || 0
-        })
-      }
-
-      const stationOrder = ['iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
+      const stationOrder = ['pending', 'iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
       const stationNames: Record<string, string> = {
+        pending: 'Bekleyen',
         iskelet: 'İskelet',
         terzihane: 'Terzihane',
         berjer: 'Berjer',
@@ -149,12 +130,24 @@ export const GET = withAuth(async (request) => {
         completed: 'Mamül Depo',
       }
       const formattedStationStats = stationOrder.map(station => {
-        const stat = stationStats.find((s) => s.current_station === station)
+        let count = 0
+        let total_quantity = 0
+        if (station === 'pending') {
+          count = total_quantity = pendingCount
+        } else if (station === 'completed') {
+          count = total_quantity = completedCount
+        } else if (station === 'sevkiyat') {
+          count = total_quantity = shippedCount
+        } else {
+          const stat = activeStats.find((s) => s.current_station === station)
+          count = stat?.count ?? 0
+          total_quantity = stat?.total_quantity ?? 0
+        }
         return {
           station,
           station_name: stationNames[station] || station,
-          count: stat?.count || 0,
-          total_quantity: stat?.total_quantity || 0
+          count,
+          total_quantity
         }
       })
 

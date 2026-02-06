@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 
 interface PurchaseRequest {
   id: string
@@ -185,7 +186,7 @@ export default function PurchaseRequestsPage() {
       // Tarih
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      const dateStr = new Date().toLocaleDateString('tr-TR')
+      const dateStr = formatDate(new Date())
       doc.text(`Tarih: ${dateStr}`, margin, yPos)
       yPos += 8
 
@@ -494,7 +495,7 @@ export default function PurchaseRequestsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
-                    {new Date(request.created_at).toLocaleDateString('tr-TR')}
+                    {formatDateTime(request.created_at)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-2">

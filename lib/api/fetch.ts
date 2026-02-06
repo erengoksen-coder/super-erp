@@ -20,13 +20,58 @@ function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
   )
 }
 
+const AUTH_TOKEN_KEY = 'auth-token'
+
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(AUTH_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function clearStoredAuthToken(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY)
+  } catch {}
+}
+
+/** Ngrok uyarı sayfasını atlamak için header (sayfa ngrok URL'den açıksa). */
+function getNgrokSkipHeader(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  const h = window.location.hostname || ''
+  if (h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io')) {
+    return { 'ngrok-skip-browser-warning': 'true' }
+  }
+  return {}
+}
+
+/** API ve ngrok için ortak header'lar (Authorization + ngrok-skip-browser-warning). Doğrudan fetch çağrılarında kullanın. */
+export function getAuthHeaders(): Record<string, string> {
+  const token = getStoredToken()
+  const ngrok = getNgrokSkipHeader()
+  return { ...ngrok, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+}
+
 export async function fetchApi<T>(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<T> {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url
+  const isOurApi = typeof url === 'string' && (url.startsWith('/api/') || url.includes('/api/'))
+  const headers = new Headers(init?.headers)
+  const ngrokSkip = getNgrokSkipHeader()
+  Object.keys(ngrokSkip).forEach((k) => headers.set(k, ngrokSkip[k]))
+  if (isOurApi) {
+    const token = getStoredToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+  }
   const response = await fetch(input, {
     credentials: 'include',
     ...init,
+    headers,
   })
   let payload: unknown = null
 
@@ -37,6 +82,7 @@ export async function fetchApi<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 401) clearStoredAuthToken()
     if (isApiEnvelope<T>(payload) && payload.success === false) {
       throw new Error(payload.error)
     }

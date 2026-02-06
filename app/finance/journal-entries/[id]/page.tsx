@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { BookOpen, ArrowLeft } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { useApi } from '@/lib/api/client'
+import { getReferenceLink } from '@/lib/utils/journal-reference'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type JournalEntry = {
   id: string
@@ -40,6 +42,10 @@ export default function JournalEntryDetailPage() {
 
   const entry = data?.entry
   const lines = useMemo(() => data?.lines ?? [], [data?.lines])
+  const referenceLink = useMemo(
+    () => (entry ? getReferenceLink(entry.reference_type, entry.reference_id) : null),
+    [entry?.reference_type, entry?.reference_id]
+  )
 
   return (
     <div>
@@ -73,7 +79,7 @@ export default function JournalEntryDetailPage() {
             </div>
             <div>
               <div className="text-xs text-gray-400">Tarih</div>
-              <div className="text-white">{new Date(entry.entry_date).toLocaleDateString('tr-TR')}</div>
+              <div className="text-white">{formatDate(entry.entry_date)}</div>
             </div>
             <div>
               <div className="text-xs text-gray-400">Toplam Borç</div>
@@ -91,6 +97,14 @@ export default function JournalEntryDetailPage() {
               <div className="text-xs text-gray-400">Açıklama</div>
               <div className="text-white">{entry.description || '-'}</div>
             </div>
+            {referenceLink && (
+              <div className="md:col-span-4">
+                <div className="text-xs text-gray-400">İlgili kayıt</div>
+                <Link href={referenceLink.href} className="text-blue-400 hover:text-blue-300">
+                  {referenceLink.label} →
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { FileText, ArrowLeft, Trash2 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 
 type InvoiceItem = {
   id: string
@@ -13,6 +14,8 @@ type InvoiceItem = {
   quantity: number
   unit_price: number
   total_price: number
+  bom_unit_price?: number
+  bom_total_price?: number
   notes?: string | null
 }
 
@@ -149,7 +152,7 @@ export default function InvoiceDetailPage() {
           </div>
           <div>
             <div className="text-gray-400">Tarih</div>
-            <div className="text-white">{new Date(invoice.invoice_date).toLocaleDateString('tr-TR')}</div>
+            <div className="text-white">{formatDate(invoice.invoice_date)}</div>
           </div>
           <div>
             <div className="text-gray-400">İrsaliye</div>
@@ -193,10 +196,24 @@ export default function InvoiceDetailPage() {
                 </td>
                 <td className="py-2 px-3 text-xs text-gray-300 text-right">{item.quantity}</td>
                 <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                  {(item.unit_price || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                  {item.bom_unit_price && item.bom_unit_price !== item.unit_price ? (
+                    <div>
+                      <div className="text-lime-400">BOM: {item.bom_unit_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                      <div className="text-gray-400 text-[10px]">İskonto sonrası: {item.unit_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                    </div>
+                  ) : (
+                    <div>{(item.unit_price || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                  )}
                 </td>
                 <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                  {(item.total_price || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                  {item.bom_total_price && item.bom_total_price !== item.total_price ? (
+                    <div>
+                      <div className="text-lime-400">BOM: {item.bom_total_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                      <div className="text-gray-400 text-[10px]">İskonto sonrası: {item.total_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                    </div>
+                  ) : (
+                    <div>{(item.total_price || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -206,11 +223,38 @@ export default function InvoiceDetailPage() {
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-sm text-right text-white">
         <div>Ara Toplam: {invoice.total_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
-        {invoice.discount_rate && invoice.discount_rate > 0 && invoice.discount_amount && invoice.discount_amount > 0 && (
-          <div className="text-yellow-400">
-            İskonto (%{invoice.discount_rate.toFixed(2)}): -{invoice.discount_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
-          </div>
-        )}
+        {(() => {
+          // İskonto bilgisini göster (eğer varsa)
+          const discountRate = invoice.discount_rate || 0
+          const discountAmount = invoice.discount_amount || 0
+          
+          // Eğer iskonto bilgisi yoksa ama total_amount ve final_amount farklıysa, hesapla
+          let finalDiscountRate = discountRate
+          let finalDiscountAmount = discountAmount
+          
+          if (discountRate === 0 || discountAmount === 0) {
+            const calculatedDiscount = invoice.total_amount - (invoice.final_amount - (invoice.tax_amount || 0))
+            if (calculatedDiscount > 0 && invoice.total_amount > 0) {
+              const calculatedRate = (calculatedDiscount / invoice.total_amount) * 100
+              if (calculatedRate > 0 && calculatedRate < 100) {
+                finalDiscountRate = calculatedRate
+                finalDiscountAmount = calculatedDiscount
+              }
+            }
+          }
+          
+          if (finalDiscountRate > 0 && finalDiscountAmount > 0) {
+            const discountedTotal = invoice.total_amount - finalDiscountAmount
+            return (
+              <div className="text-yellow-400">
+                <div>İskonto (%{finalDiscountRate.toFixed(2)}): -{finalDiscountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                <div className="text-white text-sm mt-1">İskontolu Tutar: {discountedTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+              </div>
+            )
+          }
+          
+          return null
+        })()}
         <div>KDV: {invoice.tax_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
         <div className="text-lg font-semibold">Genel Toplam: {invoice.final_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
       </div>

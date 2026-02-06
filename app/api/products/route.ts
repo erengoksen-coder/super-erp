@@ -7,9 +7,12 @@ import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { ok, fail } from '@/lib/api/response'
 import { handleApi } from '@/lib/api/handler'
 
-// GET: Tüm ürünleri getir
+// GET: Tüm ürünleri getir (has_bom=1 ile sadece BOM'u olan ürünler)
 export const GET = withAuth(async (request) => {
   return handleApi(async () => {
+    const { searchParams } = new URL(request.url)
+    const hasBom = searchParams.get('has_bom') === '1' || searchParams.get('has_bom') === 'true'
+
     const db = getDatabase()
     let products: any[] = []
     try {
@@ -21,7 +24,28 @@ export const GET = withAuth(async (request) => {
         products = db.prepare('SELECT * FROM products ORDER BY sku').all() as any[]
       }
     }
-    
+
+    // MRP: Sadece BOM sayfasında listelenen ürünler (aktif reçetesi olanlar). BOM’da olmayanlar listeden çıkarılır.
+    if (hasBom) {
+      let productIdsWithBom: Array<{ product_id: string }> = []
+      try {
+        productIdsWithBom = db.prepare(`
+          SELECT DISTINCT b.product_id
+          FROM bom b
+          JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+          WHERE b.deleted_at IS NULL
+        `).all() as Array<{ product_id: string }>
+      } catch {
+        try {
+          productIdsWithBom = db.prepare(`SELECT DISTINCT product_id FROM bom WHERE deleted_at IS NULL`).all() as Array<{ product_id: string }>
+        } catch {
+          productIdsWithBom = []
+        }
+      }
+      const idSet = new Set(productIdsWithBom.map((r) => r.product_id))
+      products = products.filter((p: any) => idSet.has(p.id))
+    }
+
     // Her ürün için gerçek stok miktarını hesapla (sadece tamamlanmış üretim emirlerindeki ürünler)
     const productsWithRealStock = products.map(product => {
       // Sadece production_order tamamlanmış veya production_order_id olmayan barkodları say

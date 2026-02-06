@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * BOM Hariç Tüm Verileri Silme Scripti
- * BOM (Bill of Materials) korunur, diğer tüm veriler silinir
+ * BOM ve Ayarlar Hariç Tüm İş Verilerini Silme
+ *
+ * SİLİNEN: Siparişler, üretim emirleri, barkodlar (product_serial_numbers),
+ *   sevkiyatlar, faturalar, cari işlemler, stok hareketleri, ödemeler,
+ *   yevmiye kayıtları, satın alma talepleri vb. (girilen ve devam eden veriler)
+ *
+ * KORUNAN: BOM (reçeteler), ürünler, malzemeler, cari hesaplar (müşteri/tedarikçi),
+ *   kullanıcılar, hesap planı, birim dönüşümleri, operasyonlar, şirket/şube/depo.
+ *
+ * Çalıştırma: set ALLOW_DB_RESET=true && node scripts/clear-all-except-bom.js
+ * (Windows: setx ALLOW_DB_RESET true sonra yeni terminalde node scripts/clear-all-except-bom.js)
  */
 
 const { ensureDangerousAllowed, openDatabase } = require('./db-utils');
@@ -82,11 +91,14 @@ try {
       console.warn(`⚠ production_actual_consumption: ${e.message}`);
     }
     
-    // 8. Stock Movements (Stok Hareketleri)
+    // 8. Stock Movements (Stok Hareketleri) - Hammadde girişleri dahil
     try {
+      const beforeCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements').get();
+      console.log(`  Toplam stok hareketi sayısı: ${beforeCount.count}`);
+      
       const deleted = db.prepare('DELETE FROM stock_movements').run();
       deletedCounts.stock_movements = deleted.changes;
-      console.log(`✓ ${deleted.changes} stok hareketi silindi`);
+      console.log(`✓ ${deleted.changes} stok hareketi silindi (hammadde girişleri dahil)`);
     } catch (e) {
       console.warn(`⚠ stock_movements: ${e.message}`);
     }
@@ -100,13 +112,95 @@ try {
       console.warn(`⚠ production_orders: ${e.message}`);
     }
     
-    // 10. Orders (Siparişler)
+    // 9.5. Order Items (Sipariş Kalemleri) - Önce order_items silinmeli (foreign key)
     try {
+      const deleted = db.prepare('DELETE FROM order_items').run();
+      deletedCounts.order_items = deleted.changes;
+      console.log(`✓ ${deleted.changes} sipariş kalemi silindi`);
+    } catch (e) {
+      // order_items tablosu yoksa hata verme
+      if (!e.message.includes('no such table')) {
+        console.warn(`⚠ order_items: ${e.message}`);
+      }
+    }
+    
+    // 10. Orders (Siparişler) - Tüm siparişleri sil (soft delete olanlar dahil)
+    try {
+      // Önce tüm siparişleri say
+      const beforeCount = db.prepare('SELECT COUNT(*) as count FROM orders').get();
+      console.log(`  Toplam sipariş sayısı: ${beforeCount.count}`);
+      
+      // Tüm siparişleri sil (deleted_at kontrolü yapmadan)
       const deleted = db.prepare('DELETE FROM orders').run();
       deletedCounts.orders = deleted.changes;
+      
+      // Eğer silinen sayı toplam sayıdan azsa, uyarı ver
+      if (deleted.changes < beforeCount.count) {
+        const atlanan = beforeCount.count - deleted.changes;
+        console.warn(`  ⚠ UYARI: ${atlanan} sipariş atlandı! (Toplam: ${beforeCount.count}, Silinen: ${deleted.changes})`);
+        console.warn(`  ⚠ Muhtemelen foreign key constraint nedeniyle silinemedi.`);
+      }
+      
       console.log(`✓ ${deleted.changes} sipariş silindi`);
     } catch (e) {
       console.warn(`⚠ orders: ${e.message}`);
+    }
+    
+    // 10.3. Stock Count Items (Stok Sayım Kalemleri)
+    try {
+      const deleted = db.prepare('DELETE FROM stock_count_items').run();
+      deletedCounts.stock_count_items = deleted.changes;
+      console.log(`✓ ${deleted.changes} stok sayım kalemi silindi`);
+    } catch (e) {
+      if (!e.message.includes('no such table')) {
+        console.warn(`⚠ stock_count_items: ${e.message}`);
+      }
+    }
+    
+    // 10.4. Stock Counts (Stok Sayımları)
+    try {
+      const deleted = db.prepare('DELETE FROM stock_counts').run();
+      deletedCounts.stock_counts = deleted.changes;
+      console.log(`✓ ${deleted.changes} stok sayımı silindi`);
+    } catch (e) {
+      if (!e.message.includes('no such table')) {
+        console.warn(`⚠ stock_counts: ${e.message}`);
+      }
+    }
+    
+    // 10.5. Material Stocks (Depo Bazlı Stok Kayıtları)
+    try {
+      const deleted = db.prepare('DELETE FROM material_stocks').run();
+      deletedCounts.material_stocks = deleted.changes;
+      console.log(`✓ ${deleted.changes} depo stok kaydı silindi`);
+    } catch (e) {
+      if (!e.message.includes('no such table')) {
+        console.warn(`⚠ material_stocks: ${e.message}`);
+      }
+    }
+    
+    // 10.6. Stock Alerts (Stok Uyarıları)
+    try {
+      const deleted = db.prepare('DELETE FROM stock_alerts').run();
+      deletedCounts.stock_alerts = deleted.changes;
+      console.log(`✓ ${deleted.changes} stok uyarısı silindi`);
+    } catch (e) {
+      if (!e.message.includes('no such table')) {
+        console.warn(`⚠ stock_alerts: ${e.message}`);
+      }
+    }
+    
+    // 10.7. Materials Stock (Hammadde Stokları) - Stok miktarlarını sıfırla
+    try {
+      const beforeStock = db.prepare('SELECT SUM(stock_amount) as total FROM materials').get();
+      const totalStock = beforeStock.total || 0;
+      console.log(`  Toplam hammadde stoku: ${totalStock}`);
+      
+      const updated = db.prepare('UPDATE materials SET stock_amount = 0').run();
+      deletedCounts.materials_stock_reset = updated.changes;
+      console.log(`✓ ${updated.changes} hammadde stoğu sıfırlandı`);
+    } catch (e) {
+      console.warn(`⚠ materials stock reset: ${e.message}`);
     }
     
     // 11. Purchase Requests (Satın Alma Talepleri)
@@ -163,23 +257,9 @@ try {
       console.warn(`⚠ journal_entries: ${e.message}`);
     }
     
-    // 17. Materials (Malzemeler) - BOM'da referans olabilir ama kullanıcı istedi
-    try {
-      const deleted = db.prepare('DELETE FROM materials').run();
-      deletedCounts.materials = deleted.changes;
-      console.log(`✓ ${deleted.changes} malzeme silindi`);
-    } catch (e) {
-      console.warn(`⚠ materials: ${e.message}`);
-    }
-    
-    // 18. Accounts (Cari Hesaplar)
-    try {
-      const deleted = db.prepare('DELETE FROM accounts').run();
-      deletedCounts.accounts = deleted.changes;
-      console.log(`✓ ${deleted.changes} cari hesap silindi`);
-    } catch (e) {
-      console.warn(`⚠ accounts: ${e.message}`);
-    }
+    // 17. Materials (Malzemeler) - SİLİNMEZ; BOM malzeme referansları için korunur. Stok 10.7'de sıfırlandı.
+
+    // 18. Accounts (Cari Hesaplar) - SİLİNMEZ; ayarlar/şablonlar kalsın. Bakiyeler account_transactions silindiği için sıfırlanır.
     
     // 19. Stok miktarlarını sıfırla (products)
     try {
@@ -200,15 +280,13 @@ try {
   console.log('  ✓ Temizleme Tamamlandı!');
   console.log('========================================');
   console.log('');
-  console.log('Korunan Tablolar:');
-  console.log('  - bom (Ürün Reçeteleri)');
-  console.log('  - bom_versions (BOM Versiyonları)');
-  console.log('  - products (Ürünler)');
+  console.log('Korunan Tablolar (BOM + ayarlar):');
+  console.log('  - bom, bom_versions (Ürün reçeteleri)');
+  console.log('  - products, materials (Ürünler ve malzemeler)');
+  console.log('  - accounts (Cari hesaplar)');
   console.log('  - users (Kullanıcılar)');
-  console.log('  - chart_of_accounts (Hesap Planı)');
-  console.log('  - unit_conversions (Birim Dönüşümleri)');
-  console.log('  - operations (Operasyonlar)');
-  console.log('  - work_centers (İş Merkezleri)');
+  console.log('  - chart_of_accounts, unit_conversions, operations, work_centers');
+  console.log('  - companies, branches, warehouses');
   console.log('');
   
   const totalDeleted = Object.values(result).reduce((sum, count) => sum + (count || 0), 0);

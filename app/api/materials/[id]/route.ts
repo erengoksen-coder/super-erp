@@ -190,7 +190,7 @@ export const PATCH = withAuth(async (
 // DELETE: Malzemeyi sil
 export const DELETE = withAuth(async (
   request: NextRequest,
-  _user,
+  user,
   context?: { params?: { id?: string } | Promise<{ id?: string }> }
 ) => {
   try {
@@ -208,18 +208,20 @@ export const DELETE = withAuth(async (
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
 
-    // İlişkili kayıtları kontrol et
-    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(materialId) as CountRow | undefined
-    const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(materialId) as CountRow | undefined
-
-    if ((bomCount?.count || 0) > 0 || (movementCount?.count || 0) > 0) {
-      return fail('Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.', {
-        status: 400,
-        details: {
-          bom_count: bomCount?.count || 0,
-          movement_count: movementCount?.count || 0,
-        },
-      })
+    const isAdmin = ['admin', 'yönetici', 'yonetici'].includes((user.role || '').toString().trim().toLowerCase())
+    if (!isAdmin) {
+      // Admin değilse: BOM veya stok hareketinde kullanılıyorsa silmeyi engelle
+      const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(materialId) as CountRow | undefined
+      const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(materialId) as CountRow | undefined
+      if ((bomCount?.count || 0) > 0 || (movementCount?.count || 0) > 0) {
+        return fail('Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.', {
+          status: 400,
+          details: {
+            bom_count: bomCount?.count || 0,
+            movement_count: movementCount?.count || 0,
+          },
+        })
+      }
     }
 
     // Malzemeyi pasife al

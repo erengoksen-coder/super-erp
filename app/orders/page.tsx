@@ -2,11 +2,14 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload } from 'lucide-react'
+import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload, Trash2 } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
-import { fetchApi, useApi } from '@/lib/api/client'
+import { fetchApi, useApi, getAuthHeaders } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
+import { formatOrderDateDisplay } from '@/lib/utils/dateFormat'
+import { usePolling } from '@/lib/hooks/usePolling'
 
 interface Order {
   id: string
@@ -51,6 +54,18 @@ export default function OrdersPage() {
   const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([])
   const [showDealerSuggestions, setShowDealerSuggestions] = useState(false)
   const dealerInputRef = useRef<HTMLInputElement>(null)
+  
+  // Sistem tarih+saatini formatla (datetime-local için)
+  const getCurrentDateTimeLocal = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    const hours = String(now.getHours()).padStart(2, '0')
+    const minutes = String(now.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}`
+  }
+  
   const [newOrder, setNewOrder] = useState({
     order_number: '', // TAKİP NO
     dealer_name: '', // CARİ ADI (Bayi)
@@ -60,11 +75,12 @@ export default function OrdersPage() {
     product_sku: '', // SKU / Ürün Kodu
     quantity: 1, // SİP MİKTAR
     unit_price: 0, // Birim Fiyat
-    order_date: '', // SİP TRH (Sipariş Tarihi)
+    order_date: getCurrentDateTimeLocal(), // SİP TRH (Sipariş Tarihi + Saati)
     configuration: '', // KONFİGÜRASYON
     fabric_code: '', // KUMAŞ KODU
     case_info: '', // KASA
     leg_info: '', // AYAK
+    cushion_info: '', // KİRLENT
     unit: '', // BRİM (Birim)
     notes: '' // AÇIKLAMA
   })
@@ -77,9 +93,21 @@ export default function OrdersPage() {
 
   const { data: ordersData, isLoading, mutate } = useApi<Order[]>(ordersKey)
 
+  usePolling(mutate)
+
   useEffect(() => {
     loadAccounts()
   }, [])
+
+  // Modal açıldığında tarih+saati otomatik güncelle
+  useEffect(() => {
+    if (showCreateModal) {
+      setNewOrder(prev => ({
+        ...prev,
+        order_date: getCurrentDateTimeLocal()
+      }))
+    }
+  }, [showCreateModal])
 
   useEffect(() => {
     const list = ordersData ?? []
@@ -134,7 +162,7 @@ export default function OrdersPage() {
 
   async function handleCreateOrder() {
     if (!newOrder.dealer_name || !newOrder.customer_name) {
-      alert('Lütfen bayi adı ve müşteri adını girin')
+      toast.warning('Lütfen bayi adı ve müşteri adını girin')
       return
     }
 
@@ -205,8 +233,9 @@ export default function OrdersPage() {
 
       const response = await fetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData)
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(orderData),
+        credentials: 'include',
       })
 
       if (!response.ok) {
@@ -214,7 +243,7 @@ export default function OrdersPage() {
         throw new Error(error.error || 'Sipariş oluşturulamadı')
       }
 
-      alert('✅ Sipariş başarıyla oluşturuldu!')
+      toast.success('Sipariş başarıyla oluşturuldu')
       setShowCreateModal(false)
       setNewOrder({
         order_number: '',
@@ -225,17 +254,18 @@ export default function OrdersPage() {
         product_sku: '',
         quantity: 1,
         unit_price: 0,
-        order_date: '',
+        order_date: getCurrentDateTimeLocal(),
         configuration: '',
         fabric_code: '',
         case_info: '',
         leg_info: '',
+        cushion_info: '',
         unit: '',
         notes: ''
       })
       await mutate()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error(error.message || 'İşlem başarısız')
     }
   }
 
@@ -246,81 +276,168 @@ export default function OrdersPage() {
 
     // Excel dosyası kontrolü
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      alert('Lütfen Excel dosyası seçin (.xlsx veya .xls)')
+      toast.warning('Lütfen Excel dosyası seçin (.xlsx veya .xls)')
       return
     }
 
     setUploading(true)
     try {
-      // Dosyayı base64'e çevir
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        try {
-          const formData = new FormData()
-          formData.append('file', file)
-
-          const response = await fetch('/api/orders/import', {
-            method: 'POST',
-            body: formData
-          })
-
-          if (!response.ok) {
-            const errorText = await response.text()
-            let error: any = {}
-            try {
-              error = errorText ? JSON.parse(errorText) : {}
-            } catch {
-              error = { error: errorText || 'Dosya yüklenemedi' }
-            }
-            const details =
-              error.details && error.details !== error.error
-                ? `: ${error.details}`
-                : ''
-            throw new Error(`${error.error || 'Dosya yüklenemedi'}${details}`)
+      // KESİN ÇÖZÜM: Chunk-based upload - Dosyayı küçük parçalara böl
+      const CHUNK_SIZE = 8 * 1024 * 1024 // 8MB chunks (10MB limit'in altında)
+      const fileSize = file.size
+      
+      if (fileSize <= CHUNK_SIZE) {
+        // Küçük dosyalar için direkt FormData gönder
+        const formData = new FormData()
+        formData.append('file', file)
+        
+        const response = await fetch('/api/orders/import', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: formData,
+          credentials: 'include',
+        })
+        
+        if (!response.ok) {
+          const errorText = await response.text()
+          let error: any = {}
+          try {
+            error = errorText ? JSON.parse(errorText) : {}
+          } catch {
+            error = { error: errorText || 'Dosya yüklenemedi' }
           }
-
-          const result = await response.json()
-          
-          if (result.errors && result.errors.length > 0) {
-            let message = `✅ ${result.message || `${result.inserted_count || 0} sipariş yüklendi`}`
-            if (result.errors.length <= 10) {
-              message += `\n\nHatalar:\n${result.errors.join('\n')}`
-            } else {
-              message += `\n\n${result.errors.length} satır atlandı (detaylar konsola bakın)`
-              console.warn('Excel yükleme hataları:', result.errors)
-            }
-            alert(message)
-          } else {
-            alert(`✅ ${result.message || `${result.inserted_count || 0} sipariş başarıyla yüklendi`}`)
-          }
-          
-          await mutate()
-          
-          // File input'u temizle
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-          }
-        } catch (error: any) {
-          console.error('Excel yükleme hatası:', error)
-          alert(`❌ Hata: ${error.message || 'Bilinmeyen hata'}`)
-        } finally {
-          setUploading(false)
+          const details =
+            error.details && error.details !== error.error
+              ? `: ${error.details}`
+              : ''
+          throw new Error(`${error.error || 'Dosya yüklenemedi'}${details}`)
         }
+
+        const smallFileResult = await response.json()
+        
+        if (smallFileResult.errors && smallFileResult.errors.length > 0) {
+          let message = `✅ ${smallFileResult.message || `${smallFileResult.inserted_count || 0} sipariş yüklendi`}`
+          if (smallFileResult.errors.length <= 20) {
+            message += `\n\nAtlanan Satırlar (${smallFileResult.errors.length} adet):\n${smallFileResult.errors.slice(0, 20).join('\n')}`
+            if (smallFileResult.errors.length > 20) {
+              message += `\n\n... ve ${smallFileResult.errors.length - 20} satır daha (tüm detaylar konsola bakın)`
+            }
+          } else {
+            message += `\n\n${smallFileResult.errors.length} satır atlandı (ilk 20 hata gösteriliyor, tüm detaylar konsola bakın)`
+            message += `\n\nİlk 20 Hata:\n${smallFileResult.errors.slice(0, 20).join('\n')}`
+            console.warn('Excel yükleme hataları (tümü):', smallFileResult.errors)
+          }
+          toast.error(message)
+        } else {
+          toast.success(smallFileResult.message || `${smallFileResult.inserted_count || 0} sipariş başarıyla yüklendi`)
+        }
+        
+        window.location.reload()
+        return
       }
-      reader.onerror = () => {
-        alert('❌ Dosya okuma hatası')
-        setUploading(false)
+      
+      // Büyük dosyalar için chunk-based upload
+      toast.info(`Dosya ${(fileSize / 1024 / 1024).toFixed(2)}MB, parçalara bölünüyor...`)
+      
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = new Uint8Array(arrayBuffer)
+      const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
+      const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      
+      // Her chunk'ı gönder
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE
+        const end = Math.min(start + CHUNK_SIZE, buffer.length)
+        const chunk = buffer.slice(start, end)
+        const chunkBlob = new Blob([chunk], { type: file.type })
+        
+        const chunkFormData = new FormData()
+        chunkFormData.append('chunk', chunkBlob)
+        chunkFormData.append('chunkIndex', chunkIndex.toString())
+        chunkFormData.append('totalChunks', totalChunks.toString())
+        chunkFormData.append('uploadId', uploadId)
+        chunkFormData.append('fileName', file.name)
+        chunkFormData.append('fileSize', fileSize.toString())
+        chunkFormData.append('isLastChunk', (chunkIndex === totalChunks - 1).toString())
+        
+        const chunkResponse = await fetch('/api/orders/import/chunk', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: chunkFormData,
+          credentials: 'include',
+        })
+        
+        if (!chunkResponse.ok) {
+          const errorText = await chunkResponse.text()
+          let error: any = {}
+          try {
+            error = errorText ? JSON.parse(errorText) : {}
+          } catch {
+            error = { error: errorText || 'Chunk yüklenemedi' }
+          }
+          throw new Error(`Parça ${chunkIndex + 1}/${totalChunks} yüklenemedi: ${error.error || 'Bilinmeyen hata'}`)
+        }
+        
+        // Progress göstergesi
+        const progress = ((chunkIndex + 1) / totalChunks * 100).toFixed(0)
+        console.log(`Yükleme ilerlemesi: ${progress}% (${chunkIndex + 1}/${totalChunks})`)
       }
-      reader.readAsDataURL(file)
+      
+      // Tüm chunk'lar yüklendikten sonra birleştirme ve işleme isteği gönder
+      const mergeResponse = await fetch('/api/orders/import/merge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          uploadId: uploadId,
+          fileName: file.name,
+          totalChunks: totalChunks,
+          fileSize: fileSize
+        })
+      })
+      
+      if (!mergeResponse.ok) {
+        const errorText = await mergeResponse.text()
+        let error: any = {}
+        try {
+          error = errorText ? JSON.parse(errorText) : {}
+        } catch {
+          error = { error: errorText || 'Dosya birleştirilemedi' }
+        }
+        throw new Error(`Dosya birleştirilemedi: ${error.error || 'Bilinmeyen hata'}`)
+      }
+      
+      const mergeResult = await mergeResponse.json()
+      
+      if (mergeResult.errors && mergeResult.errors.length > 0) {
+        let message = `✅ ${mergeResult.message || `${mergeResult.inserted_count || 0} sipariş yüklendi`}`
+        if (mergeResult.errors.length <= 20) {
+          message += `\n\nAtlanan Satırlar (${mergeResult.errors.length} adet):\n${mergeResult.errors.slice(0, 20).join('\n')}`
+        } else {
+          message += `\n\n${mergeResult.errors.length} satır atlandı (ilk 20 hata gösteriliyor)`
+          message += `\n\nİlk 20 Hata:\n${mergeResult.errors.slice(0, 20).join('\n')}`
+        }
+        toast.error(message)
+      } else {
+        toast.success(mergeResult.message || 'Dosya başarıyla yüklendi')
+      }
+      
+      window.location.reload()
+      return
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      console.error('Excel yükleme hatası:', error)
+      toast.error(error.message || 'Bilinmeyen hata')
+    } finally {
       setUploading(false)
     }
   }
 
   function convertToProduction() {
     if (selectedOrders.size === 0) {
-      alert('Lütfen en az bir sipariş seçin')
+      toast.warning('Lütfen en az bir sipariş seçin')
       return
     }
 
@@ -341,6 +458,32 @@ export default function OrdersPage() {
       newSelected.add(orderId)
     }
     setSelectedOrders(newSelected)
+  }
+
+  async function handleDeleteOrder(order: Order) {
+    if (!confirm(`"${order.order_number}" siparişini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/orders?id=${encodeURIComponent(order.id)}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Sipariş silinemedi')
+      }
+      mutate()
+      setSelectedOrders((prev) => {
+        const next = new Set(prev)
+        next.delete(order.id)
+        return next
+      })
+    } catch (e: any) {
+      toast.error(e.message || 'Sipariş silinemedi')
+    }
   }
 
   function toggleAllSelection() {
@@ -407,6 +550,26 @@ export default function OrdersPage() {
           <Button
             variant="solid"
             size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={async () => {
+              if (!confirm('Tüm siparişleri silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+              try {
+                const res = await fetch('/api/orders?all=1', { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' })
+                if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
+                const data = await res.json()
+                mutate()
+                toast.success(data?.message || 'Siparişler silindi.')
+              } catch (e: any) {
+                toast.error(e.message || 'Siparişler silinemedi')
+              }
+            }}
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Tüm Siparişleri Sil
+          </Button>
+          <Button
+            variant="solid"
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
@@ -439,7 +602,14 @@ export default function OrdersPage() {
               size="sm"
               onClick={async () => {
                 try {
-                  const response = await fetch('/api/orders/export')
+                  const exportParams = new URLSearchParams()
+                  if (filterStatus && filterStatus !== 'all') exportParams.set('status', filterStatus)
+                  if (searchTerm.trim()) exportParams.set('search', searchTerm.trim())
+                  const query = exportParams.toString()
+                  const response = await fetch(`/api/orders/export${query ? '?' + query : ''}`, {
+                    headers: getAuthHeaders(),
+                    credentials: 'include',
+                  })
                   if (!response.ok) {
                     throw new Error('Excel export başarısız')
                   }
@@ -452,9 +622,9 @@ export default function OrdersPage() {
                   a.click()
                   window.URL.revokeObjectURL(url)
                   document.body.removeChild(a)
-                  alert('✅ Excel dosyası başarıyla indirildi')
+                  toast.success('Excel dosyası başarıyla indirildi')
                 } catch (error: any) {
-                  alert('Hata: ' + error.message)
+                  toast.error(error.message || 'İşlem başarısız')
                 }
               }}
             >
@@ -535,6 +705,18 @@ export default function OrdersPage() {
                 selectedOrders.has(order.id) ? 'bg-blue-900/20 border-blue-500' : ''
               }`}
             >
+              <div className="flex justify-between items-start gap-3 mb-3">
+                <span className="text-xs text-gray-400 font-mono">{order.order_number}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOrder(order)}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition"
+                  title="Siparişi sil"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Sil
+                </button>
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Sol Sütun */}
                 <div>
@@ -554,8 +736,15 @@ export default function OrdersPage() {
                   <div className="text-white text-sm font-mono">{order.order_number}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                  <div className="text-white text-sm">{(order as any).configuration || '-'}</div>
+                  <div className="text-xs text-gray-400 mb-1">KASA</div>
+                  <div className="text-white text-sm">
+                    {(() => {
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                      return caseMatch ? caseMatch[1].trim() : '-'
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">Durum</div>
@@ -568,12 +757,27 @@ export default function OrdersPage() {
 
                 {/* Orta Sol Sütun */}
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                  <div className="text-white text-sm">{order.customer_name || '-'}</div>
+                  <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                  <div className="text-white text-sm">{order.dealer_name || '-'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                  <div className="text-white text-sm">{order.product_name}</div>
+                  <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                  <div className="text-white text-sm break-words whitespace-normal">
+                    {(() => {
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      let desc = notesText
+                        .replace(/Kumaş:\s*[^|]+/gi, '')
+                        .replace(/Kasa:\s*[^|]+/gi, '')
+                        .replace(/Ayak:\s*[^|]+/gi, '')
+                        .replace(/Kirlent:\s*[^|]+/gi, '')
+                        .replace(/Birim:\s*[^|]+/gi, '')
+                        .replace(/\|\s*\|\s*/g, '|')
+                        .replace(/^\|\s*|\s*\|$/g, '')
+                        .trim()
+                      return desc || '-'
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
@@ -604,90 +808,28 @@ export default function OrdersPage() {
 
                 {/* Orta Sağ Sütun */}
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                  <div className="text-white text-sm break-words whitespace-normal">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      let desc = notesText
-                        .replace(/Kumaş:\s*[^|]+/gi, '')
-                        .replace(/Kasa:\s*[^|]+/gi, '')
-                        .replace(/Ayak:\s*[^|]+/gi, '')
-                        .replace(/Birim:\s*[^|]+/gi, '')
-                        .replace(/\|\s*\|\s*/g, '|')
-                        .replace(/^\|\s*|\s*\|$/g, '')
-                        .trim()
-                      return desc || '-'
-                    })()}
-                  </div>
+                  <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                  <div className="text-white text-sm">{order.product_name || '-'}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
                   <div className="text-white text-sm">{order.quantity} ADET</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">KASA</div>
-                  <div className="text-white text-sm">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
-                      return caseMatch ? caseMatch[1].trim() : '-'
-                    })()}
-                  </div>
+                  <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                  <div className="text-white text-sm">{(order as any).configuration || '-'}</div>
                 </div>
 
                 {/* Sağ Sütun */}
                 <div>
                   <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
                   <div className="text-white text-sm">
-                    {order.order_date 
-                      ? (() => {
-                          try {
-                            const dateStr = String(order.order_date).trim()
-                            let date: Date
-                            
-                            if (dateStr.includes('-')) {
-                              if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-                                date = new Date(dateStr)
-                              } else {
-                                const parts = dateStr.split('-')
-                                if (parts.length === 3 && parts[0].length <= 2) {
-                                  date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`)
-                                } else {
-                                  date = new Date(dateStr)
-                                }
-                              }
-                            } else if (dateStr.includes('.') || dateStr.includes('/')) {
-                              const parts = dateStr.split(/[./]/)
-                              if (parts.length === 3) {
-                                date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
-                              } else {
-                                date = new Date(dateStr)
-                              }
-                            } else {
-                              date = new Date(dateStr)
-                            }
-                            
-                            if (isNaN(date.getTime())) {
-                              return dateStr
-                            }
-                            
-                            const day = date.getDate().toString().padStart(2, '0')
-                            const month = (date.getMonth() + 1).toString().padStart(2, '0')
-                            const year = date.getFullYear()
-                            return `${day}.${month}.${year}`
-                          } catch (e) {
-                            return String(order.order_date)
-                          }
-                        })()
-                      : '-'
-                    }
+                    {formatOrderDateDisplay(order.order_date, order.created_at ?? null)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                  <div className="text-white text-sm">{order.dealer_name || '-'}</div>
+                  <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
+                  <div className="text-white text-sm">{order.customer_name || '-'}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-1">AYAK</div>
@@ -697,6 +839,17 @@ export default function OrdersPage() {
                       if (!notesText) return '-'
                       const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
                       return legMatch ? legMatch[1].trim() : '-'
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">KİRLENT</div>
+                  <div className="text-white text-sm">
+                    {(() => {
+                      const notesText = normalizeNotes(order.notes).trim()
+                      if (!notesText) return '-'
+                      const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
+                      return cushionMatch ? cushionMatch[1].trim() : '-'
                     })()}
                   </div>
                 </div>
@@ -724,11 +877,12 @@ export default function OrdersPage() {
                     product_sku: '',
                     quantity: 1,
                     unit_price: 0,
-                    order_date: '',
+                    order_date: getCurrentDateTimeLocal(),
                     configuration: '',
                     fabric_code: '',
                     case_info: '',
                     leg_info: '',
+                    cushion_info: '',
                     unit: '',
                     notes: ''
                   })
@@ -758,9 +912,9 @@ export default function OrdersPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">SİP TRH (Sipariş Tarihi) *</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">SİP TRH (Sipariş Tarihi + Saati) *</label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={newOrder.order_date}
                     onChange={(e) => setNewOrder({ ...newOrder, order_date: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
@@ -960,7 +1114,18 @@ export default function OrdersPage() {
                 </div>
               </div>
 
-              {/* Sekizinci Satır: AÇIKLAMA */}
+              {/* Sekizinci Satır: KİRLENT */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">KİRLENT</label>
+                <input
+                  type="text"
+                  value={newOrder.cushion_info}
+                  onChange={(e) => setNewOrder({ ...newOrder, cushion_info: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Dokuzuncu Satır: AÇIKLAMA */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">AÇIKLAMA (Notlar)</label>
                 <textarea
@@ -976,23 +1141,24 @@ export default function OrdersPage() {
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false)
-                    setNewOrder({
-                      order_number: '',
-                      dealer_name: '',
-                      customer_name: '',
-                      customer_code: '',
-                      product_name: '',
-                      product_sku: '',
-                      quantity: 1,
-                      unit_price: 0,
-                      order_date: '',
-                      configuration: '',
-                      fabric_code: '',
-                      case_info: '',
-                      leg_info: '',
-                      unit: '',
-                      notes: ''
-                    })
+      setNewOrder({
+        order_number: '',
+        dealer_name: '',
+        customer_name: '',
+        customer_code: '',
+        product_name: '',
+        product_sku: '',
+        quantity: 1,
+        unit_price: 0,
+        order_date: '',
+        configuration: '',
+        fabric_code: '',
+        case_info: '',
+        leg_info: '',
+        cushion_info: '',
+        unit: '',
+        notes: ''
+      })
                   }}
                   className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
                 >

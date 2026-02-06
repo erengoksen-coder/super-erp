@@ -23,6 +23,20 @@ export const commonSchemas = {
   date: z.string().datetime('Geçersiz tarih formatı'),
   status: z.enum(['active', 'inactive', 'pending', 'cancelled', 'completed']),
   role: z.enum(['admin', 'user', 'manager', 'viewer']),
+  // Rol alanı; Türkçe eş anlamlıları İngilizce değere çevirir (kayıt/API uyumu)
+  roleWithAliases: z.string()
+    .transform((val) => {
+      const v = (val || '').toString().trim().toLowerCase()
+      // Türkçe/ASCII eşlemesi (yönetici, yonetici, Yönetici vb.)
+      if (/y[oö]netici/.test(v) || v === 'manager') return 'manager'
+      if (/g[oö]r[uü]nt[uü]leyici/.test(v) || v === 'viewer') return 'viewer'
+      if (/kullan[iı]c[iı]/.test(v) || v === 'user') return 'user'
+      if (v === 'admin') return 'admin'
+      return v
+    })
+    .pipe(z.enum(['admin', 'user', 'manager', 'viewer'], {
+      errorMap: () => ({ message: 'Geçersiz rol. Lütfen Kullanıcı, Yönetici, Görüntüleyici veya Admin seçin.' }),
+    })),
 }
 
 // User validation schemas
@@ -30,14 +44,43 @@ export const userSchemas = {
   create: z.object({
     username: commonSchemas.username,
     password: commonSchemas.password,
-    email: commonSchemas.email.optional(),
-    full_name: z.string()
-      .min(2, 'Ad soyad en az 2 karakter olmalı')
-      .max(100, 'Ad soyad en fazla 100 karakter olabilir'),
-    role: commonSchemas.role,
+    email: z.preprocess(
+      (val) => (val === '' || val === null || val === undefined ? undefined : val),
+      z.string().email('Geçersiz e-posta formatı').optional()
+    ),
+    full_name: z.preprocess(
+      (val) => (val === '' || val === null ? undefined : val),
+      z.string().min(2, 'Ad soyad en az 2 karakter olmalı').max(100, 'Ad soyad en fazla 100 karakter olabilir').optional()
+    ),
+    role: z.preprocess(
+      (val) => (val === '' || val === null || val === undefined ? 'user' : val),
+      commonSchemas.roleWithAliases
+    ),
     job_title: z.string()
       .max(100, 'İş unvanı en fazla 100 karakter olabilir')
       .optional(),
+  }),
+  // Kayıt sayfası için: kullanıcı adı sadece uzunluk kontrolü (regex yok, Türkçe/boşluk kabul)
+  register: z.object({
+    username: z.string()
+      .transform((s) => (s != null ? String(s).trim() : ''))
+      .refine((s) => s.length >= 3, 'Kullanıcı adı en az 3 karakter olmalı')
+      .refine((s) => s.length <= 50, 'Kullanıcı adı en fazla 50 karakter olabilir'),
+    password: commonSchemas.password,
+    email: z.preprocess(
+      (val) => (val === '' || val === null || val === undefined ? undefined : val),
+      z.string().email('Geçersiz e-posta formatı').optional()
+    ),
+    full_name: z.preprocess(
+      (val) => (val === '' || val === null ? undefined : val),
+      z.string().min(2, 'Ad soyad en az 2 karakter olmalı').max(100, 'Ad soyad en fazla 100 karakter olabilir').optional()
+    ),
+    // Rol: herhangi bir string kabul et; API tarafında normalize edilecek (enum hatası olmaz)
+    role: z.union([z.string(), z.undefined(), z.null()]).optional().transform((v) => (v == null || v === '' ? 'user' : String(v).trim())),
+    job_title: z.preprocess(
+      (val) => (val === '' || val === null || val === undefined ? undefined : val),
+      z.string().max(100, 'İş unvanı en fazla 100 karakter olabilir').optional()
+    ),
   }),
   update: z.object({
     username: commonSchemas.username.optional(),

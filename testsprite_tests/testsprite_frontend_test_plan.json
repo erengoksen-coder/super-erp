@@ -1,0 +1,17 @@
+[
+  {"id":"TC001","title":"Login page loads","description":"Verify login page loads and shows form","category":"Functional","priority":"High","steps":["Navigate to /auth/login","Verify page title or form is visible","Verify login button exists"]},
+  {"id":"TC002","title":"Dashboard loads after auth","description":"Verify dashboard page loads","category":"Functional","priority":"High","steps":["Navigate to /dashboard","Verify dashboard content or stats are visible"]},
+  {"id":"TC003","title":"Home page loads","description":"Verify root page loads","category":"Functional","priority":"Medium","steps":["Navigate to /","Verify page loads without error"]},
+  {"id":"TC004","title":"Orders page accessible","description":"Verify orders list page loads","category":"Functional","priority":"Medium","steps":["Navigate to /orders","Verify orders page content or empty state"]},
+  {"id":"TC005","title":"Inventory page accessible","description":"Verify inventory page loads","category":"Functional","priority":"Medium","steps":["Navigate to /inventory","Verify inventory or materials section visible"]},
+  {"id":"TC006","title":"Register page loads","description":"Verify registration page loads and shows form","category":"Functional","priority":"Medium","steps":["Navigate to /auth/register","Verify register form or sign up content is visible"]},
+  {"id":"TC007","title":"BOM page accessible","description":"Verify Bill of Materials page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to BOM / bom page","Verify BOM list or empty state"]},
+  {"id":"TC008","title":"Barcodes page accessible","description":"Verify barcode management page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /barcodes","Verify barcodes page content"]},
+  {"id":"TC009","title":"Invoices page accessible","description":"Verify invoices list page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /invoices","Verify invoices page or empty state"]},
+  {"id":"TC010","title":"Shipments page accessible","description":"Verify shipments list page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /shipments","Verify shipments page content"]},
+  {"id":"TC011","title":"Accounts page accessible","description":"Verify accounting/accounts page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /accounts or finance","Verify accounts or chart of accounts"]},
+  {"id":"TC012","title":"HR page accessible","description":"Verify HR module page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /hr","Verify HR dashboard or departments"]},
+  {"id":"TC013","title":"Users page accessible","description":"Verify user management page loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /users","Verify users list or management UI"]},
+  {"id":"TC014","title":"Production page accessible","description":"Verify production module loads","category":"Functional","priority":"Medium","steps":["Login with admin","Navigate to /production","Verify production page or kanban"]},
+  {"id":"TC015","title":"Settings page accessible","description":"Verify settings page loads","category":"Functional","priority":"Low","steps":["Login with admin","Navigate to /settings","Verify settings content or form"]}
+]

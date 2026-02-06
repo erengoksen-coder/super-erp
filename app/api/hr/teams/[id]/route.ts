@@ -4,9 +4,10 @@ import { parseJsonBody } from '@/lib/api/validate'
 import { getDatabase } from '@/lib/database/db'
 
 // GET: Takım detayı
-export const GET = withAuth(async (_request: NextRequest, _user, context?: { params?: { id?: string } }) => {
+export const GET = withAuth(async (_request: NextRequest, _user, context?: { params?: Promise<{ id: string }> }) => {
   try {
-    const id = context?.params?.id
+    const params = context?.params ? await context.params : undefined
+    const id = params?.id
     if (!id) {
       return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
     }
@@ -26,9 +27,10 @@ export const GET = withAuth(async (_request: NextRequest, _user, context?: { par
 })
 
 // PATCH: Takım güncelle
-export const PATCH = withAuth(async (request: NextRequest, _user, context?: { params?: { id?: string } }) => {
+export const PATCH = withAuth(async (request: NextRequest, _user, context?: { params?: Promise<{ id: string }> }) => {
   try {
-    const id = context?.params?.id
+    const params = context?.params ? await context.params : undefined
+    const id = params?.id
     if (!id) {
       return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
     }
@@ -59,9 +61,10 @@ export const PATCH = withAuth(async (request: NextRequest, _user, context?: { pa
 })
 
 // DELETE: Takım sil (soft delete)
-export const DELETE = withAuth(async (_request: NextRequest, _user, context?: { params?: { id?: string } }) => {
+export const DELETE = withAuth(async (_request: NextRequest, _user, context?: { params?: Promise<{ id: string }> }) => {
   try {
-    const id = context?.params?.id
+    const params = context?.params ? await context.params : undefined
+    const id = params?.id
     if (!id) {
       return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
     }

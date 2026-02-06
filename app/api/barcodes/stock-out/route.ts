@@ -6,7 +6,7 @@ import { getDatabase } from '@/lib/database/db'
 // POST: Barkod okutarak stok düş
 export const POST = withAuth(async (request: NextRequest) => {
   try {
-    const body = await parseJsonBody(request)
+    const body = await parseJsonBody(request) as { barcode?: string; customer_id?: string }
     const { barcode, customer_id } = body
 
     if (!barcode) {

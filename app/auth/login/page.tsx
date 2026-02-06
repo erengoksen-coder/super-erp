@@ -1,13 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { LogIn, User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
+import { toast } from '@/lib/notify'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnUrl = searchParams.get('returnUrl') || ''
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -15,6 +18,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const setAuth = useAuthStore((state) => state.setAuth)
   const setHydrated = useAuthStore((state) => state.setHydrated)
+  const [isNgrok, setIsNgrok] = useState(false)
+
+  useEffect(() => {
+    const h = typeof window !== 'undefined' ? window.location.hostname : ''
+    setIsNgrok(h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io'))
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -29,15 +38,24 @@ export default function LoginPage() {
       })
 
       const user = (data as any)?.user ?? (data as any)?.data?.user
+      const accessToken = (data as any)?.accessToken ?? (data as any)?.data?.accessToken
 
       if (!user) {
         throw new Error('Giriş başarısız: kullanıcı bilgisi alınamadı')
       }
 
+      if (accessToken && typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('auth-token', accessToken)
+        } catch {}
+      }
       setAuth(user)
       setHydrated(true)
+      const name = (user as any)?.full_name || (user as any)?.username || ''
+      toast.success(name ? `Hoş geldiniz, ${name}` : 'Giriş başarılı')
 
-      router.push('/')
+      const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/'
+      router.push(target)
     } catch (error: any) {
       // API'den gelen hata mesajını al
       const errorMessage = error?.message || error?.error || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
@@ -55,6 +73,9 @@ export default function LoginPage() {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-white mb-2">LIVASOFA ERP</h1>
             <p className="text-gray-400">Giriş Yapın</p>
+            {isNgrok && (
+              <p className="text-xs text-green-400 mt-2">İnternet erişimi: Ngrok üzerinden bağlandınız.</p>
+            )}
           </div>
 
           {error && (

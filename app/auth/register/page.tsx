@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, User, Lock, Mail, Briefcase, AlertCircle } from 'lucide-react'
-import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -13,6 +13,7 @@ export default function RegisterPage() {
     password: '',
     confirmPassword: '',
     full_name: '',
+    role: 'user' as 'admin' | 'user' | 'manager' | 'viewer',
     job_title: '',
   })
   const [error, setError] = useState('')
@@ -29,35 +30,68 @@ export default function RegisterPage() {
     e.preventDefault()
     setError('')
 
+    const rawUsername = formData.username.trim()
+    if (rawUsername.length < 3) {
+      setError('Kullanıcı adı en az 3 karakter olmalıdır')
+      return
+    }
     if (formData.password !== formData.confirmPassword) {
       setError('Şifreler eşleşmiyor')
       return
     }
 
-    if (formData.password.length < 6) {
-      setError('Şifre en az 6 karakter olmalıdır')
+    if (formData.password.length < 8) {
+      setError('Şifre en az 8 karakter olmalıdır')
+      return
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+      setError('Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermeli')
+      return
+    }
+    const trimmedName = (formData.full_name || '').trim()
+    if (trimmedName.length < 2) {
+      setError('Ad soyad en az 2 karakter olmalıdır')
       return
     }
 
     setLoading(true)
+    setError('')
+
+    // Eski form "Görev/Ünvan"a yönetici yazabiliyor (role veya job_title); API hep admin|user|manager|viewer bekliyor
+    const roleInput = String(formData.role || formData.job_title || '').trim().toLowerCase()
+    const roleForApi =
+      roleInput === 'admin' || roleInput === 'manager' || roleInput === 'viewer' ? roleInput
+      : /y[oö]netici/.test(roleInput) ? 'manager'
+      : /g[oö]r[uü]nt[uü]leyici/.test(roleInput) ? 'viewer'
+      : /kullan[iı]c[iı]/.test(roleInput) ? 'user'
+      : 'user'
+
+    const payload = {
+      username: rawUsername,
+      password: formData.password,
+      full_name: trimmedName,
+      role: roleForApi,
+      ...(formData.email?.trim() ? { email: formData.email.trim() } : {}),
+      ...(formData.job_title?.trim() ? { job_title: formData.job_title.trim() } : {}),
+    }
 
     try {
-      await fetchApi('/api/auth/register', {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: formData.username,
-          email: formData.email,
-          password: formData.password,
-          full_name: formData.full_name,
-          job_title: formData.job_title,
-        }),
+        body: JSON.stringify(payload),
       })
-
-      alert('✅ Kayıt başarılı! Admin onayı bekleniyor. Onaylandıktan sonra giriş yapabilirsiniz.')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const msg = typeof data?.error === 'string' ? data.error : data?.message || `Hata (${res.status}). Lütfen bilgileri kontrol edin.`
+        setError(msg)
+        setLoading(false)
+        return
+      }
+      toast.success('Kayıt başarılı. Admin onayı bekleniyor; onaylandıktan sonra giriş yapabilirsiniz.')
       router.push('/auth/login')
-    } catch (error: any) {
-      setError(error.message)
+    } catch (err: any) {
+      setError(err?.message || 'Bağlantı hatası. İnternet bağlantınızı kontrol edip tekrar deneyin.')
     } finally {
       setLoading(false)
     }
@@ -125,26 +159,44 @@ export default function RegisterPage() {
                 value={formData.full_name}
                 onChange={handleChange}
                 className="w-full px-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ad Soyad"
+                placeholder="Ad Soyad (en az 2 karakter)"
+                required
+                minLength={2}
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Görev/Ünvan *
+                Rol *
               </label>
               <div className="relative">
-                <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  name="job_title"
-                  value={formData.job_title}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Örn: Usta, Depo Sorumlusu, Yönetici"
+                <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none z-10" />
+                <select
+                  name="role"
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'user' | 'manager' | 'viewer' })}
+                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none cursor-pointer"
                   required
-                />
+                >
+                  <option value="user">Kullanıcı</option>
+                  <option value="manager">Yönetici</option>
+                  <option value="viewer">Görüntüleyici</option>
+                  <option value="admin">Admin</option>
+                </select>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                İş unvanı (isteğe bağlı)
+              </label>
+              <input
+                type="text"
+                name="job_title"
+                value={formData.job_title}
+                onChange={handleChange}
+                className="w-full px-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Örn: Usta, Depo Sorumlusu"
+              />
             </div>
 
             <div>
@@ -159,7 +211,7 @@ export default function RegisterPage() {
                   value={formData.password}
                   onChange={handleChange}
                   className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="En az 6 karakter"
+                  placeholder="En az 8 karakter, büyük/küçük harf ve rakam"
                   required
                 />
               </div>

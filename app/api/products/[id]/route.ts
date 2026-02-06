@@ -133,7 +133,7 @@ export const PATCH = withAuth(async (
 // DELETE: Ürünü sil
 export const DELETE = withAuth(async (
   request: NextRequest,
-  _user,
+  user,
   context?: { params?: { id?: string } | Promise<{ id?: string }> }
 ) => {
   try {
@@ -162,23 +162,25 @@ export const DELETE = withAuth(async (
       return NextResponse.json({ error: 'Ürün bulunamadı' }, { status: 404 })
     }
 
-    // İlişkili kayıtları kontrol et
-    const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE product_id = ?').get(productId) as any
-    const orderCount = db.prepare('SELECT COUNT(*) as count FROM production_orders WHERE product_id = ?').get(productId) as any
-    const serialCount = db.prepare('SELECT COUNT(*) as count FROM product_serial_numbers WHERE product_id = ?').get(productId) as any
-
-    if (bomCount.count > 0 || orderCount.count > 0 || serialCount.count > 0) {
-      return NextResponse.json(
-        { 
-          error: 'Bu ürün BOM, üretim emri veya barkod kayıtlarında kullanılıyor. Silinemez.',
-          details: {
-            bom_count: bomCount.count,
-            order_count: orderCount.count,
-            serial_count: serialCount.count,
-          }
-        },
-        { status: 400 }
-      )
+    const isAdmin = ['admin', 'yönetici', 'yonetici'].includes((user.role || '').toString().trim().toLowerCase())
+    if (!isAdmin) {
+      // Admin değilse: BOM, üretim emri veya barkodda kullanılıyorsa silmeyi engelle
+      const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE product_id = ?').get(productId) as any
+      const orderCount = db.prepare('SELECT COUNT(*) as count FROM production_orders WHERE product_id = ?').get(productId) as any
+      const serialCount = db.prepare('SELECT COUNT(*) as count FROM product_serial_numbers WHERE product_id = ?').get(productId) as any
+      if (bomCount.count > 0 || orderCount.count > 0 || serialCount.count > 0) {
+        return NextResponse.json(
+          {
+            error: 'Bu ürün BOM, üretim emri veya barkod kayıtlarında kullanılıyor. Silinemez.',
+            details: {
+              bom_count: bomCount.count,
+              order_count: orderCount.count,
+              serial_count: serialCount.count,
+            }
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // Ürünü sil

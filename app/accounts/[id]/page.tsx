@@ -2,8 +2,9 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 
 interface Account {
   id: string
@@ -16,6 +17,7 @@ interface Account {
   address?: string
   balance: number
   risk_limit?: number | null
+  discount_rate?: number | null
 }
 
 interface Shipment {
@@ -62,6 +64,7 @@ interface AccountTransaction {
   shipment_number?: string
   shipment_discount_rate?: number | null
   shipment_discount_amount?: number | null
+  shipment_status?: string | null
   running_balance?: number
 }
 
@@ -83,6 +86,7 @@ export default function AccountDetailPage() {
   const [startPickerYear, setStartPickerYear] = useState(new Date().getFullYear())
   const [endPickerMonth, setEndPickerMonth] = useState(new Date().getMonth())
   const [endPickerYear, setEndPickerYear] = useState(new Date().getFullYear())
+  const [clearingData, setClearingData] = useState(false)
 
   useEffect(() => {
     const id = params?.id as string
@@ -112,6 +116,25 @@ export default function AccountDetailPage() {
       setShipments(data)
     } catch (error) {
       console.error('Error loading shipments:', error)
+    }
+  }
+
+  async function clearAccountData() {
+    if (!account) return
+    if (!confirm('Bu carinin tüm cari hareketleri ve sevkiyat girdi verileri silinecek. Cari ayarları (ad, kod, iskonto, risk limiti vb.) değişmeyecek. Devam edilsin mi?')) {
+      return
+    }
+    setClearingData(true)
+    try {
+      await fetchApi(`/api/accounts/${account.id}/clear-data`, { method: 'POST' })
+      await loadAccount(account.id)
+      await loadShipments(account.id)
+      await loadTransactions(account.id)
+      alert('Cari ve sevkiyat girdi verileri silindi. Ayarlar aynen kaldı.')
+    } catch (e: any) {
+      alert('Hata: ' + (e?.message || 'İşlem başarısız'))
+    } finally {
+      setClearingData(false)
     }
   }
 
@@ -266,6 +289,17 @@ export default function AccountDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>← Geri</span>
           </button>
+          {account.type === 'customer' && (
+            <button
+              type="button"
+              onClick={clearAccountData}
+              disabled={clearingData}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/50 text-red-300 border border-red-700 hover:bg-red-900/70 transition disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              {clearingData ? 'Siliniyor...' : 'Girdi Verilerini Sil'}
+            </button>
+          )}
         </div>
 
         {/* Cari Hesap Bilgileri */}
@@ -309,8 +343,8 @@ export default function AccountDetailPage() {
             <div>
               <div className="text-gray-400 mb-1">Bakiye:</div>
               <div className={`text-lg font-bold flex items-center space-x-2 ${
-                account.balance > 0 ? 'text-green-400' :
-                account.balance < 0 ? 'text-red-400' :
+                account.balance > 0 ? 'text-red-400' :
+                account.balance < 0 ? 'text-green-400' :
                 'text-gray-400'
               }`}>
                 <span>
@@ -322,10 +356,10 @@ export default function AccountDetailPage() {
                 {account.balance !== 0 && (
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                     account.balance > 0
-                      ? 'bg-green-900/30 text-green-300'
-                      : 'bg-red-900/30 text-red-300'
-                  }`}>
-                    {account.balance > 0 ? 'A' : 'B'}
+                      ? 'bg-red-900/30 text-red-300'
+                      : 'bg-green-900/30 text-green-300'
+                  }`} title={account.balance > 0 ? 'Borçlu (müşteri bize borçlu)' : 'Alacaklı (biz müşteriye borçluyuz)'}>
+                    {account.balance > 0 ? 'Borçlu' : 'Alacaklı'}
                   </span>
                 )}
               </div>
@@ -339,6 +373,14 @@ export default function AccountDetailPage() {
                 })} ₺
               </div>
             </div>
+            {account.discount_rate !== undefined && account.discount_rate !== null && (
+              <div>
+                <div className="text-gray-400 mb-1">İskonto Oranı:</div>
+                <div className={`text-lg font-bold ${account.discount_rate > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                  %{account.discount_rate.toFixed(2)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -594,13 +636,14 @@ export default function AccountDetailPage() {
                   {filteredTransactions.map((transaction) => (
                     <tr key={transaction.id} className="border-b border-gray-800 hover:bg-gray-800">
                       <td className="py-2 px-3 text-xs text-gray-300">
-                        {new Date(transaction.created_at).toLocaleDateString('tr-TR')}
+                        {formatDateTime(transaction.created_at)}
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300">
                         <div className="flex items-center space-x-2">
                           <span>{(transaction.description || '-').replace(/❖/g, '₺')}</span>
                           {(transaction.reference_type === 'shipment_return' ||
-                            (transaction.description || '').toLowerCase().includes('sevkiyat iptali')) && (
+                            (transaction.description || '').toLowerCase().includes('sevkiyat iptali') ||
+                            (transaction.reference_type === 'shipment_item' && transaction.shipment_status === 'cancelled')) && (
                             <span className="px-2 py-0.5 rounded bg-red-900/30 text-red-400 text-[10px] font-semibold">
                               İPTAL
                             </span>
@@ -653,60 +696,98 @@ export default function AccountDetailPage() {
                         )}
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                        {(transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) || (transaction.description && transaction.description.includes('İskonto:')) ? (
-                          <div className="text-yellow-400">
-                            {(() => {
-                              if (transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) {
-                                return (
-                                  <>
-                                    <div className="text-[10px]">%{transaction.shipment_discount_rate.toFixed(2)}</div>
-                                    <div className="text-[10px]">-{transaction.shipment_discount_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
-                                  </>
-                                )
+                        {(() => {
+                          let discountRate = 0
+                          let discountAmount = 0
+                          let bomTotal = 0
+                          
+                          // Önce shipment_discount_rate ve shipment_discount_amount kontrol et
+                          if (transaction.shipment_discount_rate && transaction.shipment_discount_rate > 0 && transaction.shipment_discount_amount && transaction.shipment_discount_amount > 0) {
+                            discountRate = transaction.shipment_discount_rate
+                            discountAmount = transaction.shipment_discount_amount
+                            bomTotal = transaction.unit_price && transaction.quantity ? transaction.unit_price * transaction.quantity : 0
+                          } else if (transaction.description) {
+                            // Description'dan parse et
+                            const discountMatch = transaction.description.match(/İskonto:\s*%([\d.]+)\s*\(([\d.]+)\s*₺\)/i)
+                            if (discountMatch) {
+                              discountRate = parseFloat(discountMatch[1])
+                              discountAmount = parseFloat(discountMatch[2])
+                              bomTotal = transaction.unit_price && transaction.quantity ? transaction.unit_price * transaction.quantity : 0
+                            } else if (transaction.unit_price && transaction.total_price && transaction.quantity) {
+                              // Eğer unit_price ve total_price farklıysa, iskonto hesapla
+                              bomTotal = transaction.unit_price * transaction.quantity
+                              const actualTotal = transaction.total_price
+                              if (bomTotal > actualTotal && bomTotal > 0) {
+                                discountAmount = bomTotal - actualTotal
+                                discountRate = (discountAmount / bomTotal) * 100
                               }
-                              const discountMatch = transaction.description?.match(/İskonto: %([\d.]+) \(([\d.]+) ₺\)/)
-                              if (discountMatch) {
-                                return (
-                                  <>
-                                    <div className="text-[10px]">%{discountMatch[1]}</div>
-                                    <div className="text-[10px]">-{parseFloat(discountMatch[2]).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
-                                  </>
-                                )
-                              }
-                              return null
-                            })()}
-                          </div>
-                        ) : (
-                          <span className="text-gray-500">-</span>
-                        )}
+                            }
+                          }
+                          
+                          if (discountRate > 0 && discountAmount > 0) {
+                            return (
+                              <div className="text-yellow-400">
+                                <div className="text-[10px]">%{discountRate.toFixed(2)}</div>
+                                <div className="text-[10px]">-{discountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</div>
+                              </div>
+                            )
+                          }
+                          
+                          return <span className="text-gray-500">-</span>
+                        })()}
                       </td>
                       <td className={`py-2 px-3 text-xs font-semibold text-right ${
-                        transaction.transaction_type === 'debit' ? 'text-red-400' : 'text-green-400'
+                        transaction.reference_type === 'shipment_item' && transaction.shipment_status === 'cancelled'
+                          ? 'text-gray-500'
+                          : transaction.transaction_type === 'debit' ? 'text-red-400' : 'text-green-400'
                       }`}>
-                        {transaction.transaction_type === 'debit' ? '+' : '-'}
-                        {transaction.amount.toLocaleString('tr-TR', { 
-                          minimumFractionDigits: 2, 
-                          maximumFractionDigits: 2 
-                        })} ₺
+                        {transaction.reference_type === 'shipment_item' && transaction.shipment_status === 'cancelled' ? (
+                          <span className="text-gray-500">İptal</span>
+                        ) : (
+                          <>
+                            {transaction.transaction_type === 'debit' ? '+' : '-'}
+                            {transaction.amount.toLocaleString('tr-TR', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })} ₺
+                          </>
+                        )}
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                        <span className={`px-2 py-1 rounded ${
-                          transaction.transaction_type === 'debit' 
-                            ? 'bg-red-900/30 text-red-400' 
-                            : 'bg-green-900/30 text-green-400'
-                        }`}>
-                          {transaction.transaction_type === 'debit' ? 'Borç' : 'Alacak'}
-                        </span>
+                        {transaction.reference_type === 'shipment_item' && transaction.shipment_status === 'cancelled' ? (
+                          <span className="px-2 py-1 rounded bg-gray-700 text-gray-400">İptal</span>
+                        ) : (
+                          <span className={`px-2 py-1 rounded ${
+                            transaction.transaction_type === 'debit' 
+                              ? 'bg-red-900/30 text-red-400' 
+                              : 'bg-green-900/30 text-green-400'
+                          }`}>
+                            {transaction.transaction_type === 'debit' ? 'Borç' : 'Alacak'}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                        {transaction.running_balance !== undefined ? (
-                          transaction.running_balance.toLocaleString('tr-TR', { 
-                            minimumFractionDigits: 2, 
-                            maximumFractionDigits: 2 
-                          })
+                      <td className={`py-2 px-3 text-xs text-right ${
+                        transaction.running_balance !== undefined
+                          ? transaction.running_balance > 0
+                            ? 'text-red-400'
+                            : transaction.running_balance < 0
+                              ? 'text-green-400'
+                              : 'text-gray-400'
+                          : 'text-gray-300'
+                      }`}>
+                        {transaction.reference_type === 'shipment_item' && transaction.shipment_status === 'cancelled' ? (
+                          <span className="text-gray-500">İptal</span>
+                        ) : transaction.running_balance !== undefined ? (
+                          <>
+                            {transaction.running_balance.toLocaleString('tr-TR', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}{' '}
+                            ₺
+                          </>
                         ) : (
                           '-'
-                        )} ₺
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -767,25 +848,18 @@ export default function AccountDetailPage() {
                           </button>
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300">
-                          {new Date(shipment.shipment_date).toLocaleDateString('tr-TR')}
+                          {formatDate(shipment.shipment_date)}
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300 text-right">
                           {shipment.total_quantity}
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300 text-right">
-                          {/* Ara Toplam = BOM fiyatı (iskonto öncesi) = total_amount + discount_amount (eğer iskonto varsa) */}
-                          {(() => {
-                            // Eğer iskonto varsa, total_amount iskonto sonrası olabilir, bu yüzden iskonto tutarını ekliyoruz
-                            const araToplam = shipment.total_amount || 0
-                            const iskontoTutari = shipment.discount_amount || 0
-                            // Eğer iskonto varsa, Ara Toplam = total_amount + discount_amount (BOM fiyatı)
-                            // Eğer iskonto yoksa, Ara Toplam = total_amount (zaten BOM fiyatı)
-                            const bomFiyati = iskontoTutari > 0 ? araToplam + iskontoTutari : araToplam
-                            return bomFiyati.toLocaleString('tr-TR', { 
-                              minimumFractionDigits: 2, 
-                              maximumFractionDigits: 2 
-                            })
-                          })()} ₺
+                          {/* Ara Toplam = BOM fiyatı (iskonto öncesi) = total_amount */}
+                          {/* total_amount zaten BOM fiyatı olarak kaydediliyor */}
+                          {(shipment.total_amount || 0).toLocaleString('tr-TR', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })} ₺
                         </td>
                         <td className="py-2 px-3 text-xs text-gray-300 text-right">
                           {shipment.discount_rate && shipment.discount_rate > 0 && shipment.discount_amount && shipment.discount_amount > 0 ? (
@@ -823,19 +897,11 @@ export default function AccountDetailPage() {
                           }) || '0,00'} ₺
                         </td>
                         <td className="py-2 px-3 text-xs font-semibold text-white text-right">
-                          {/* Genel Toplam = Ara Toplam - İskonto + KDV */}
-                          {(() => {
-                            // Ara Toplam = BOM fiyatı (iskonto öncesi)
-                            const araToplam = shipment.total_amount || 0
-                            const iskontoTutari = shipment.discount_amount || 0
-                            const bomFiyati = iskontoTutari > 0 ? araToplam + iskontoTutari : araToplam
-                            const kdvTutari = shipment.tax_amount || 0
-                            const genelToplam = bomFiyati - iskontoTutari + kdvTutari
-                            return genelToplam.toLocaleString('tr-TR', { 
-                              minimumFractionDigits: 2, 
-                              maximumFractionDigits: 2 
-                            })
-                          })()} ₺
+                          {/* Genel Toplam = final_amount (zaten doğru hesaplanmış: Ara Toplam - İskonto + KDV) */}
+                          {(shipment.final_amount || 0).toLocaleString('tr-TR', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })} ₺
                         </td>
                         <td className="py-2 px-3 text-xs text-center">
                           <span className={`px-2 py-1 rounded text-[10px] font-semibold ${

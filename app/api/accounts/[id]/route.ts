@@ -119,7 +119,7 @@ export const PUT = withAuth(async (
 // DELETE: Cari hesap sil
 export const DELETE = withAuth(async (
   request: NextRequest,
-  _user,
+  user,
   context?: unknown
 ) => {
   try {
@@ -137,11 +137,13 @@ export const DELETE = withAuth(async (
       return fail('Cari hesap bulunamadı', { status: 404 })
     }
 
-    // Cari hesabın kullanılıp kullanılmadığını kontrol et (materials, orders, vb.)
-    const usage = accountsRepo.getUsageCounts(accountId, existingAccount.name)
-    
-    if (usage.usedInMaterials > 0 || usage.usedInOrders > 0) {
-      return fail('Bu cari hesap kullanılıyor, silinemez', { status: 400 })
+    const isAdmin = ['admin', 'yönetici', 'yonetici'].includes((user.role || '').toString().trim().toLowerCase())
+    if (!isAdmin) {
+      // Admin değilse: cari hesabın kullanılıp kullanılmadığını kontrol et
+      const usage = accountsRepo.getUsageCounts(accountId, existingAccount.name)
+      if (usage.usedInMaterials > 0 || usage.usedInOrders > 0) {
+        return fail('Bu cari hesap kullanılıyor, silinemez', { status: 400 })
+      }
     }
 
     // Sil

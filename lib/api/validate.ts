@@ -11,7 +11,7 @@ export class ApiValidationError extends Error {
   }
 }
 
-export async function parseJsonBody<T>(
+export async function parseJsonBody<T = Record<string, any>>(
   request: NextRequest,
   schema: z.ZodType<T> = defaultBodySchema as z.ZodType<T>
 ): Promise<T> {

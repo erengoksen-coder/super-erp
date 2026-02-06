@@ -5,6 +5,7 @@ import { Download } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
+import { formatDate } from '@/lib/utils/dateFormat'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 type StockSummary = {
@@ -81,7 +82,7 @@ export default function ReportsPage() {
     doc.text('Stok Ozet Raporu', 14, 16)
 
     doc.setFontSize(10)
-    doc.text(`Tarih: ${new Date().toLocaleDateString('tr-TR')}`, 14, 24)
+    doc.text(`Tarih: ${formatDate(new Date())}`, 14, 24)
     doc.text(`Malzeme Toplam: ${data.summary.materials_total}`, 14, 32)
     doc.text(`Malzeme Kritik: ${data.summary.materials_critical}`, 14, 38)
     doc.text(`Urun Toplam: ${data.summary.products_total}`, 14, 46)

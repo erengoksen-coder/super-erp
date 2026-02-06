@@ -1,0 +1,21 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3000",
+  "loginUser": "admin",
+  "loginPassword": "admin1234",
+  "projectPath": "c:\\super-erp",
+  "projectName": "super-erp",
+  "testIds": [],
+  "additionalInstruction": "",
+  "executionArgs": {
+    "projectName": "super-erp",
+    "projectPath": "c:\\super-erp",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {}
+  },
+  "serverPort": 51719,
+  "proxy": "http://016ea8df-a9c0-4cc9-a687-86e534edffc7:KsNeGPu2LSllR7Wi1yc2OAKaEJThTmCm@tun.testsprite.com:8080"
+}

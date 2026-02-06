@@ -32,6 +32,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# ngrok token (paste your token in this file - do not commit)
+NGROK_TOKEN_YAPISTIR.txt
+
 # vercel
 .vercel
 

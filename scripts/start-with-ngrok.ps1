@@ -26,7 +26,8 @@ Write-Host "OK: Ngrok bulundu" -ForegroundColor Green
 Write-Host ""
 
 # Proje dizinine git
-$projectPath = "D:\super-erp"
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectPath = Split-Path -Parent $scriptPath
 if (-not (Test-Path $projectPath)) {
     Write-Host "HATA: Proje dizini bulunamadi: $projectPath" -ForegroundColor Red
     exit 1

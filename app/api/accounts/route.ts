@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/api/withAuth'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { accountsRepo } from '@/lib/repositories/accounts'
+import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 
 type AccountInput = {
@@ -106,5 +107,19 @@ export const POST = withAuth(async (request: NextRequest) => {
   }
 })
 
-
+// DELETE: Tüm carileri sil (all=1, sadece admin)
+export const DELETE = withAuth(async (request: NextRequest) => {
+  try {
+    const { searchParams } = new URL(request.url)
+    const all = searchParams.get('all')
+    if (all !== '1' && all !== 'true') {
+      return fail('Tümünü silmek için ?all=1 gerekli', { status: 400 })
+    }
+    const db = getDatabase()
+    const result = db.prepare('UPDATE accounts SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
+    return ok({ deleted_count: result.changes }, { message: `${result.changes} cari hesap silindi` })
+  } catch (error: any) {
+    return fail(error.message || 'Silinemedi', { status: 500 })
+  }
+}, ['admin'])
 

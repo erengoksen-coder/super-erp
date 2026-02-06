@@ -7,8 +7,12 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
-import { useApi } from '@/lib/api/client'
+import { useApi, getAuthHeaders } from '@/lib/api/client'
+import { formatDate } from '@/lib/utils/dateFormat'
 import { useAuthStore } from '@/lib/store/authStore'
+import { toast } from '@/lib/notify'
+import { PageLoader } from '@/components/ui/PageLoader'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface Account {
   id: string
@@ -134,7 +138,7 @@ export default function AccountsPage() {
         throw new Error(errorMessage)
       }
       
-      alert('✅ Cari hesap başarıyla güncellendi')
+      toast.success('Cari hesap başarıyla güncellendi')
       setShowEditModal(false)
       setEditingAccount(null)
       await mutate()
@@ -150,7 +154,7 @@ export default function AccountsPage() {
       } else if (errorMessage.includes('NOT NULL')) {
         errorMessage = 'Zorunlu alanlar eksik.'
       }
-      alert('Hata: ' + errorMessage)
+      toast.error(errorMessage)
     }
   }
 
@@ -192,7 +196,7 @@ export default function AccountsPage() {
         { revalidate: false }
       )
       
-      alert('✅ Cari hesap başarıyla silindi')
+      toast.success('Cari hesap başarıyla silindi')
       
       // Veritabanından tekrar yükle (senkronizasyon için)
       await mutate()
@@ -208,7 +212,7 @@ export default function AccountsPage() {
       } else if (errorMessage.includes('FOREIGN KEY')) {
         errorMessage = 'İlişkili kayıt bulunamadı.'
       }
-      alert('Hata: ' + errorMessage)
+      toast.error(errorMessage)
       // Hata durumunda tekrar yükle
       await mutate()
     }
@@ -224,6 +228,25 @@ export default function AccountsPage() {
           </div>
           <p className="text-gray-400 mt-1">Müşteri ve tedarikçi yönetimi</p>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={async () => {
+            if (!confirm('Tüm cari hesapları silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+            try {
+              const res = await fetch('/api/accounts?all=1', { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' })
+              if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
+              const data = await res.json()
+              mutate()
+              toast.success(data?.message || 'Cariler silindi.')
+            } catch (e: any) {
+              toast.error(e.message || 'Cariler silinemedi')
+            }
+          }}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition inline-flex items-center space-x-2"
+        >
+          <Trash2 size={20} />
+          <span>Tüm Carileri Sil</span>
+        </button>
         <Link
           href="/accounts/new"
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
@@ -231,6 +254,7 @@ export default function AccountsPage() {
           <Plus size={20} />
           <span>Yeni Cari Hesap</span>
         </Link>
+      </div>
       </div>
 
       {/* Filtreler */}
@@ -267,9 +291,20 @@ export default function AccountsPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
+        <PageLoader fullScreen label="Cariler yükleniyor..." />
+      ) : filteredAccounts.length === 0 ? (
+        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <EmptyState
+            title={searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz cari hesap yok'}
+            description={searchTerm ? 'Farklı bir arama deneyin' : 'Yeni cari hesap ekleyerek başlayın'}
+            icon={Building2}
+            action={!searchTerm ? (
+              <Link href="/accounts/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center">
+                <Plus size={18} className="mr-2" />
+                Yeni Cari Hesap
+              </Link>
+            ) : undefined}
+          />
         </div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
@@ -289,13 +324,7 @@ export default function AccountsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAccounts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center text-gray-400 text-xs py-8">
-                    {searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz cari hesap eklenmemiş'}
-                  </TableCell>
-                </TableRow>
-              ) : (
+              {
                 filteredAccounts.map((account) => (
                   <TableRow 
                     key={account.id}
@@ -332,8 +361,8 @@ export default function AccountsPage() {
                       {account.phone || '-'}
                     </TableCell>
                     <TableCell className={`text-xs font-semibold ${
-                      account.balance > 0 ? 'text-green-400' : 
-                      account.balance < 0 ? 'text-red-400' : 
+                      account.balance > 0 ? 'text-red-400' : 
+                      account.balance < 0 ? 'text-green-400' : 
                       'text-gray-400'
                     }`}>
                       {account.balance.toLocaleString('tr-TR', { 
@@ -348,7 +377,7 @@ export default function AccountsPage() {
                       {account.updated_by_name || account.updated_by_username || '-'}
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
-                      {new Date(account.created_at).toLocaleDateString('tr-TR')}
+                      {formatDate(account.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
@@ -361,16 +390,17 @@ export default function AccountsPage() {
                         </button>
                         <button
                           onClick={() => handleDelete(account)}
-                          className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition"
-                          title="Sil"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition text-xs"
+                          title="Cari hesabı sil"
                         >
                           <Trash2 className="w-4 h-4" />
+                          Sil
                         </button>
                       </div>
                     </TableCell>
                   </TableRow>
                 ))
-              )}
+              }
             </TableBody>
           </Table>
         </div>

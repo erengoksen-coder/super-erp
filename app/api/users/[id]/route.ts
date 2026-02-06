@@ -78,7 +78,7 @@ export const GET = withAuth(async (
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 
 // PATCH: Kullanıcı güncelle (onaylama, izin güncelleme)
 export const PATCH = withAuth(async (
@@ -233,7 +233,7 @@ export const PATCH = withAuth(async (
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 
 // DELETE: Kullanıcı sil
 export const DELETE = withAuth(async (
@@ -283,4 +283,4 @@ export const DELETE = withAuth(async (
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])

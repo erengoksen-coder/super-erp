@@ -3,6 +3,7 @@ import { Card, CardBody } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
+import { formatDate } from '@/lib/utils/dateFormat'
 import { MoreHorizontal, Clock, User, Calendar, Package, Plus } from 'lucide-react'
 
 export interface ProductionOrder {
@@ -13,6 +14,8 @@ export interface ProductionOrder {
   quantity: number
   priority?: 'low' | 'medium' | 'high' | 'urgent'
   current_station?: string
+  /** Usta Terminali ile entegre: bu siparişin kartlarının bulunduğu istasyonlar (aynı sipariş birden fazla sütunda görünebilir) */
+  stations?: string[]
   started_at?: string
   estimated_completion?: string
   assigned_to?: string
@@ -137,7 +140,7 @@ export const KanbanColumn = ({
                     <div className="flex items-center space-x-2">
                       <Clock className="w-3 h-3 text-gray-500" />
                       <span className="text-xs text-gray-600">
-                        {new Date(order.estimated_completion).toLocaleDateString('tr-TR')}
+                        {formatDate(order.estimated_completion)}
                       </span>
                     </div>
                   )}
@@ -146,7 +149,7 @@ export const KanbanColumn = ({
                     <div className="flex items-center space-x-2">
                       <Calendar className="w-3 h-3 text-gray-500" />
                       <span className="text-xs text-gray-600">
-                        Başlangıç: {new Date(order.started_at).toLocaleDateString('tr-TR')}
+                        Başlangıç: {formatDate(order.started_at)}
                       </span>
                     </div>
                   )}
@@ -200,10 +203,10 @@ export const KanbanBoard = ({ orders, onOrderClick, className }: KanbanBoardProp
     { id: 'sevkiyat', title: 'Sevkiyat', status: 'sevkiyat' }
   ]
 
+  // Usta Terminali / Genel Durum ile aynı veri: Sipariş, kartı bulunan her istasyon sütununda görünsün
   const getOrdersByStation = (station: string) => {
-    return orders.filter(order => 
-      order.current_station === station || 
-      order.status === station
+    return orders.filter(order =>
+      (order.stations && order.stations.includes(station)) || order.current_station === station
     )
   }
 

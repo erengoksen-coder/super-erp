@@ -43,6 +43,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         u.approved_at,
         u.created_at,
         u.last_login,
+        u.last_activity,
         a.full_name as approved_by_name
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
@@ -51,7 +52,9 @@ export const GET = withAuth(async (request: NextRequest) => {
       ORDER BY u.created_at DESC
     `).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
-    // Her kullanıcı için izinleri getir
+    const ONLINE_THRESHOLD_MS = 15 * 60 * 1000 // 15 dakika
+
+    // Her kullanıcı için izinleri ve çevrimiçi bilgisini ekle
     const usersWithPermissions = users.map((user: any) => {
       const permissions = db.prepare(`
         SELECT page_path, can_view, can_create, can_edit, can_delete
@@ -59,9 +62,14 @@ export const GET = withAuth(async (request: NextRequest) => {
         WHERE user_id = ? AND company_id = ? AND branch_id = ?
       `).all(user.id, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
+      const activityAt = user.last_activity || user.last_login
+      const activityMs = activityAt ? new Date(activityAt).getTime() : 0
+      const is_online = activityMs > 0 && Date.now() - activityMs < ONLINE_THRESHOLD_MS
+
       return {
         ...user,
         permissions,
+        is_online,
       }
     })
 
@@ -69,7 +77,7 @@ export const GET = withAuth(async (request: NextRequest) => {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 
 // POST: Yeni kullanıcı oluştur (admin)
 export const POST = withAuth(async (request: NextRequest) => {
@@ -189,5 +197,5 @@ export const POST = withAuth(async (request: NextRequest) => {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 

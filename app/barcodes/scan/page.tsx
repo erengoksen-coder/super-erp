@@ -148,15 +148,17 @@ export default function ScanBarcodePage() {
       case 'in_production':
         return 'Üretimde'
       case 'in_stock':
-        return 'Depoda'
+        return 'Mamül Depoda'
       case 'available':
-        return 'Depoda'
+        return 'Mamül Depoda'
       case 'reserved':
         return 'Rezerve'
       case 'sold':
         return 'Satıldı'
       case 'shipped':
         return 'Sevk Edildi'
+      case 'pending':
+        return 'Beklemede'
       default:
         return status || '-'
     }
@@ -177,7 +179,7 @@ export default function ScanBarcodePage() {
       const station = data.current_station ? (stationMap[data.current_station] || data.current_station) : 'Üretim'
       return `${station} aşamasında`
     }
-    if (data.status === 'in_stock' || data.status === 'available') return 'Hammadde depoda'
+    if (data.status === 'in_stock' || data.status === 'available') return 'Mamül depoda'
     return formatStage(data)
   }
 

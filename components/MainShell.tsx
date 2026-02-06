@@ -3,6 +3,10 @@
 import { useLayoutEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/cn'
+import PendingUsersBanner from '@/components/PendingUsersBanner'
+import NotificationToaster from '@/components/NotificationToaster'
+import MessengerBox from '@/components/MessengerBox'
+import { useSidebar } from '@/components/SidebarContext'
 
 type MainShellProps = {
   children: React.ReactNode
@@ -11,19 +15,16 @@ type MainShellProps = {
 export default function MainShell({ children }: MainShellProps) {
   const pathname = usePathname()
   const mainRef = useRef<HTMLElement | null>(null)
+  const { collapsed } = useSidebar()
 
   useLayoutEffect(() => {
-    // Scroll to top on route change
     if (mainRef.current) {
       mainRef.current.scrollTop = 0
       mainRef.current.scrollLeft = 0
     }
   }, [pathname])
 
-  // Login/Register sayfalarında margin olmamalı
   const isAuthPage = pathname === '/auth/login' || pathname === '/auth/register'
-  
-  // Production rotalarında full-width, diğerlerinde container
   const isProductionRoute = pathname.startsWith('/production')
 
   return (
@@ -34,11 +35,11 @@ export default function MainShell({ children }: MainShellProps) {
         backgroundColor: '#0f172a',
         color: '#f1f5f9',
         overflowY: 'auto',
-        overflowX: 'hidden'
+        overflowX: 'hidden',
       }}
       className={cn(
-        "fixed inset-0 overscroll-contain box-border",
-        !isAuthPage && "lg:left-64"
+        'fixed inset-0 overscroll-contain box-border transition-[left] duration-300',
+        !isAuthPage && (collapsed ? 'lg:left-[72px]' : 'lg:left-64')
       )}
     >
       <div className={cn(
@@ -47,6 +48,13 @@ export default function MainShell({ children }: MainShellProps) {
         // Other pages: container with responsive padding
         !isProductionRoute && "p-3 sm:p-4 md:p-6 lg:p-8"
       )}>
+        {!isAuthPage && (
+          <>
+            <PendingUsersBanner />
+            <NotificationToaster />
+            <MessengerBox />
+          </>
+        )}
         {children}
       </div>
     </main>

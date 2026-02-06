@@ -175,16 +175,27 @@ export default function BOMPage() {
 
   async function handleCreateVersion() {
     if (!pendingVersionProduct) return
-    const newId = await createNewVersion(pendingVersionProduct, pendingCopyFrom || undefined, {
+    const productId = pendingVersionProduct // Değişkeni kaydet
+    const newId = await createNewVersion(productId, pendingCopyFrom || undefined, {
       reason: versionReason,
       effectiveDate: versionDate,
     })
     if (newId) {
       setSelectedVersionId(newId)
+      // Modal'ı kapat
+      setShowVersionModal(false)
+      const savedProductId = productId // Ürün ID'sini kaydet
+      setPendingVersionProduct(null)
+      setPendingCopyFrom(null)
+      // BOM verilerini yeniden yükle
+      await loadData()
+      // Düzenleme modunu aç
+      startEditProduct(savedProductId)
+    } else {
+      setShowVersionModal(false)
+      setPendingVersionProduct(null)
+      setPendingCopyFrom(null)
     }
-    setShowVersionModal(false)
-    setPendingVersionProduct(null)
-    setPendingCopyFrom(null)
   }
 
   function addMaterialRow() {
@@ -563,6 +574,14 @@ export default function BOMPage() {
             <LogoWithBackground size="sm" />
           </div>
           <p className="text-sm text-gray-400">Her ürün için gerekli malzemeleri tanımlayın</p>
+          <p className="text-sm text-green-400 mt-1 font-medium">
+            BOM&apos;da kayıtlı ürün: <strong>{bomGroups.length}</strong> adet
+            {bomGroups.length > 0 && (
+              <span className="text-gray-400 font-normal ml-2">
+                ({bomGroups.map(g => g.product_sku).join(', ')})
+              </span>
+            )}
+          </p>
         </div>
         <button
           onClick={() => {

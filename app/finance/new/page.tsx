@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Plus, Trash2 } from 'lucide-react'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
+import { getReferenceLink } from '@/lib/utils/journal-reference'
 
 type ChartAccount = {
   id: string
@@ -39,6 +41,11 @@ export default function NewFinancePage() {
     return { debit, credit }
   }, [lines])
 
+  const referenceLink = useMemo(
+    () => (form.reference_id?.trim() ? getReferenceLink(form.reference_type, form.reference_id) : null),
+    [form.reference_type, form.reference_id]
+  )
+
   function updateLine(index: number, patch: Partial<JournalLine>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)))
   }
@@ -54,11 +61,11 @@ export default function NewFinancePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.description.trim()) {
-      alert('Açıklama zorunludur')
+      toast.warning('Açıklama zorunludur')
       return
     }
     if (lines.length < 2) {
-      alert('En az 2 satır olmalıdır')
+      toast.warning('En az 2 satır olmalıdır')
       return
     }
     const normalizedLines = lines.map((line) => ({
@@ -68,11 +75,11 @@ export default function NewFinancePage() {
       description: line.description || form.description
     }))
     if (normalizedLines.some((line) => !line.account_code)) {
-      alert('Tüm satırlarda hesap seçilmelidir')
+      toast.warning('Tüm satırlarda hesap seçilmelidir')
       return
     }
     if (Math.abs(totals.debit - totals.credit) > 0.01) {
-      alert('Borç ve alacak toplamları eşit olmalıdır')
+      toast.warning('Borç ve alacak toplamları eşit olmalıdır')
       return
     }
     setSaving(true)
@@ -88,7 +95,7 @@ export default function NewFinancePage() {
           lines: normalizedLines
         })
       })
-      alert('✅ Yevmiye kaydı oluşturuldu')
+      toast.success('Yevmiye kaydı oluşturuldu')
       setForm({
         entry_date: new Date().toISOString().split('T')[0],
         description: '',
@@ -100,7 +107,7 @@ export default function NewFinancePage() {
         { account_code: '', debit: '', credit: '', description: '' }
       ])
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error(error.message || 'Kayıt başarısız')
     } finally {
       setSaving(false)
     }
@@ -152,6 +159,19 @@ export default function NewFinancePage() {
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
               placeholder="Opsiyonel"
             />
+            {referenceLink && (
+              <p className="mt-1 text-sm text-gray-400">
+                İlgili kayıt:{' '}
+                <Link
+                  href={referenceLink.href}
+                  className="text-blue-400 hover:text-blue-300"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {referenceLink.label} →
+                </Link>
+              </p>
+            )}
           </div>
           <div className="md:col-span-3">
             <label className="block text-sm font-medium text-gray-300 mb-2">Açıklama</label>
@@ -239,17 +259,24 @@ export default function NewFinancePage() {
               </div>
             ))}
           </div>
-          <div className="border-t border-gray-800 px-4 py-3 flex justify-end space-x-6 text-sm">
-            <div className="text-red-400">Toplam Borç: {totals.debit.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
-            <div className="text-green-400">Toplam Alacak: {totals.credit.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
+          <div className="border-t border-gray-800 px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-red-400">Toplam Borç: {totals.debit.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</span>
+              <span className="text-green-400">Toplam Alacak: {totals.credit.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</span>
+              {Math.abs(totals.debit - totals.credit) <= 0.01 ? (
+                <span className="text-green-400 font-medium">✓ Borç = Alacak</span>
+              ) : (
+                <span className="text-amber-400 font-medium">Borç ve alacak eşit olmalıdır</span>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={saving}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+            disabled={saving || Math.abs(totals.debit - totals.credit) > 0.01}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Kaydediliyor...' : 'Fişi Kaydet'}
           </button>

@@ -1,9 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield, Circle } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
+import { isAdminRole } from '@/lib/auth/permissions-check'
+import { toast } from '@/lib/notify'
+import { PageLoader } from '@/components/ui/PageLoader'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { formatDateTime } from '@/lib/utils/dateFormat'
 
 interface User {
   id: string
@@ -18,6 +24,7 @@ interface User {
   approved_at?: string
   created_at: string
   last_login?: string
+  is_online?: boolean
   permissions?: Array<{
     page_path: string
     can_view: number
@@ -47,12 +54,23 @@ const AVAILABLE_PAGES: PageOption[] = [
   { path: '/production/work-centers', name: 'İş Merkezleri', category: 'Üretim' },
   { path: '/production/order-operations', name: 'Üretim Operasyonları', category: 'Üretim' },
   { path: '/production/mrp', name: 'MRP', category: 'Üretim' },
+  { path: '/production/new', name: 'Yeni Üretim', category: 'Üretim' },
+  { path: '/inventory/products/print-barcode-label', name: 'Etiket / Barkod', category: 'Stok' },
   { path: '/api-catalog', name: 'API Katalogu', category: 'Sistem' },
   { path: '/orders', name: 'Siparişler', category: 'Satış' },
+  { path: '/sales-orders', name: 'Satış Siparişleri', category: 'Satış' },
+  { path: '/shipments', name: 'Sevkiyat', category: 'Sevkiyat' },
+  { path: '/invoices', name: 'Faturalar', category: 'Satış' },
+  { path: '/invoices/new', name: 'Yeni Fatura', category: 'Satış' },
   { path: '/reports', name: 'Raporlar', category: 'Rapor' },
   { path: '/reports/costs', name: 'Üretim Maliyet Raporu', category: 'Rapor' },
   { path: '/reports/fire', name: 'Fire Analizi', category: 'Rapor' },
   { path: '/finance', name: 'Finans', category: 'Finans' },
+  { path: '/finance/journal-entries', name: 'Yevmiye Fişleri', category: 'Finans' },
+  { path: '/finance/new', name: 'Yeni Fiş', category: 'Finans' },
+  { path: '/finance/chart-of-accounts', name: 'Hesap Planı', category: 'Finans' },
+  { path: '/finance/general-ledger', name: 'Büyük Defter', category: 'Finans' },
+  { path: '/finance/fire-analysis', name: 'Fire / Maliyet', category: 'Finans' },
   { path: '/accounting', name: 'Muhasebe', category: 'Finans' },
   { path: '/notifications', name: 'Bildirimler', category: 'Sistem' },
   { path: '/accounts', name: 'Cari Hesaplar', category: 'Finans' },
@@ -60,12 +78,13 @@ const AVAILABLE_PAGES: PageOption[] = [
   { path: '/barcodes', name: 'Barkod Yönetimi', category: 'Stok' },
   { path: '/purchase/critical-stock', name: 'Kritik Stok', category: 'Stok' },
   { path: '/purchase-requests', name: 'Satın Alma Talepleri', category: 'Satın Alma' },
+  { path: '/purchase-orders', name: 'Satın Alma Siparişleri', category: 'Satın Alma' },
   { path: '/procurement', name: 'Tedarik', category: 'Satın Alma' },
   { path: '/mobile/material-stock', name: 'Depo Hızlı İşlem', category: 'Mobil' },
   { path: '/mobile/workstation', name: 'Usta Terminali', category: 'Mobil' },
-  { path: '/shipments', name: 'Sevkiyat', category: 'Sevkiyat' },
   { path: '/bom', name: 'Ürün Reçetesi', category: 'Üretim' },
   { path: '/units/conversions', name: 'Birim Çevrimleri', category: 'Stok' },
+  { path: '/settings', name: 'Ayarlar', category: 'Sistem' },
   { path: '/users', name: 'Kullanıcı Yönetimi', category: 'Sistem' },
   { path: '/hr', name: 'İnsan Kaynakları', category: 'İK' },
   { path: '/crm', name: 'CRM', category: 'Satış' },
@@ -94,10 +113,23 @@ export default function UsersPage() {
     can_delete: boolean
   }>>({})
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
+  const user = useAuthStore((state) => state.user)
+  const router = useRouter()
+
+  // Sadece admin/yönetici kullanıcılar sayfayı görebilir
+  useEffect(() => {
+    if (user === undefined) return
+    if (user === null) return
+    if (!isAdminRole(user.role)) {
+      router.replace('/')
+      return
+    }
+  }, [user, router])
 
   useEffect(() => {
+    if (!user || !isAdminRole(user.role)) return
     loadUsers()
-  }, [])
+  }, [user])
 
   // Rol değiştiğinde yönetici ise tüm izinleri otomatik aktif et
   useEffect(() => {
@@ -127,10 +159,11 @@ export default function UsersPage() {
       const response = await fetch('/api/users')
       if (!response.ok) throw new Error('Kullanıcılar yüklenemedi')
       const data = await response.json()
-      setUsers(data)
+      const list = Array.isArray(data) ? data : (data?.users ?? data?.data ?? [])
+      setUsers(Array.isArray(list) ? list : [])
     } catch (error) {
       console.error('Error loading users:', error)
-      alert('Kullanıcılar yüklenirken hata oluştu')
+      toast.error('Kullanıcılar yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }
@@ -187,19 +220,22 @@ export default function UsersPage() {
     try {
       const userId = editingUserId
       if (userId) {
-        // Güncelleme
+        // Güncelleme (şifre sadece doldurulduysa gönderilir)
+        const { password, ...restForm } = formData
+        const payload: Record<string, unknown> = {
+          ...restForm,
+          is_approved: formData.is_approved,
+          approved_by: formData.is_approved && !users.find(u => u.id === userId)?.is_approved ? currentUserId : undefined,
+          permissions: Object.entries(selectedPermissions).map(([path, perms]) => ({
+            page_path: path,
+            ...perms,
+          })),
+        }
+        if (password && password.trim()) payload.password = password.trim()
         const response = await fetch(`/api/users/${userId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...formData,
-            is_approved: formData.is_approved,
-            approved_by: formData.is_approved && !users.find(u => u.id === userId)?.is_approved ? currentUserId : undefined,
-            permissions: Object.entries(selectedPermissions).map(([path, perms]) => ({
-              page_path: path,
-              ...perms,
-            })),
-          }),
+          body: JSON.stringify(payload),
         })
 
         if (!response.ok) {
@@ -207,7 +243,7 @@ export default function UsersPage() {
           throw new Error(error.error || 'Kullanıcı güncellenemedi')
         }
 
-        alert('✅ Kullanıcı başarıyla güncellendi!')
+        toast.success('Kullanıcı başarıyla güncellendi')
       } else {
         // Yeni kullanıcı
         const response = await fetch('/api/users', {
@@ -227,14 +263,14 @@ export default function UsersPage() {
           throw new Error(error.error || 'Kullanıcı oluşturulamadı')
         }
 
-        alert('✅ Kullanıcı başarıyla oluşturuldu!')
+        toast.success('Kullanıcı başarıyla oluşturuldu')
       }
 
       cancelEdit()
       setShowAddForm(false)
       loadUsers()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error(error.message || 'İşlem başarısız')
     }
   }
 
@@ -258,10 +294,10 @@ export default function UsersPage() {
         throw new Error(error.error || 'Kullanıcı silinemedi')
       }
 
-      alert('✅ Kullanıcı başarıyla silindi!')
+      toast.success('Kullanıcı başarıyla silindi')
       loadUsers()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error(error.message || 'Silme işlemi başarısız')
     }
   }
 
@@ -323,6 +359,8 @@ export default function UsersPage() {
     acc[page.category].push(page)
     return acc
   }, {} as Record<string, PageOption[]>)
+
+  if (user && !isAdminRole(user.role)) return null
 
   return (
     <div className="p-3 sm:p-4 md:p-6 lg:p-8">
@@ -408,6 +446,11 @@ export default function UsersPage() {
                 required={!editingUserId}
                 minLength={6}
               />
+              {editingUserId && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Şifreler güvenlik nedeniyle şifrelenmiş saklanır; görüntülenemez. Sadece yeni şifre belirleyebilirsiniz.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Rol *</label>
@@ -576,9 +619,23 @@ export default function UsersPage() {
 
       {/* Kullanıcı Listesi */}
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
+        <PageLoader fullScreen label="Kullanıcılar yükleniyor..." />
+      ) : users.length === 0 ? (
+        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <EmptyState
+            title="Henüz kullanıcı yok"
+            description="Yeni kullanıcı ekleyerek başlayın"
+            icon={Users}
+            action={
+              <button
+                onClick={() => { setShowAddForm(true); cancelEdit() }}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2 text-sm"
+              >
+                <UserPlus size={18} />
+                <span>Yeni Kullanıcı</span>
+              </button>
+            }
+          />
         </div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
@@ -592,19 +649,13 @@ export default function UsersPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Rol</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Pozisyon</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Durum</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Aktif</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Son Giriş</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">İşlemler</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {users.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">
-                      Henüz kullanıcı eklenmemiş
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => (
+                {users.map((user) => (
                     <tr key={user.id} className="hover:bg-gray-800">
                       <td className="px-4 py-3 text-sm text-white font-mono">{user.username}</td>
                       <td className="px-4 py-3 text-sm text-gray-300">{user.full_name || '-'}</td>
@@ -669,10 +720,18 @@ export default function UsersPage() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-sm">
+                        {user.is_online ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300" title="Online / Aktif">
+                            <Circle className="w-3 h-3 mr-1 fill-current" />
+                            Aktif
+                          </span>
+                        ) : (
+                          <span className="text-gray-500 text-xs">Çevrimdışı</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-400">
-                        {user.last_login
-                          ? new Date(user.last_login).toLocaleDateString('tr-TR')
-                          : '-'}
+                        {formatDateTime(user.last_login)}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex items-center space-x-2">
@@ -695,8 +754,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
+                  ))}
               </tbody>
             </table>
           </div>
