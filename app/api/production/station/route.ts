@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
+import { dispatchWebhook } from '@/lib/webhooks/dispatch'
 
 /**
  * İstasyon Geçiş API
@@ -186,6 +187,16 @@ export const POST = withAuth(async (request: NextRequest) => {
       JOIN active_products p ON po.product_id = p.id
       WHERE po.id = ?
     `).get(productionOrderId) as any
+
+    if (nextStation === 'completed' && updatedOrder) {
+      dispatchWebhook('production.completed', {
+        production_order_id: productionOrderId,
+        production_order_number: updatedOrder.order_number,
+        product_id: updatedOrder.product_id,
+        quantity: updatedOrder.quantity,
+        completed_at: now,
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       success: true,

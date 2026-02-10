@@ -1,20 +1,46 @@
 import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+import { apiLogger } from '@/lib/api/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
 import { materialsRepo } from '@/lib/repositories/materials'
-import { getDatabase } from '@/lib/database/db'
+import { getDatabase, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID, DEFAULT_WAREHOUSE_ID } from '@/lib/database/db'
 import { materialSchemas, validateRequest } from '@/lib/validation/schemas'
 
-// GET: Tüm hammaddeleri getir
+/** Sadece tabloda hiç malzeme yokken (ilk kurulum) varsayılan kumaş oluştur. Kullanıcı tümünü sildiyse yeniden oluşturma. */
+function ensureDefaultFabric(): void {
+  const db = getDatabase()
+  const anyMaterial = db.prepare('SELECT 1 FROM materials LIMIT 1').get()
+  if (anyMaterial) return
+  try {
+    const id = `mat-default-fabric-${Date.now()}`
+    const code = 'KUMAŞ-001'
+    const name = 'Kumaş Varsayılan'
+    db.prepare(`
+      INSERT INTO materials (id, code, name, category, unit, stock_amount, min_stock_level, purchase_price, company_id, branch_id, created_at, updated_at)
+      VALUES (?, ?, ?, 'Kumaş', 'metre', 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(id, code, name, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+    db.prepare(`
+      INSERT OR IGNORE INTO material_stocks (id, material_id, warehouse_id, quantity, created_at, updated_at)
+      VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(`mstock-${id}`, id, DEFAULT_WAREHOUSE_ID)
+  } catch (e: any) {
+    if (!e.message?.includes('UNIQUE')) console.error('Varsayılan kumaş oluşturulamadı:', e?.message)
+  }
+}
+
+// GET: Tüm hammaddeleri getir (kumaş listesi yoksa varsayılan kumaş otomatik oluşturulur)
 export const GET = withAuthAndPermission(async () => {
   try {
+    ensureDefaultFabric()
     const materials = materialsRepo.getAll()
     return ok(materials, { headers: CACHE_HEADERS_SHORT })
-  } catch (error: any) {
-    return fail(error.message, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Materials API GET failed'
+    apiLogger.error('Materials API GET failed', { message })
+    return fail(message, { status: 500 })
   }
 }, '/inventory/materials', 'view')
 
@@ -82,8 +108,10 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const responseData = { ...validation.data, id, code: materialCode }
     return ok(responseData, { status: 201 })
-  } catch (error: any) {
-    return fail(error.message, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Materials API POST failed'
+    apiLogger.error('Materials API POST failed', { message })
+    return fail(message, { status: 500 })
   }
 })
 
@@ -98,8 +126,10 @@ export const DELETE = withAuth(async (request: NextRequest) => {
     const db = getDatabase()
     const result = db.prepare('UPDATE materials SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
     return ok({ deleted_count: result.changes }, { message: `${result.changes} malzeme silindi` })
-  } catch (error: any) {
-    return fail(error.message || 'Silinemedi', { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Silinemedi'
+    apiLogger.error('Materials API DELETE failed', { message })
+    return fail(message, { status: 500 })
   }
 }, ['admin'])
 

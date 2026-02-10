@@ -39,7 +39,7 @@ export function useNotifications(
           table: 'notifications',
           filter: `user_id=eq.${userId}`,
         },
-        (payload) => {
+        (payload: { new: unknown }) => {
           const notification = payload.new
           options?.onNotify?.(notification)
           setNotifications((prev) => [notification, ...prev])

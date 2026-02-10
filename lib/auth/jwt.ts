@@ -16,9 +16,17 @@ export type AccessTokenPayload = JWTPayload & {
   }>
 }
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || (() => {
-  throw new Error('JWT_SECRET environment variable is required')
-})())
+let _secret: Uint8Array | null = null
+function getSecret(): Uint8Array {
+  if (!_secret) {
+    const raw = process.env.JWT_SECRET
+    if (!raw || raw.trim().length < 16) {
+      throw new Error('JWT_SECRET environment variable is required (min 16 characters). Add it to .env.local and restart the server.')
+    }
+    _secret = new TextEncoder().encode(raw)
+  }
+  return _secret
+}
 
 export async function createToken(payload: { userId: string; role: string } & Partial<AccessTokenPayload>) {
   return new SignJWT(payload)
@@ -26,12 +34,12 @@ export async function createToken(payload: { userId: string; role: string } & Pa
     .setSubject(payload.userId)
     .setIssuedAt()
     .setExpirationTime(ACCESS_TOKEN_TTL)
-    .sign(secret)
+    .sign(getSecret())
 }
 
 export async function verifyToken(token: string) {
   try {
-    const { payload } = await jwtVerify(token, secret)
+    const { payload } = await jwtVerify(token, getSecret())
     return payload as AccessTokenPayload
   } catch {
     return null

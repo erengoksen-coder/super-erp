@@ -25,12 +25,16 @@ type AccountTransactionRow = {
   running_balance?: number
 }
 
-// GET: Cari hesap işlemlerini getir
+// GET: Cari hesap işlemlerini getir (bayi sadece /api/bayi/account ile kendi işlemlerini görür)
 export const GET = withAuth(async (
   request: NextRequest,
-  _user,
+  user: { role?: string },
   context?: unknown
 ) => {
+  const role = (user?.role ?? '').toString().trim().toLowerCase()
+  if (role === 'bayi') {
+    return fail('Bayi kullanıcıları bu sayfaya erişemez. Cari Hesabım sayfasında sadece bilgi görüntüleyebilirsiniz.', { status: 403 })
+  }
   try {
     const db = getDatabase()
     const resolvedParams = await Promise.resolve(

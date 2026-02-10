@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  typescript: { ignoreBuildErrors: true },
+  typescript: { ignoreBuildErrors: false },
   reactStrictMode: false,
   // Turbopack için boş config (uyarıyı bastırmak için)
   turbopack: {},

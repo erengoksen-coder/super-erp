@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Factory } from 'lucide-react'
+import { Plus, Search, Factory, Trash2 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { fetchApi } from '@/lib/api/client'
 import { type ProductionOrder } from '@/components/production/KanbanBoard'
@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import ProductionRealtime from '@/app/_components/production-realtime'
+import { useAuthStore } from '@/lib/store/authStore'
+import { toast } from '@/lib/notify'
 
 
 
@@ -23,11 +25,17 @@ export default function ProductionPage() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([])
   const [inProgressOrdersCount, setInProgressOrdersCount] = useState(0)
   const [completedOrdersCount, setCompletedOrdersCount] = useState(0)
+  const [shippedOrdersCount, setShippedOrdersCount] = useState(0)
   const [convertingOrderId, setConvertingOrderId] = useState<string | null>(null)
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null)
+  const [removingOrderId, setRemovingOrderId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [clearing, setClearing] = useState(false)
+  const [clearingShipmentData, setClearingShipmentData] = useState(false)
+  const userRole = useAuthStore((s) => s.user?.role ?? null)
+  const isAdmin = userRole === 'admin' || userRole === 'manager'
 
   const loadOrders = useCallback(async () => {
     try {
@@ -60,15 +68,17 @@ export default function ProductionPage() {
     }
   }, [])
 
-  // Devam Eden / Tamamlanan sayıları liste ile aynı kaynaktan al (entegrasyon)
+  // Devam Eden / Tamamlanan / Sevk Edilen sayıları liste ile aynı kaynaktan al (entegrasyon)
   const loadOrdersCountsByStatus = useCallback(async () => {
     try {
-      const [inProgress, completed] = await Promise.all([
+      const [inProgress, completed, shipped] = await Promise.all([
         fetchApi('/api/orders?status=in_production').then((d) => (Array.isArray(d) ? d.length : 0)),
         fetchApi('/api/orders?status=completed').then((d) => (Array.isArray(d) ? d.length : 0)),
+        fetchApi('/api/orders?status=shipped').then((d) => (Array.isArray(d) ? d.length : 0)),
       ])
       setInProgressOrdersCount(inProgress)
       setCompletedOrdersCount(completed)
+      setShippedOrdersCount(shipped)
     } catch (error) {
       console.error('Error loading order counts by status:', error)
     }
@@ -93,9 +103,9 @@ export default function ProductionPage() {
     )
   }, [pendingOrders, searchTerm, normalize])
 
-  // Sekme sayıları tutarlı olsun: Tümü = Beklemede + Devam Eden + Tamamlanan
+  // Sekme sayıları tutarlı olsun: Tümü = Beklemede + Devam Eden + Tamamlanan + Sevk Edilen
   const pendingCount = orders.filter((o) => o.status === 'pending').length + pendingOrders.length
-  const totalCount = pendingCount + inProgressOrdersCount + completedOrdersCount
+  const totalCount = pendingCount + inProgressOrdersCount + completedOrdersCount + shippedOrdersCount
 
   const filteredPendingCards = useMemo(() => {
     let filtered = []
@@ -120,9 +130,12 @@ export default function ProductionPage() {
         url = '/api/orders?status=in_production'
       } else if (status === 'completed') {
         url = '/api/orders?status=completed'
+      } else if (status === 'shipped') {
+        url = '/api/orders?status=shipped'
       } else if (status === 'pending') {
         url = '/api/orders?status=pending'
       }
+      // status === 'all' → url stays '/api/orders' (tüm siparişler)
       const data = await fetchApi(url)
       const ordersList = Array.isArray(data) ? data : []
       // Arama terimine göre filtrele
@@ -149,7 +162,7 @@ export default function ProductionPage() {
   const [filteredOrdersByStatus, setFilteredOrdersByStatus] = useState<any[]>([])
 
   useEffect(() => {
-    if (statusFilter === 'in_progress' || statusFilter === 'completed') {
+    if (statusFilter === 'in_progress' || statusFilter === 'completed' || statusFilter === 'shipped' || statusFilter === 'all') {
       loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
     } else {
       setFilteredOrdersByStatus([])
@@ -190,6 +203,51 @@ export default function ProductionPage() {
     },
     [loadPendingOrders]
   )
+
+  const removeFromProduction = useCallback(
+    async (orderId: string) => {
+      if (!confirm('Bu siparişi üretimden çıkarıp tekrar bekleyen siparişlere almak istediğinize emin misiniz?')) return
+      setRemovingOrderId(orderId)
+      try {
+        await fetchApi('/api/orders/remove-from-production', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId }),
+        })
+        await loadOrders()
+        await loadPendingOrders()
+        await loadOrdersCountsByStatus()
+        loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
+      } catch (error) {
+        console.error('Üretimden çıkarılırken hata:', error)
+      } finally {
+        setRemovingOrderId(null)
+      }
+    },
+    [loadOrders, loadPendingOrders, loadOrdersCountsByStatus, loadOrdersByStatus, statusFilter]
+  )
+
+  const clearShipmentData = useCallback(async () => {
+    if (!confirm('Sevkiyata verilmiş tüm barkodlar sevkiyattan çıkarılacak; siparişler "Tamamlanan"da görünecek. Emin misiniz?')) return
+    setClearingShipmentData(true)
+    try {
+      const res = await fetchApi<{ message?: string; cleared_barcodes?: number }>('/api/admin/clear-shipment-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const msg = (res as any)?.message ?? (res as any)?.data?.message ?? 'Sevkiyat verileri temizlendi.'
+      toast.success(msg)
+      loadOrders()
+      loadPendingOrders()
+      loadOrdersCountsByStatus()
+      loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
+    } catch (e: any) {
+      toast.error('Hata: ' + (e instanceof Error ? e.message : 'İşlem başarısız'))
+    } finally {
+      setClearingShipmentData(false)
+    }
+  }, [loadOrders, loadPendingOrders, loadOrdersCountsByStatus, loadOrdersByStatus, statusFilter])
 
   useEffect(() => {
     loadOrders()
@@ -255,6 +313,37 @@ export default function ProductionPage() {
             <Plus className="w-4 h-4 mr-2" />
             Yeni Üretim Emri
           </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              color="error"
+              size="sm"
+              disabled={clearing}
+              onClick={async () => {
+                if (!confirm('Üretim emirleri, barkodlar ve sevkiyat verileri tamamen silinecek. Siparişler kalacak ama üretim emri bağlantıları temizlenecek. Bu işlem geri alınamaz. Emin misiniz?')) return
+                if (!confirm('Son kez: Tüm üretim emirleri, barkodlar ve sevkiyat verilerini silmek istediğinize emin misiniz?')) return
+                setClearing(true)
+                try {
+                  const res = await fetchApi<{ message?: string; total_deleted?: number }>('/api/admin/clear-production-shipment-barcode', {
+                    method: 'POST',
+                    body: JSON.stringify({ confirm: true }),
+                  })
+                  const msg = (res as any)?.message ?? (res as any)?.data?.message ?? 'Üretim emri verileri silindi.'
+                  toast.success(msg)
+                  loadOrders()
+                  loadPendingOrders()
+                  loadOrdersCountsByStatus()
+                } catch (e: unknown) {
+                  toast.error('Hata: ' + (e instanceof Error ? e.message : 'Silme işlemi başarısız'))
+                } finally {
+                  setClearing(false)
+                }
+              }}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {clearing ? 'Siliniyor...' : 'Üretim Emri Verilerini Sil'}
+            </Button>
+          )}
         </>
       }
     >
@@ -305,6 +394,14 @@ export default function ProductionPage() {
               >
                 Tamamlanan ({completedOrdersCount})
               </Button>
+              <Button
+                variant={statusFilter === 'shipped' ? 'solid' : 'outline'}
+                color="primary"
+                size="sm"
+                onClick={() => setStatusFilter('shipped')}
+              >
+                Sevk Edilen ({shippedOrdersCount})
+              </Button>
             </div>
           </div>
         </CardBody>
@@ -316,14 +413,148 @@ export default function ProductionPage() {
         <CardHeader title={
           statusFilter === 'in_progress' ? 'Devam Eden Siparişler' :
           statusFilter === 'completed' ? 'Tamamlanan Siparişler' :
+          statusFilter === 'shipped' ? 'Sevk Edilen Siparişler' :
+          statusFilter === 'all' ? 'Tüm Siparişler' :
           'Yeni Siparişler (Üretim Emirlerine Dönüştür)'
         } />
         <CardBody>
-          {statusFilter === 'in_progress' ? (
+          {statusFilter === 'all' ? (
+            filteredOrdersByStatus.length === 0 ? (
+              <div className="text-sm text-gray-500">Sipariş yok.</div>
+            ) : (
+              <div className="space-y-4">
+                {filteredOrdersByStatus.map((order: any) => {
+                  const notesText = normalizeNotes(order.notes).trim()
+                  const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                  const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                  const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                  const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                  const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
+                  const cleanedNotes = notesText
+                    .replace(/Kumaş:\s*[^|]+/gi, '')
+                    .replace(/Kasa:\s*[^|]+/gi, '')
+                    .replace(/Ayak:\s*[^|]+/gi, '')
+                    .replace(/Kirlent:\s*[^|]+/gi, '')
+                    .replace(/Birim:\s*[^|]+/gi, '')
+                    .replace(/\|\s*\|\s*/g, '|')
+                    .replace(/^\|\s*|\s*\|$/g, '')
+                    .trim()
+                  const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
+                  const isPendingNoProd = order.status === 'pending' && !order.production_order_id
+                  const isInProductionOrCompleted = order.status === 'in_production' || order.status === 'completed'
+                  const showActionButton = isPendingNoProd || isInProductionOrCompleted
+                  const statusBadge =
+                    order.display_status === 'shipped'
+                      ? { label: 'Sevk Edildi', className: 'bg-green-900/30 text-green-400 border-green-700' }
+                      : order.status === 'in_production'
+                        ? { label: 'Devam Eden', className: 'bg-blue-900/30 text-blue-400 border-blue-700' }
+                        : order.status === 'completed'
+                          ? { label: 'Tamamlandı', className: 'bg-green-900/30 text-green-400 border-green-700' }
+                          : { label: 'Beklemede', className: 'bg-yellow-900/30 text-yellow-400 border-yellow-700' }
+                  return (
+                    <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
+                      <div className="flex justify-between items-start gap-3 mb-3">
+                        <span className="text-xs text-gray-400 font-mono">{order.order_number || '-'}</span>
+                        {showActionButton && (
+                          isInProductionOrCompleted ? (
+                            <Button variant="outline" size="sm" className="!border-amber-600 !text-amber-400 hover:!bg-amber-900/30" onClick={() => removeFromProduction(order.id)} disabled={removingOrderId === order.id}>
+                              {removingOrderId === order.id ? 'Çıkarılıyor...' : 'Üretimden Çıkar'}
+                            </Button>
+                          ) : (
+                            <Button variant="solid" color="primary" size="sm" className="!bg-blue-600 !text-white hover:!bg-blue-700" onClick={() => createProductionFromOrder(order.id)} disabled={convertingOrderId === order.id}>
+                              {convertingOrderId === order.id ? 'Hazırlanıyor...' : 'Üretime Al'}
+                            </Button>
+                          )
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className={`px-2 py-1 rounded text-xs border ${statusBadge.className}`}>{statusBadge.label}</span></div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || order.matched_product_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, order.created_at ?? null)}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          ) : statusFilter === 'shipped' ? (
+            <>
+              <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  color="warning"
+                  size="sm"
+                  disabled={clearingShipmentData}
+                  onClick={clearShipmentData}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {clearingShipmentData ? 'Temizleniyor...' : 'Sevkiyat Verilerini Sil'}
+                </Button>
+              </div>
+              {filteredOrdersByStatus.length === 0 ? (
+                <div className="text-sm text-gray-500">Sevk edilen sipariş yok.</div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredOrdersByStatus.map((order: any) => {
+                    const notesText = normalizeNotes(order.notes).trim()
+                    const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                    const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                    const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                    const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                    const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
+                    const cleanedNotes = notesText
+                      .replace(/Kumaş:\s*[^|]+/gi, '')
+                      .replace(/Kasa:\s*[^|]+/gi, '')
+                      .replace(/Ayak:\s*[^|]+/gi, '')
+                      .replace(/Kirlent:\s*[^|]+/gi, '')
+                      .replace(/Birim:\s*[^|]+/gi, '')
+                      .replace(/\|\s*\|\s*/g, '|')
+                      .replace(/^\|\s*|\s*\|$/g, '')
+                      .trim()
+                    const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
+                    return (
+                      <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
+                        <div className="flex justify-between items-start gap-3 mb-3">
+                          <span className="text-xs text-gray-400 font-mono">{order.order_number || '-'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">Sevk Edildi</span></div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                          <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          ) : statusFilter === 'in_progress' ? (
             filteredOrdersByStatus.length === 0 ? (
               <div className="text-sm text-gray-500">Devam eden sipariş yok.</div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="space-y-4">
                 {filteredOrdersByStatus.map((order) => {
                   const notesText = normalizeNotes(order.notes).trim()
                   const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
@@ -343,53 +574,28 @@ export default function ProductionPage() {
                   const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
 
                   return (
-                    <div
-                      key={order.id}
-                      className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 max-w-5xl mx-auto"
-                    >
+                    <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
+                      <div className="flex justify-between items-start gap-3 mb-3">
+                        <span className="text-xs text-gray-400 font-mono">{order.order_number || '-'}</span>
+                        <Button variant="outline" size="sm" className="!border-amber-600 !text-amber-400 hover:!bg-amber-900/30" onClick={() => removeFromProduction(order.id)} disabled={removingOrderId === order.id}>
+                          {removingOrderId === order.id ? 'Çıkarılıyor...' : 'Üretimden Çıkar'}
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
-                          <div className="text-white text-sm font-mono">{order.order_number || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                          <div className="text-white text-sm">{order.dealer_name || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                          <div className="text-white text-sm">{order.product_name || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                          <div className="text-white text-sm">{order.configuration || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                          <div className="text-white text-sm break-words whitespace-normal">
-                            {cleanedNotes || '-'}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
-                          <div className="text-white text-sm">
-                            {order.quantity || '-'} {quantityUnit || 'ADET'}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">Durum</div>
-                          <div>
-                            <span className="px-2 py-1 rounded text-xs border bg-blue-900/30 text-blue-400 border-blue-700">
-                              Devam Eden
-                            </span>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
-                          <div className="text-white text-sm">
-                            {formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}
-                          </div>
-                        </div>
+                        <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-blue-900/30 text-blue-400 border-blue-700">Devam Eden</span></div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
                       </div>
                     </div>
                   )
@@ -400,7 +606,7 @@ export default function ProductionPage() {
             filteredOrdersByStatus.length === 0 ? (
               <div className="text-sm text-gray-500">Tamamlanan sipariş yok.</div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="space-y-4">
                 {filteredOrdersByStatus.map((order) => {
                   const notesText = normalizeNotes(order.notes).trim()
                   const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
@@ -420,53 +626,28 @@ export default function ProductionPage() {
                   const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
 
                   return (
-                    <div
-                      key={order.id}
-                      className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 max-w-5xl mx-auto"
-                    >
+                    <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
+                      <div className="flex justify-between items-start gap-3 mb-3">
+                        <span className="text-xs text-gray-400 font-mono">{order.order_number || '-'}</span>
+                        <Button variant="outline" size="sm" className="!border-amber-600 !text-amber-400 hover:!bg-amber-900/30" onClick={() => removeFromProduction(order.id)} disabled={removingOrderId === order.id}>
+                          {removingOrderId === order.id ? 'Çıkarılıyor...' : 'Üretimden Çıkar'}
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
-                          <div className="text-white text-sm font-mono">{order.order_number || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                          <div className="text-white text-sm">{order.dealer_name || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                          <div className="text-white text-sm">{order.product_name || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                          <div className="text-white text-sm">{order.configuration || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                          <div className="text-white text-sm break-words whitespace-normal">
-                            {cleanedNotes || '-'}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
-                          <div className="text-white text-sm">
-                            {order.quantity || '-'} {quantityUnit || 'ADET'}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">Durum</div>
-                          <div>
-                            <span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">
-                              Tamamlandı
-                            </span>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
-                          <div className="text-white text-sm">
-                            {formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}
-                          </div>
-                        </div>
+                        <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">Tamamlandı</span></div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
                       </div>
                     </div>
                   )

@@ -5,6 +5,9 @@ import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateNextCode } from '@/lib/utils/codeGenerator'
 import { resolveUnitFactor } from '@/lib/units'
+import { apiLogger } from '@/lib/api/logger'
+import { ok } from '@/lib/api/response'
+import { PAGINATION } from '@/lib/constants'
 
 type InvoiceRow = {
   id: string
@@ -31,7 +34,7 @@ type InvoiceCreateInput = {
   notes?: string
 }
 
-// GET: Faturaları listele
+// GET: Faturaları listele (limit/offset ile sayfalama)
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
@@ -40,9 +43,47 @@ export const GET = withAuth(async (request: NextRequest) => {
     const type = searchParams.get('type')
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
+    const limit = Math.min(
+      Math.max(1, parseInt(searchParams.get('limit') || String(PAGINATION.DEFAULT_LIMIT), 10) || PAGINATION.DEFAULT_LIMIT),
+      PAGINATION.MAX_LIMIT
+    )
+    const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
 
     const db = getDatabase()
-    let query = `
+    const whereClause: string[] = ['i.deleted_at IS NULL']
+    const params: string[] = []
+
+    if (customerId) {
+      whereClause.push('i.customer_id = ?')
+      params.push(customerId)
+    }
+    if (status) {
+      whereClause.push('i.status = ?')
+      params.push(status)
+    }
+    if (type) {
+      whereClause.push('i.type = ?')
+      params.push(type)
+    }
+    if (startDate) {
+      whereClause.push('i.invoice_date >= ?')
+      params.push(startDate)
+    }
+    if (endDate) {
+      whereClause.push('i.invoice_date <= ?')
+      params.push(endDate)
+    }
+
+    const whereSql = whereClause.join(' AND ')
+    const countRow = db.prepare(`
+      SELECT COUNT(*) as total FROM invoices i
+      JOIN accounts a ON i.customer_id = a.id
+      LEFT JOIN shipments s ON i.shipment_id = s.id
+      WHERE ${whereSql}
+    `).get(...params) as { total: number }
+    const total = countRow?.total ?? 0
+
+    const query = `
       SELECT 
         i.*,
         a.name as customer_name,
@@ -51,36 +92,16 @@ export const GET = withAuth(async (request: NextRequest) => {
       FROM invoices i
       JOIN accounts a ON i.customer_id = a.id
       LEFT JOIN shipments s ON i.shipment_id = s.id
-      WHERE i.deleted_at IS NULL
+      WHERE ${whereSql}
+      ORDER BY i.invoice_date DESC, i.created_at DESC
+      LIMIT ? OFFSET ?
     `
-    const params: string[] = []
-
-    if (customerId) {
-      query += ' AND i.customer_id = ?'
-      params.push(customerId)
-    }
-    if (status) {
-      query += ' AND i.status = ?'
-      params.push(status)
-    }
-    if (type) {
-      query += ' AND i.type = ?'
-      params.push(type)
-    }
-    if (startDate) {
-      query += ' AND i.invoice_date >= ?'
-      params.push(startDate)
-    }
-    if (endDate) {
-      query += ' AND i.invoice_date <= ?'
-      params.push(endDate)
-    }
-
-    query += ' ORDER BY i.invoice_date DESC, i.created_at DESC'
-    const invoices = db.prepare(query).all(...params) as InvoiceRow[]
-    return NextResponse.json(invoices)
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const invoices = db.prepare(query).all(...params, limit, offset) as InvoiceRow[]
+    return ok(invoices, { meta: { total, limit, offset } })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Invoices API GET failed'
+    apiLogger.error('Invoices API GET failed', { error: message })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 })
 
@@ -402,8 +423,17 @@ export const POST = withAuth(async (request: NextRequest) => {
           // Çünkü sevkiyat oluşturulurken zaten cari hesaba borç yazılmış (iskonto düşülmüş tutar ile)
           // Fatura sadece belge olarak kaydedilir, cari hesap işlemi sevkiyat üzerinden yapılır
 
-          return { invoiceId, invoiceNumber }
+          return { invoiceId, invoiceNumber, customer_id: shipment.customer_id, final_amount: finalAmount }
         })()
+
+        const { dispatchWebhook } = await import('@/lib/webhooks/dispatch')
+        void dispatchWebhook('invoice.issued', {
+          invoice_id: result.invoiceId,
+          invoice_number: result.invoiceNumber,
+          shipment_id,
+          customer_id: result.customer_id,
+          final_amount: result.final_amount,
+        })
 
         return NextResponse.json({
           success: true,
@@ -424,6 +454,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     return NextResponse.json({ error: 'Fatura numarası oluşturulamadı' }, { status: 500 })
   } catch (error: any) {
+    apiLogger.error('Invoices API POST failed', { error: error?.message })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })

@@ -15,6 +15,17 @@ jest.mock('next/navigation', () => ({
   usePathname: () => '/',
 }))
 
+// Mock Next.js server (Response/Request for API route tests)
+jest.mock('next/server', () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number; headers?: HeadersInit }) => ({
+      status: init?.status ?? 200,
+      headers: init?.headers,
+      json: () => Promise.resolve(body),
+    }),
+  },
+}))
+
 // Mock Next.js headers
 jest.mock('next/headers', () => ({
   cookies: () => ({
@@ -24,18 +35,54 @@ jest.mock('next/headers', () => ({
   }),
 }))
 
-// Mock window APIs
-Object.defineProperty(window, 'TextEncoder', {
-  writable: true,
-  value: TextEncoder,
-})
+// Only set up window mocks when running in jsdom (window exists)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'TextEncoder', {
+    writable: true,
+    value: TextEncoder,
+  })
 
-Object.defineProperty(window, 'TextDecoder', {
-  writable: true,
-  value: TextDecoder,
-})
+  Object.defineProperty(window, 'TextDecoder', {
+    writable: true,
+    value: TextDecoder,
+  })
 
-// Mock ResizeObserver
+  const localStorageMock = {
+    getItem: jest.fn(),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+  }
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+  })
+
+  const sessionStorageMock = {
+    getItem: jest.fn(),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+  }
+  Object.defineProperty(window, 'sessionStorage', {
+    value: sessionStorageMock,
+  })
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
+}
+
+// Mock ResizeObserver (global, works in node and jsdom)
 global.ResizeObserver = jest.fn().mockImplementation(() => ({
   observe: jest.fn(),
   unobserve: jest.fn(),
@@ -48,43 +95,6 @@ global.IntersectionObserver = jest.fn().mockImplementation(() => ({
   unobserve: jest.fn(),
   disconnect: jest.fn(),
 }))
-
-// Mock localStorage
-const localStorageMock = {
-  getItem: jest.fn(),
-  setItem: jest.fn(),
-  removeItem: jest.fn(),
-  clear: jest.fn(),
-}
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-})
-
-// Mock sessionStorage
-const sessionStorageMock = {
-  getItem: jest.fn(),
-  setItem: jest.fn(),
-  removeItem: jest.fn(),
-  clear: jest.fn(),
-}
-Object.defineProperty(window, 'sessionStorage', {
-  value: sessionStorageMock,
-})
-
-// Mock matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: jest.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(),
-    removeListener: jest.fn(),
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
-})
 
 // Setup global test utilities
 global.console = {

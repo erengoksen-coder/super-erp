@@ -5,6 +5,7 @@ import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { useParams, useRouter } from 'next/navigation'
 import { Printer, ArrowLeft, Truck, Calendar, User, Package, CheckCircle, Edit, Save, X, AlertCircle, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/lib/store/authStore'
+import { toast } from '@/lib/notify'
 
 interface Shipment {
   id: string
@@ -19,6 +20,8 @@ interface Shipment {
   status: string
   total_quantity: number
   total_amount?: number
+  discount_rate?: number | null
+  discount_amount?: number | null
   tax_rate?: number
   tax_amount?: number
   final_amount?: number
@@ -81,7 +84,7 @@ export default function ShipmentDetailPage() {
       setShipment(payload as Shipment)
     } catch (error) {
       console.error('Error loading shipment:', error)
-      alert('Sevkiyat yüklenirken hata oluştu')
+      toast.error('Sevkiyat yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }
@@ -105,10 +108,10 @@ export default function ShipmentDetailPage() {
         throw new Error(error.error || 'Sevkiyat geri alınamadı')
       }
 
-      alert('✅ Sevkiyat başarıyla geri alındı! Ürünler stoka eklendi ve cari hesap düzeltildi.')
+      toast.success('Sevkiyat başarıyla geri alındı! Ürünler stoka eklendi ve cari hesap düzeltildi.')
       router.push('/shipments')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -146,14 +149,14 @@ export default function ShipmentDetailPage() {
         throw new Error(error.error || 'Onay işlemi başarısız')
       }
       
-      alert('✅ Sevkiyat başarıyla onaylandı!')
+      toast.success('Sevkiyat başarıyla onaylandı!')
       // Sevkiyatı yeniden yükle
       const id = params?.id as string
       if (id && id !== 'undefined') {
         loadShipment(id)
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setApproving(false)
     }
@@ -164,7 +167,7 @@ export default function ShipmentDetailPage() {
     
     // İptal ediliyorsa iptal nedeni zorunlu
     if (selectedStatus === 'cancelled' && !cancelReason.trim()) {
-      alert('İptal nedeni zorunludur!')
+      toast.warning('İptal nedeni zorunludur!')
       return
     }
 
@@ -183,7 +186,7 @@ export default function ShipmentDetailPage() {
         throw new Error(error.error || 'Durum güncellenemedi')
       }
 
-      alert('✅ Sevkiyat durumu başarıyla güncellendi!')
+      toast.success('Sevkiyat durumu başarıyla güncellendi!')
       setEditingStatus(false)
       setSelectedStatus('')
       setCancelReason('')
@@ -194,7 +197,7 @@ export default function ShipmentDetailPage() {
         loadShipment(id)
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -267,12 +270,16 @@ export default function ShipmentDetailPage() {
           </div>
         </div>
 
-        {/* Sevkiyat Fişi - Yazdırılabilir */}
-        <div className="bg-white rounded-lg shadow-lg p-6 md:p-8 print:p-8 print:shadow-none">
+        {/* Sevkiyat Fişi - Yazdırılabilir (A5) */}
+        <div className="shipment-slip bg-white rounded-lg shadow-lg p-6 md:p-8 print:p-8 print:shadow-none print:max-w-[148mm] print:mx-auto print:box-border">
           {/* Başlık */}
           <div className="text-center mb-8 border-b-2 border-gray-300 pb-4">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <img src="/LOGO-2.png" alt="LIVASOFTWARE" className="h-6 w-auto object-contain print:h-6" onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
+              <span className="text-xs text-gray-500">LIVASOFTWARE</span>
+            </div>
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">SEVKİYAT FİŞİ</h1>
-            <p className="text-gray-600">LIVASOFA ERP Sistemi</p>
+            <p className="text-gray-600">LIVASOFTWARE</p>
           </div>
 
           {/* Sevkiyat Bilgileri */}
@@ -449,30 +456,30 @@ export default function ShipmentDetailPage() {
                 <div key={item.id} className="border border-gray-300 rounded-lg p-4 bg-gray-50">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                     <div>
-                      <div className="text-xs text-gray-600 mb-1">Sıra No</div>
-                      <div className="text-sm font-semibold text-gray-900">{index + 1}</div>
+                      <div className="text-sm text-gray-600 mb-1">Sıra No</div>
+                      <div className="text-base font-semibold text-gray-900">{index + 1}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-600 mb-1">Miktar</div>
-                      <div className="text-sm font-semibold text-gray-900">{item.quantity} adet</div>
+                      <div className="text-sm text-gray-600 mb-1">Miktar</div>
+                      <div className="text-base font-semibold text-gray-900">{item.quantity} adet</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-600 mb-1">Ürün Kodu</div>
-                      <div className="text-sm font-semibold text-gray-900">{item.product_sku}</div>
+                      <div className="text-sm text-gray-600 mb-1">Ürün Kodu</div>
+                      <div className="text-base font-semibold text-gray-900">{item.product_sku}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-600 mb-1">Ürün Adı</div>
-                      <div className="text-sm font-semibold text-gray-900">{item.product_name}</div>
+                      <div className="text-sm text-gray-600 mb-1">Ürün Adı</div>
+                      <div className="text-base font-semibold text-gray-900">{item.product_name}</div>
                     </div>
                   </div>
                   {item.serial_numbers && item.serial_numbers.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-gray-300">
-                      <div className="text-xs text-gray-600 mb-2">Barkod/Seri Numaraları:</div>
+                      <div className="text-sm font-medium text-gray-600 mb-2">Barkod/Seri Numaraları:</div>
                       <div className="flex flex-wrap gap-2">
                         {item.serial_numbers.map((barcode, barcodeIndex) => (
                           <span
                             key={barcodeIndex}
-                            className="inline-block px-2 py-1 bg-white border border-gray-300 rounded text-xs font-mono text-gray-900"
+                            className="inline-block px-3 py-1.5 bg-white border border-gray-300 rounded text-base font-mono font-semibold text-gray-900"
                           >
                             {barcode}
                           </span>
@@ -482,8 +489,8 @@ export default function ShipmentDetailPage() {
                   )}
                   {item.notes && (
                     <div className="mt-3 pt-3 border-t border-gray-300">
-                      <div className="text-xs text-gray-600 mb-1">Notlar:</div>
-                      <div className="text-xs text-gray-900">
+                      <div className="text-sm font-medium text-gray-600 mb-1">Notlar:</div>
+                      <div className="text-base text-gray-900">
                         {item.notes}
                         {(shipment.end_customer_name || shipment.customer_name)
                           ? ` (Müşteri: ${shipment.end_customer_name || shipment.customer_name})`
@@ -494,34 +501,50 @@ export default function ShipmentDetailPage() {
                 </div>
               ))}
               {shipment.notes && (
-                <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
-                  <div className="text-xs text-gray-600 mb-1">Notlar:</div>
-                  <div className="text-xs text-gray-900">
-                    {shipment.notes}
+                <>
+                  {shipment.notes.includes('Kısmi sevk açıklaması:') && (() => {
+                    const idx = shipment.notes.indexOf('Kısmi sevk açıklaması:')
+                    const after = idx >= 0 ? shipment.notes.slice(idx + 'Kısmi sevk açıklaması:'.length).trim() : ''
+                    return (
+                      <div className="border-2 border-amber-500 rounded-lg p-5 bg-amber-50">
+                        <div className="text-base font-bold text-amber-900 mb-2">Kısmi sevk açıklaması (diğer barkodlar neden sevk edilmedi):</div>
+                        <div className="text-lg font-semibold text-gray-900">{after || shipment.notes}</div>
+                      </div>
+                    )
+                  })()}
+                  <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                    <div className="text-sm font-medium text-gray-600 mb-1">Notlar:</div>
+                    <div className="text-base text-gray-900">
+                      {shipment.notes}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
               <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
-                <div className="text-sm font-semibold text-gray-900 text-right">
+                <div className="text-lg font-bold text-gray-900 text-right">
                   TOPLAM ADET: {shipment.total_quantity} adet
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Alt Bilgi */}
-          <div className="mt-8 pt-4 border-t-2 border-gray-300 text-center text-xs text-gray-500">
-            <p>Bu belge LIVASOFA ERP sistemi tarafından otomatik oluşturulmuştur.</p>
+          {/* Alt Bilgi: logo + metin */}
+          <div className="mt-8 pt-4 border-t-2 border-gray-300 text-center text-sm text-gray-600">
+            <div className="flex items-center justify-center">
+              <img src="/LOGO-2.png" alt="" className="h-12 w-56 min-w-[12rem] object-contain print:h-12 print:w-56" onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
+            </div>
+            <p className="mt-2">Bu belge LIVASOFTWARE tarafından otomatik oluşturulmuştur.</p>
             <p className="mt-1">Yazdırma Tarihi: {formatDateTime(new Date())}</p>
+            <p className="mt-2 text-sm font-medium text-blue-600">Powered by LIVASOFTWARE</p>
           </div>
         </div>
       </div>
 
-      {/* Yazdırma Stilleri */}
+      {/* Yazdırma Stilleri - A5 boyutu (148×210 mm) */}
       <style jsx global>{`
         @media print {
           @page {
-            size: A5;
+            size: 148mm 210mm;
             margin: 10mm;
           }
           body {
@@ -532,6 +555,9 @@ export default function ShipmentDetailPage() {
           }
           .text-white {
             color: #000 !important;
+          }
+          .shipment-slip {
+            max-width: 128mm;
           }
           button {
             display: none !important;

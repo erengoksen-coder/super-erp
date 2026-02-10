@@ -55,16 +55,17 @@ export default function HrClockPage() {
     setActionLoading(true)
     setMessage(null)
     try {
-      await fetchApi('/api/hr/attendance', {
+      await fetchApi('/api/hr/clock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employeeId, date: today, type }),
+        body: JSON.stringify({ event: type, ...(location ? { location } : {}) }),
       })
-      setMessage({ type: 'ok', text: type === 'in' ? `Giriş kaydedildi (${new Date().toTimeString().slice(0, 5)})` : `Çıkış kaydedildi (${new Date().toTimeString().slice(0, 5)})` })
-      setTodayAttendance((prev) => {
-        if (type === 'in') return { check_in: new Date().toTimeString().slice(0, 5), check_out: null }
-        return prev ? { ...prev, check_out: new Date().toTimeString().slice(0, 5) } : { check_in: null, check_out: new Date().toTimeString().slice(0, 5) }
-      })
+      setMessage({ type: 'ok', text: type === 'in' ? 'Giriş kaydedildi' : 'Çıkış kaydedildi' })
+      const list = await fetchApi<AttendanceRow[]>(
+        `/api/hr/attendance?employee_id=${encodeURIComponent(employeeId)}&date=${today}`
+      ).catch(() => [])
+      const arr = Array.isArray(list) ? list : []
+      setTodayAttendance(arr[0] || null)
     } catch (e: any) {
       setMessage({ type: 'err', text: e?.message || 'Kayıt alınamadı' })
     } finally {

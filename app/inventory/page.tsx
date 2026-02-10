@@ -22,6 +22,7 @@ import {
   Truck
 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -31,13 +32,16 @@ import { cn } from '@/lib/cn'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 
 // Barkod ve QR Kod Component
-function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip }: { 
+function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip, onDelete, isAlreadyShipped }: { 
   barcode: string; 
   serialNumber: string; 
   barcodeId: string; 
   entryDate: string;
   onPrintLabel: () => void;
   onShip: () => void;
+  onDelete?: () => void | Promise<void>;
+  /** Sevki onaylanmış / zaten sevk edilmiş kartta Sevk et butonu soluk ve devre dışı */
+  isAlreadyShipped?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [barcodeLoaded, setBarcodeLoaded] = useState(false)
@@ -134,12 +138,31 @@ function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrint
             variant="solid"
             color="success"
             size="sm"
-            onClick={onShip}
-            className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+            onClick={isAlreadyShipped ? undefined : onShip}
+            disabled={isAlreadyShipped}
+            title={isAlreadyShipped ? 'Bu kart zaten sevk edildi, tekrar sevk oluşturulamaz' : undefined}
+            className={cn(
+              'flex items-center justify-center space-x-2 border-0 shadow-md transition-all whitespace-nowrap',
+              isAlreadyShipped
+                ? '!bg-gray-500 !text-gray-300 cursor-not-allowed opacity-60'
+                : '!bg-green-600 hover:!bg-green-700 !text-white hover:shadow-lg'
+            )}
           >
             <Truck className="w-4 h-4" />
             <span>Sevk Et</span>
           </Button>
+          {onDelete && (
+            <Button
+              variant="solid"
+              color="error"
+              size="sm"
+              onClick={onDelete}
+              className="flex items-center justify-center space-x-2 !bg-red-600 hover:!bg-red-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Sil</span>
+            </Button>
+          )}
         </div>
       </div>
       <div className="mt-2 flex items-center gap-4 text-xs">
@@ -201,6 +224,7 @@ export function InventoryPage() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<any[]>([])
   const [selectedDealerTab, setSelectedDealerTab] = useState<string>('all') // 'all' = tümü, '' = boş, 'dealerName' = seçili cari
+  const [shipSuccessMessage, setShipSuccessMessage] = useState<string | null>(null)
 
   // Bayi adından account ID bul veya oluştur
   const findOrCreateAccountByDealerName = useCallback(async (dealerName: string | null | undefined): Promise<string | null> => {
@@ -233,7 +257,7 @@ export function InventoryPage() {
       }
 
       // Hala bulunamazsa yeni account oluştur
-      const newAccount = await fetchApi('/api/accounts', {
+      const newAccount = await fetchApi<{ id?: string; code?: string } | unknown>('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -241,10 +265,10 @@ export function InventoryPage() {
           type: 'customer'
         })
       })
-      
-      if (newAccount && newAccount.id) {
-        setAccounts(prev => [...prev, { id: newAccount.id, code: newAccount.code, name: trimmedName, type: 'customer' }])
-        return newAccount.id
+      const acc = newAccount as { id?: string; code?: string } | null | undefined
+      if (acc && acc.id) {
+        setAccounts(prev => [...prev, { id: acc.id, code: acc.code ?? '', name: trimmedName, type: 'customer' }])
+        return acc.id
       }
     } catch (error) {
       console.error('Account bulunamadı veya oluşturulamadı:', error)
@@ -346,7 +370,7 @@ export function InventoryPage() {
       }
       await loadInventory()
     } catch (e: any) {
-      alert('Hata: ' + (e.message || 'Kayıt silinemedi'))
+      toast.error('Hata: ' + (e instanceof Error ? e.message : 'Kayıt silinemedi'))
     }
   }
 
@@ -524,6 +548,25 @@ export function InventoryPage() {
         </>
       }
     >
+      {/* Sevk edilebilir mesajı - Tamam deyince kapanır */}
+      {shipSuccessMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+              <Truck className="w-6 h-6 text-green-600 dark:text-green-400" />
+            </div>
+            <p className="text-gray-900 dark:text-white font-medium mb-2">Ürün sevk edilebilir</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{shipSuccessMessage}</p>
+            <button
+              type="button"
+              onClick={() => setShipSuccessMessage(null)}
+              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
+            >
+              Tamam
+            </button>
+          </div>
+        </div>
+      )}
       <StockRealtime onUpdate={loadInventory} />
 
       {/* Stats Cards */}
@@ -766,7 +809,7 @@ export function InventoryPage() {
                           try {
                             const items = dealerGroups[selectedDealerTab]
                             if (!items || items.length === 0) {
-                              alert('Bu cariye ait mamül bulunamadı')
+                              toast.warning('Bu cariye ait mamül bulunamadı')
                               return
                             }
                             
@@ -814,14 +857,16 @@ export function InventoryPage() {
                             }
 
                             if (successCount > 0) {
-                              alert(`✅ ${successCount} adet mamül sevk edilebilir olarak işaretlendi ve sevkiyata gönderildi.${errorCount > 0 ? ` ${errorCount} adet mamülde hata oluştu.` : ''}`)
+                              setShipSuccessMessage(
+                                `${successCount} adet mamül sevk edilebilir olarak işaretlendi.${errorCount > 0 ? ` ${errorCount} adet mamülde hata oluştu.` : ''} Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.`
+                              )
                               loadInventory()
                             } else {
-                              alert(`Hata: Hiçbir mamül sevk edilebilir olarak işaretlenemedi. Hatalar: ${errors.slice(0, 3).join(', ')}`)
+                              toast.error(`Hata: Hiçbir mamül sevk edilebilir olarak işaretlenemedi. Hatalar: ${errors.slice(0, 3).join(', ')}`)
                             }
-                          } catch (error: any) {
+                          } catch (error: unknown) {
                             console.error('Toplu sevk et hatası:', error)
-                            alert('Hata: ' + (error.message || 'Toplu sevk işlemi sırasında bir hata oluştu'))
+                            toast.error('Hata: ' + (error instanceof Error ? error.message : 'Toplu sevk işlemi sırasında bir hata oluştu'))
                           }
                         }}
                         className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white"
@@ -932,8 +977,19 @@ export function InventoryPage() {
                         serialNumber={item.serial_number || ''}
                         barcodeId={item.barcode_id}
                         entryDate={formatDateTime(item.production_order_completed_at || item.barcode_created_at)}
+                        isAlreadyShipped={!!(item.shipment_id && String(item.shipment_id).trim())}
                         onPrintLabel={() => {
                           window.open(`/inventory/products/print-barcode-label?barcodeId=${item.barcode}`, '_blank')
+                        }}
+                        onDelete={async () => {
+                          if (!confirm('Bu mamülü depodan silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+                          try {
+                            await fetchApi(`/api/inventory/products/warehouse?barcode_id=${encodeURIComponent(item.barcode_id)}`, { method: 'DELETE' })
+                            toast.success('Mamül depodan silindi.')
+                            loadInventory()
+                          } catch (err: any) {
+                            toast.error('Hata: ' + (err instanceof Error ? err.message : 'Silinemedi'))
+                          }
                         }}
                         onShip={async () => {
                           try {
@@ -957,14 +1013,14 @@ export function InventoryPage() {
                                 })
                               })
                               
-                              alert('✅ Ürün sevk edilebilir olarak işaretlendi. Sevkiyat sayfasından barkod okutarak sevk edebilirsiniz.')
+                              setShipSuccessMessage('Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.')
                               
                               // Sayfayı yenile (sevk edilebilir ürünler listesini güncellemek için)
                               loadInventory()
                             }
                           } catch (error: any) {
                             console.error('Sevk et hatası:', error)
-                            alert('Hata: ' + (error.message || 'Sevk edilebilir olarak işaretlenirken bir hata oluştu'))
+                            toast.error('Hata: ' + (error instanceof Error ? error.message : 'Sevk edilebilir olarak işaretlenirken bir hata oluştu'))
                           }
                         }}
                       />

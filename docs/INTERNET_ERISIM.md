@@ -89,6 +89,21 @@ Sunucu penceresinde **"✓ Starting..."** ve ngrok **online** görünüyorsa:
 3. **Sunucu + ngrok açık mı?** Hem "Next.js Sunucusu" hem "Ngrok" penceresinin açık olduğundan emin olun. `scripts\dev-baslat.bat` → E seçerek ikisini birlikte başlatabilirsiniz.
 4. **Yerel test:** Tarayıcıda önce http://localhost:3000 açılıyor mu kontrol edin; açılıyorsa ngrok URL’i de aynı sunucuya gider.
 
+### 📱 Başka bilgisayardan veya telefondan "Bu sayfaya ulaşılamıyor" (ERR_FAILED) çıkıyorsa
+**Sunucunun çalıştığı bilgisayar (sizin PC)** ve **erişen cihaz (başka bilgisayar / telefon)** için kontrol listesi:
+
+**Sizin bilgisayarda (sunucu + ngrok çalışan PC):**
+1. **Next.js sunucusu açık mı?** Aynı PC’de tarayıcıda `http://localhost:3000` açılıyorsa sunucu çalışıyordur.
+2. **Ngrok penceresi açık mı?** Ngrok’u kapattıysanız tünel kapanır; başka cihaz bağlanamaz. Yeniden `ngrok http 3000` (veya `ngrok http http://127.0.0.1:3000`) çalıştırın.
+3. **Güncel URL’i kullanın.** Her ngrok yeniden başlatıldığında URL değişir. Başka cihaza verdiğiniz adres, ngrok penceresinde veya `http://localhost:4040` sayfasında yazan **şu anki** adres olmalı.
+
+**Başka bilgisayarda / telefondan giren kişi:**
+1. **Ngrok uyarı sayfası:** `https://....ngrok-free.dev` adresini ilk kez açınca ngrok **“You are about to visit…”** / **“Visit Site”** / **“Ziyaret et”** sayfası gösterir. **Bu sayfada mutlaka “Visit Site” (veya “Ziyaret et”) butonuna tıklanmalı.** Tıklanmadan doğrudan uygulama açılmaz; bazen ERR_FAILED veya boş sayfa görünür.
+2. **Doğru adres:** Erişmek istediğiniz tam adres sunucuyu çalıştıran kişiden alınan **güncel** ngrok adresi olmalı (örn. `https://unexercisable-rickie-refreshful.ngrok-free.dev`). Eski veya yanlış adres kullanılıyorsa “Bu sayfaya ulaşılamıyor” hatası çıkar.
+3. **İnternet bağlantısı:** Başka bilgisayar/telefon da internete bağlı olmalı (Wi‑Fi veya mobil veri).
+
+**Özet:** Başka cihazda önce ngrok’un **“Visit Site”** sayfasında butona tıklanmalı, kullanılan adres sunucu PC’deki ngrok’un **şu anki** adresi olmalı ve sunucu + ngrok pencereleri o PC’de açık kalmalı.
+
 ### ❌ ERR_NGROK_8012 – "Sayfa açılmıyor" (Traffic reached ngrok but connection to localhost:3000 refused)
 Bu hata **yerel sunucunun çalışmadığı** anlamına gelir. Ngrok tüneli açık ama bilgisayarınızda **port 3000’de dinleyen uygulama yok**.
 

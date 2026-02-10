@@ -47,15 +47,19 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string 
       `).all(myId, withUserId, withUserId, myId, limit) as any
     }
 
-    const messages = rows.reverse().map((r) => ({
-      id: r.id,
-      from_user_id: r.from_user_id,
-      to_user_id: r.to_user_id,
-      body: r.body,
-      read_at: r.read_at,
-      created_at: r.created_at,
-      is_mine: r.from_user_id === myId,
-    }))
+    const myIdStr = String(myId ?? '')
+    const messages = rows.reverse().map((r) => {
+      const fromId = String(r.from_user_id ?? '')
+      return {
+        id: r.id,
+        from_user_id: r.from_user_id,
+        to_user_id: r.to_user_id,
+        body: r.body,
+        read_at: r.read_at,
+        created_at: r.created_at,
+        is_mine: fromId === myIdStr,
+      }
+    })
 
     return NextResponse.json(messages)
   } catch (e: any) {

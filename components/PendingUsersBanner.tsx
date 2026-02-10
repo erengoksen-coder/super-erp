@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { ROUTES } from '@/lib/constants'
 import { Users, X } from 'lucide-react'
 import { useAuthStore } from '@/lib/store/authStore'
 
@@ -37,7 +38,7 @@ export default function PendingUsersBanner() {
           <strong>Onay bekleyen kullanıcı var.</strong> {pendingCount} kullanıcı onayınızı bekliyor.
         </span>
         <Link
-          href="/users"
+          href={ROUTES.USERS}
           className="shrink-0 rounded-lg bg-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-100 hover:bg-amber-500/50"
         >
           Kullanıcıları yönet

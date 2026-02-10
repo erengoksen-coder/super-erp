@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Factory, RefreshCw, ShoppingCart } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -68,13 +69,13 @@ export default function MrpPage() {
 
   async function handleCalculate() {
     if (!productId) {
-      alert('Lütfen ürün seçin')
+      toast.warning('Lütfen ürün seçin')
       return
     }
 
     const qty = Number(quantity)
     if (!Number.isFinite(qty) || qty <= 0) {
-      alert('Miktar pozitif olmalı')
+      toast.warning('Miktar pozitif olmalı')
       return
     }
 
@@ -84,7 +85,7 @@ export default function MrpPage() {
       setResult(data)
     } catch (error: any) {
       console.error('MRP error:', error)
-      alert(error?.message || 'MRP hesaplama hatası')
+      toast.error(error?.message || 'MRP hesaplama hatası')
     } finally {
       setLoading(false)
     }
@@ -93,7 +94,7 @@ export default function MrpPage() {
   async function handleCreateRequests() {
     if (!result) return
     if (!result.items.some((item) => item.shortage > 0)) {
-      alert('Eksik malzeme yok')
+      toast.info('Eksik malzeme yok')
       return
     }
 
@@ -107,10 +108,10 @@ export default function MrpPage() {
           quantity: result.quantity,
         }),
       })
-      alert(`Satın alma talepleri oluşturuldu: ${response.created_count}`)
+      toast.success(`Satın alma talepleri oluşturuldu: ${response.created_count}`)
     } catch (error: any) {
       console.error('Create request error:', error)
-      alert(error?.message || 'Satın alma talebi oluşturulamadı')
+      toast.error(error?.message || 'Satın alma talebi oluşturulamadı')
     } finally {
       setCreating(false)
     }

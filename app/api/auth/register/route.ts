@@ -6,6 +6,7 @@ import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword } from '@/lib/auth/password'
 import { ok, fail } from '@/lib/api/response'
 import { userSchemas } from '@/lib/validation/schemas'
+import { apiLogger } from '@/lib/api/logger'
 
 type UserIdRow = {
   id: string
@@ -109,8 +110,10 @@ export async function POST(request: NextRequest) {
       },
       { message: 'Kayıt başarılı! Admin onayı bekleniyor.' }
     )
-  } catch (error: any) {
-    return fail(error.message, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    apiLogger.error('Register API failed', { error: message, stack: error instanceof Error ? error.stack : undefined })
+    return fail(message, { status: 500 })
   }
 }
 

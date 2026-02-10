@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { FileText, ArrowLeft, Trash2 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
 
 type InvoiceItem = {
@@ -60,7 +61,7 @@ export default function InvoiceDetailPage() {
       const data = await fetchApi<InvoiceDetail>(`/api/invoices/${id}`)
       setInvoice(data)
     } catch (error: any) {
-      alert('Fatura yüklenemedi: ' + error.message)
+      toast.error('Fatura yüklenemedi: ' + error.message)
       router.push('/invoices')
     } finally {
       setLoading(false)
@@ -75,10 +76,10 @@ export default function InvoiceDetailPage() {
     setCanceling(true)
     try {
       await fetchApi(`/api/invoices/${invoice.id}`, { method: 'DELETE' })
-      alert('Fatura iptal edildi')
+      toast.success('Fatura iptal edildi')
       router.push('/invoices')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setCanceling(false)
     }
@@ -93,9 +94,9 @@ export default function InvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: invoice.id })
       })
-      alert('E-fatura kuyruğa alındı')
+      toast.success('E-fatura kuyruğa alındı')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSending(false)
     }

@@ -1,4 +1,4 @@
-import { validateRequest, userSchemas, materialSchemas } from '../../lib/validation/schemas'
+import { validateRequest, userSchemas, materialSchemas, accountSchemas, orderSchemas } from '../../lib/validation/schemas'
 
 describe('Validation Schemas', () => {
   describe('User Schemas', () => {
@@ -156,6 +156,83 @@ describe('Validation Schemas', () => {
 
         const result = validateRequest(materialSchemas.create, materialData)
         
+        expect(result.success).toBe(false)
+      })
+    })
+  })
+
+  describe('Account Schemas', () => {
+    describe('create', () => {
+      it('should validate correct account data', () => {
+        const accountData = {
+          name: ' Test Cari ',
+          type: 'customer' as const,
+          tax_number: '1234567890',
+          email: 'cari@test.com',
+        }
+        const result = validateRequest(accountSchemas.create, accountData)
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.data.name).toBe('Test Cari')
+          expect(result.data.type).toBe('customer')
+        }
+      })
+
+      it('should reject empty name', () => {
+        const result = validateRequest(accountSchemas.create, { name: '', type: 'customer' })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+          expect(result.error).toContain('Ad/Ünvan')
+        }
+      })
+
+      it('should reject invalid type', () => {
+        const result = validateRequest(accountSchemas.create, { name: 'Cari', type: 'invalid' })
+        expect(result.success).toBe(false)
+      })
+    })
+  })
+
+  describe('Order Schemas', () => {
+    const validCustomerId = '550e8400-e29b-41d4-a716-446655440000'
+    const validProductId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+    const validOrderDate = '2025-01-15T10:00:00.000Z'
+
+    describe('create', () => {
+      it('should validate correct order data', () => {
+        const orderData = {
+          customer_id: validCustomerId,
+          order_date: validOrderDate,
+          items: [
+            { product_id: validProductId, quantity: 2, unit_price: 100 },
+          ],
+        }
+        const result = validateRequest(orderSchemas.create, orderData)
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.data.items).toHaveLength(1)
+          expect(result.data.items[0].quantity).toBe(2)
+        }
+      })
+
+      it('should reject empty items', () => {
+        const result = validateRequest(orderSchemas.create, {
+          customer_id: validCustomerId,
+          order_date: validOrderDate,
+          items: [],
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+          expect(result.error).toContain('En az bir ürün')
+        }
+      })
+
+      it('should reject invalid customer_id format', () => {
+        const result = validateRequest(orderSchemas.create, {
+          customer_id: 'not-a-uuid',
+          order_date: validOrderDate,
+          items: [{ product_id: validProductId, quantity: 1, unit_price: 50 }],
+        })
         expect(result.success).toBe(false)
       })
     })

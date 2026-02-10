@@ -5,6 +5,7 @@ import { Factory, CheckCircle, Clock, Package, ArrowLeft, Edit, RotateCcw } from
 import { useRouter, useSearchParams } from 'next/navigation'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDateTime } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 interface ProductionOrder {
   id: string
@@ -168,14 +169,14 @@ export default function StationPage() {
       
       // Eğer tüm kartlar tamamlanmadıysa, sadece bu kart tamamlandı mesajı göster
       if (result.all_completed === false) {
-        alert(`✅ ${result.message || 'Kart tamamlandı!'}`)
+        toast.success(result.message || 'Kart tamamlandı!')
       } else {
-        alert('✅ Üretim emri başarıyla bir sonraki istasyona geçirildi!')
+        toast.success('Üretim emri başarıyla bir sonraki istasyona geçirildi!')
       }
       
       loadOrders()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setProcessing(null)
     }
@@ -200,7 +201,7 @@ export default function StationPage() {
     const previousStation = getPreviousStation(station)
     
     if (!previousStation) {
-      alert('Bu istasyondan geriye dönülemez!')
+      toast.warning('Bu istasyondan geriye dönülemez!')
       return
     }
 
@@ -235,10 +236,10 @@ export default function StationPage() {
       }
 
       const result = await response.json()
-      alert(`✅ Üretim emri ${previousStationName} istasyonuna geri gönderildi!`)
+      toast.success(`Üretim emri ${previousStationName} istasyonuna geri gönderildi!`)
       loadOrders()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setProcessing(null)
     }

@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/lib/store/authStore'
 import { fetchApi, clearStoredAuthToken } from '@/lib/api/client'
 import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
+import { ROUTES } from '@/lib/constants'
 
-const publicPaths = ['/auth/login', '/auth/register', '/durum']
+const publicPaths = [ROUTES.LOGIN, ROUTES.REGISTER, '/durum']
+const VERIFY_THROTTLE_MS = 3000
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -15,6 +17,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const setAuth = useAuthStore((state) => state.setAuth)
   const clearAuth = useAuthStore((state) => state.clearAuth)
   const user = useAuthStore((state) => state.user)
+  const lastVerifyRef = useRef<number>(0)
 
   useEffect(() => {
     // Public sayfalar için kontrol yapma
@@ -33,6 +36,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
+    const now = Date.now()
+    if (now - lastVerifyRef.current < VERIFY_THROTTLE_MS) {
+      setIsChecking(false)
+      return
+    }
+    lastVerifyRef.current = now
+
     const verifySession = async () => {
       try {
         const data = await fetchApi('/api/auth/me')
@@ -41,7 +51,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           throw new Error('Oturum bulunamadı')
         }
         setAuth(fetchedUser)
-      } catch {
+      } catch (err: unknown) {
+        const msg = String((err as Error)?.message ?? '')
+        if (msg.includes('429') || msg.includes('Too Many Requests')) {
+          setIsChecking(false)
+          return
+        }
         try {
           await fetchApi('/api/auth/refresh', { method: 'POST' })
           const refreshed = await fetchApi('/api/auth/me')
@@ -54,8 +69,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         } catch {
           clearAuth()
           clearStoredAuthToken()
-          if (typeof window !== 'undefined' && pathname !== '/auth/login') {
-            window.location.href = '/auth/login'
+          if (typeof window !== 'undefined' && pathname !== ROUTES.LOGIN) {
+            window.location.href = ROUTES.LOGIN
             return
           }
         }
@@ -74,9 +89,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
     const isAdmin = isAdminRole(user.role)
+    const normalizedPath = pathname || '/'
+    const isBayiPortal = normalizedPath === '/bayi' || normalizedPath.startsWith('/bayi/')
+    const isBayiUser = (user.role || '').toString().trim().toLowerCase() === 'bayi'
+    if (isBayiPortal && isBayiUser) {
+      return
+    }
     if (!isAdmin) {
       const permissions = user.permissions || []
-      const normalizedPath = pathname || '/'
       const isOrdersChild =
         normalizedPath === '/sales-orders' ||
         normalizedPath.startsWith('/sales-orders/') ||
@@ -86,7 +106,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       if (isOrdersChild && hasOrdersAccess) {
         return
       }
-      if (!canAccessPath(permissions, normalizedPath, 'view')) {
+      if (!canAccessPath(permissions, normalizedPath, 'view') && !(isBayiPortal && isBayiUser)) {
         if (typeof window !== 'undefined') {
           window.location.href = '/'
         }

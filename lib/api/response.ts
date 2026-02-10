@@ -4,6 +4,7 @@ type ApiSuccess<T> = {
   success: true
   data: T
   message?: string
+  meta?: { total?: number; limit?: number; offset?: number }
 }
 
 type ApiError = {
@@ -14,12 +15,13 @@ type ApiError = {
 
 export function ok<T>(
   data: T,
-  init?: { status?: number; message?: string; headers?: HeadersInit }
+  init?: { status?: number; message?: string; headers?: HeadersInit; meta?: { total?: number; limit?: number; offset?: number } }
 ) {
   const payload: ApiSuccess<T> = {
     success: true,
     data,
     ...(init?.message ? { message: init.message } : {}),
+    ...(init?.meta ? { meta: init.meta } : {}),
   }
   return NextResponse.json(payload, { status: init?.status, headers: init?.headers })
 }
@@ -33,5 +35,5 @@ export function fail(
     error,
     ...(init?.details ? { details: init.details } : {}),
   }
-  return NextResponse.json(payload, { status: init?.status, headers: init?.headers })
+  return NextResponse.json(payload, { status: init?.status ?? 500, headers: init?.headers })
 }

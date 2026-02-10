@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { verifyToken } from '@/lib/auth/jwt'
 
-const DEFAULT_LIMIT = { keyPrefix: 'api', max: 120, windowMs: 60_000 }
+const DEFAULT_LIMIT = { keyPrefix: 'api', max: 300, windowMs: 60_000 }
 const AUTH_LIMIT = { keyPrefix: 'auth', max: 10, windowMs: 60_000 }
+const ADMIN_LIMIT = { keyPrefix: 'admin', max: 30, windowMs: 60_000 }
+/** auth/me ve auth/refresh sık çağrıldığı için ayrı kotada, daha yüksek limit */
+const AUTH_ME_LIMIT = { keyPrefix: 'auth-me', max: 60, windowMs: 60_000 }
 
 const PUBLIC_API_PATHS = [
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/refresh',
+  '/api/auth/ping',
   '/api/health',
+  '/api/icon',
   '/api/notifications/vapid-public-key',
 ]
 
@@ -27,6 +32,12 @@ function isPublicPagePath(pathname: string) {
 function getRateLimitOptions(pathname: string) {
   if (pathname.startsWith('/api/auth/login') || pathname.startsWith('/api/auth/register')) {
     return AUTH_LIMIT
+  }
+  if (pathname === '/api/auth/me' || pathname === '/api/auth/refresh') {
+    return AUTH_ME_LIMIT
+  }
+  if (pathname.startsWith('/api/admin')) {
+    return ADMIN_LIMIT
   }
   return DEFAULT_LIMIT
 }
@@ -94,5 +105,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/api/:path*'],
+  matcher: ['/', '/bayi', '/bayi/:path*', '/api/:path*'],
 }

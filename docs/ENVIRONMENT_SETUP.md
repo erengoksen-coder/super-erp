@@ -65,6 +65,27 @@ openssl rand -base64 32
 - ❌ Secret'ları kod içine yazmayın
 - ❌ Public repository'lerde paylaşmayın
 
+## 🧪 E2E Test (Playwright)
+
+Girişli testler için isteğe bağlı:
+
+```env
+PLAYWRIGHT_TEST_USER=admin
+PLAYWRIGHT_TEST_PASSWORD=your_app_password
+```
+
+CI (GitHub Actions) için repo **Secrets** tanımlayın: `PLAYWRIGHT_TEST_USER`, `PLAYWRIGHT_TEST_PASSWORD`. Ayrıntı: [TEST_VE_LINT_KOMUTLARI.md](TEST_VE_LINT_KOMUTLARI.md).
+
+## 💾 Veritabanı yedekleme
+
+Yedek script: `node scripts/backup-database.js` — `data/erp.db` → `data/backups/erp_YYYY-MM-DD_HH-mm-ss.db`.
+
+**Zamanlanmış yedek (Windows Görev Zamanlayıcı):** Günlük çalıştırmak için bir görev oluşturun; komut: `node`, bağımsız değişken: `C:\super-erp\scripts\backup-database.js`, başlangıç: `C:\super-erp`.
+
+**Zamanlanmış yedek (Linux/Mac cron):** `0 2 * * * cd /path/to/super-erp && node scripts/backup-database.js`
+
+**Yedek rotasyonu:** 7 günden eski yedekleri silmek için: `node scripts/rotate-backups.js`. İsteğe bağlı: `--days=14` ile 14 gün tutulabilir. Yedek görevinin ardından çalıştırılması önerilir.
+
 ## 🔍 Değişken Kontrolü
 
 ```powershell

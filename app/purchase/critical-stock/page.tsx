@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle, Download, ShoppingCart, RefreshCw, Package } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 interface CriticalMaterial {
   id: string
@@ -42,7 +43,7 @@ export default function CriticalStockPage() {
       setMaterials(data)
     } catch (error) {
       console.error('Error loading critical materials:', error)
-      alert('Kritik stok listesi yüklenirken hata oluştu')
+      toast.error('Kritik stok listesi yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }
@@ -174,7 +175,7 @@ export default function CriticalStockPage() {
       doc.save(fileName)
     } catch (error) {
       console.error('PDF export error:', error)
-      alert('PDF oluşturulurken hata oluştu')
+      toast.error('PDF oluşturulurken hata oluştu')
     } finally {
       setExporting(false)
     }

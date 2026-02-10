@@ -3,51 +3,66 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useForm, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, X } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { useAuthStore } from '@/lib/store/authStore'
+import { accountSchemas } from '@/lib/validation/schemas'
+import type { z } from 'zod'
+
+type AccountFormData = z.infer<typeof accountSchemas.create>
+
+const defaultValues: AccountFormData = {
+  name: '',
+  type: 'customer',
+  tax_number: '',
+  phone: '',
+  email: '',
+  address: '',
+  risk_limit: undefined,
+  discount_rate: undefined,
+  authorized_person_name: '',
+  authorized_person_phone: '',
+}
 
 export default function NewAccountPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(false)
   const userId = useAuthStore((state) => state.user?.id ?? null)
-  const [formData, setFormData] = useState({
-    name: '',
-    type: 'customer',
-    tax_number: '',
-    phone: '',
-    email: '',
-    address: '',
-    risk_limit: '',
-    discount_rate: '',
-    authorized_person_name: '',
-    authorized_person_phone: '',
+  const [loading, setLoading] = useState(false)
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<AccountFormData>({
+    resolver: zodResolver(accountSchemas.create) as Resolver<AccountFormData>,
+    defaultValues,
   })
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function onValid(data: AccountFormData) {
     setLoading(true)
-
     try {
-      const riskLimitValue = formData.risk_limit.trim() === '' ? null : Number(formData.risk_limit)
-      const discountRateValue = formData.discount_rate.trim() === '' ? null : Number(formData.discount_rate)
       await fetchApi('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
-          risk_limit: Number.isFinite(riskLimitValue as number) ? riskLimitValue : null,
-          discount_rate: Number.isFinite(discountRateValue as number) ? discountRateValue : null,
-          authorized_person_name: formData.authorized_person_name.trim() || null,
-          authorized_person_phone: formData.authorized_person_phone.trim() || null,
-          created_by: userId
+          name: data.name,
+          type: data.type,
+          tax_number: data.tax_number || null,
+          phone: data.phone || null,
+          email: data.email || null,
+          address: data.address || null,
+          risk_limit: data.risk_limit ?? null,
+          discount_rate: data.discount_rate ?? null,
+          authorized_person_name: data.authorized_person_name || null,
+          authorized_person_phone: data.authorized_person_phone || null,
+          created_by: userId,
         }),
       })
-
       router.push('/accounts')
-    } catch (error: any) {
-      let errorMessage = error.message || 'Bilinmeyen hata'
-      // Hata mesajını Türkçe'ye çevir
+    } catch (error: unknown) {
+      let errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
       if (errorMessage.includes('no such column')) {
         errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
       } else if (errorMessage.includes('UNIQUE constraint')) {
@@ -57,7 +72,7 @@ export default function NewAccountPage() {
       } else if (errorMessage.includes('NOT NULL')) {
         errorMessage = 'Zorunlu alanlar eksik.'
       }
-      alert('Hata: ' + errorMessage)
+      toast.error('Hata: ' + errorMessage)
     } finally {
       setLoading(false)
     }
@@ -73,19 +88,22 @@ export default function NewAccountPage() {
         <p className="text-gray-400 mt-1">Müşteri veya tedarikçi ekleyin</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-6">
+      <form onSubmit={handleSubmit(onValid)} className="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
             Ad/Ünvan <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            {...register('name')}
+            aria-invalid={!!errors.name}
+            aria-describedby={errors.name ? 'name-error' : undefined}
+            className={`w-full px-4 py-2 bg-gray-800 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.name ? 'border-red-500' : 'border-gray-700'}`}
             placeholder="Müşteri veya tedarikçi adı"
           />
+          {errors.name && (
+            <p id="name-error" className="mt-1 text-sm text-red-400">{errors.name.message}</p>
+          )}
         </div>
 
         <div>
@@ -93,14 +111,16 @@ export default function NewAccountPage() {
             Tip <span className="text-red-400">*</span>
           </label>
           <select
-            value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-            required
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            {...register('type')}
+            aria-invalid={!!errors.type}
+            className={`w-full px-4 py-2 bg-gray-800 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.type ? 'border-red-500' : 'border-gray-700'}`}
           >
             <option value="customer">Müşteri</option>
             <option value="supplier">Tedarikçi</option>
           </select>
+          {errors.type && (
+            <p className="mt-1 text-sm text-red-400">{errors.type.message}</p>
+          )}
         </div>
 
         <div>
@@ -111,11 +131,14 @@ export default function NewAccountPage() {
             type="number"
             min="0"
             step="0.01"
-            value={formData.risk_limit}
-            onChange={(e) => setFormData({ ...formData, risk_limit: e.target.value })}
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            {...register('risk_limit')}
+            aria-invalid={!!errors.risk_limit}
+            className={`w-full px-4 py-2 bg-gray-800 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.risk_limit ? 'border-red-500' : 'border-gray-700'}`}
             placeholder="Örn: 100000"
           />
+          {errors.risk_limit && (
+            <p className="mt-1 text-sm text-red-400">{errors.risk_limit.message}</p>
+          )}
         </div>
 
         <div>
@@ -124,8 +147,7 @@ export default function NewAccountPage() {
           </label>
           <input
             type="text"
-            value={formData.tax_number}
-            onChange={(e) => setFormData({ ...formData, tax_number: e.target.value })}
+            {...register('tax_number')}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Vergi numarası veya TC kimlik no"
           />
@@ -137,8 +159,7 @@ export default function NewAccountPage() {
           </label>
           <input
             type="tel"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            {...register('phone')}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Telefon numarası"
           />
@@ -150,11 +171,15 @@ export default function NewAccountPage() {
           </label>
           <input
             type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            {...register('email')}
+            aria-invalid={!!errors.email}
+            aria-describedby={errors.email ? 'email-error' : undefined}
+            className={`w-full px-4 py-2 bg-gray-800 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.email ? 'border-red-500' : 'border-gray-700'}`}
             placeholder="E-posta adresi"
           />
+          {errors.email && (
+            <p id="email-error" className="mt-1 text-sm text-red-400">{errors.email.message}</p>
+          )}
         </div>
 
         <div>
@@ -162,9 +187,8 @@ export default function NewAccountPage() {
             Adres
           </label>
           <textarea
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             rows={3}
+            {...register('address')}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Adres bilgisi"
           />
@@ -179,11 +203,14 @@ export default function NewAccountPage() {
             min="0"
             max="100"
             step="0.01"
-            value={formData.discount_rate}
-            onChange={(e) => setFormData({ ...formData, discount_rate: e.target.value })}
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            {...register('discount_rate')}
+            aria-invalid={!!errors.discount_rate}
+            className={`w-full px-4 py-2 bg-gray-800 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.discount_rate ? 'border-red-500' : 'border-gray-700'}`}
             placeholder="Örn: 5.00"
           />
+          {errors.discount_rate && (
+            <p className="mt-1 text-sm text-red-400">{errors.discount_rate.message}</p>
+          )}
         </div>
 
         <div>
@@ -192,8 +219,7 @@ export default function NewAccountPage() {
           </label>
           <input
             type="text"
-            value={formData.authorized_person_name}
-            onChange={(e) => setFormData({ ...formData, authorized_person_name: e.target.value })}
+            {...register('authorized_person_name')}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Yetkili kişi adı"
           />
@@ -205,8 +231,7 @@ export default function NewAccountPage() {
           </label>
           <input
             type="tel"
-            value={formData.authorized_person_phone}
-            onChange={(e) => setFormData({ ...formData, authorized_person_phone: e.target.value })}
+            {...register('authorized_person_phone')}
             className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="Yetkili kişi telefonu"
           />

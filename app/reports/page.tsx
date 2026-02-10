@@ -1,12 +1,22 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Download } from 'lucide-react'
+import Link from 'next/link'
+import { Download, TrendingUp, Package, Receipt, Factory } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+
+const REPORT_LINKS = [
+  { href: '/reports#stok', label: 'Stok Özeti', icon: Package, desc: 'Malzeme ve ürün stok durumu' },
+  { href: '/reports/sales-summary', label: 'Satış Özeti', icon: TrendingUp, desc: 'Tarih aralığına göre satışlar' },
+  { href: '/reports/stock-movements', label: 'Stok Hareketleri', icon: Package, desc: 'Giriş/çıkış hareketleri' },
+  { href: '/reports/aging', label: 'Cari Yaşlandırma', icon: Receipt, desc: 'Alacak yaşlandırma raporu' },
+  { href: '/reports/production', label: 'Üretim Verimliliği', icon: Factory, desc: 'Üretim emirleri özeti' },
+]
 
 type StockSummary = {
   summary: {
@@ -59,7 +69,7 @@ export default function ReportsPage() {
   async function downloadExcel() {
     const response = await fetch('/api/reports/stock-summary/export')
     if (!response.ok) {
-      alert('Excel oluşturulamadı')
+      toast.error('Excel oluşturulamadı')
       return
     }
     const blob = await response.blob()
@@ -73,7 +83,7 @@ export default function ReportsPage() {
 
   function downloadPdf() {
     if (!data) {
-      alert('Rapor verisi bulunamadı')
+      toast.warning('Rapor verisi bulunamadı')
       return
     }
 
@@ -132,7 +142,7 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold text-white">Raporlar</h1>
             <LogoWithBackground size="sm" />
           </div>
-          <p className="text-gray-400 mt-1">Stok özet raporu</p>
+          <p className="text-gray-400 mt-1">Rapor türünü seçin</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -228,6 +238,28 @@ export default function ReportsPage() {
               )}
             </div>
           </div>
+
+          <section className="mt-8">
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Diğer raporlar</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {REPORT_LINKS.filter((l) => l.href !== '/reports#stok').map((link) => {
+                const Icon = link.icon
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="bg-gray-900 rounded-lg border border-gray-800 p-4 hover:border-blue-500/50 transition flex items-start gap-3"
+                  >
+                    <Icon className="w-6 h-6 text-blue-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-white">{link.label}</p>
+                      <p className="text-sm text-gray-500">{link.desc}</p>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
         </>
       )}
     </div>

@@ -4,7 +4,7 @@ const STATIC_ASSETS = [
   '/',
   '/offline',
   '/logo.png',
-  '/manifest.webmanifest',
+  '/manifest',
 ]
 
 if (isLocalhost) {

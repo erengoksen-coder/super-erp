@@ -5,6 +5,7 @@ import { Plus, X, ClipboardList } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
 
 type Account = {
@@ -98,11 +99,11 @@ export default function SalesOrdersPage() {
     e.preventDefault()
     const validItems = form.items.filter((item) => item.product_id && item.quantity && item.unit_price)
     if (!form.customer_id) {
-      alert('Müşteri seçilmelidir')
+      toast.warning('Müşteri seçilmelidir')
       return
     }
     if (validItems.length === 0) {
-      alert('En az bir ürün eklemelisiniz')
+      toast.warning('En az bir ürün eklemelisiniz')
       return
     }
     setSaving(true)
@@ -133,9 +134,9 @@ export default function SalesOrdersPage() {
       })
       setShowModal(false)
       await mutate()
-      alert('✅ Satış siparişi kaydedildi')
+      toast.success('Satış siparişi kaydedildi')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSaving(false)
     }

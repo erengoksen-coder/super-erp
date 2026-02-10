@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const requiredEnv = [
   'NEXT_PUBLIC_SUPABASE_URL',
@@ -15,36 +15,32 @@ const missing = requiredEnv.filter((key) => !process.env[key])
 const describeIf = missing.length === 0 ? describe : describe.skip
 
 describeIf('RLS Policies - Production Orders', () => {
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  let supabaseAdmin: SupabaseClient
+  let user1Client: SupabaseClient
+  let user2Client: SupabaseClient
+  let user1Id: string
 
-  const user1Client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  beforeAll(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    supabaseAdmin = createClient(url, serviceKey)
+    user1Client = createClient(url, anonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${process.env.RLS_TEST_USER1_TOKEN}`,
         },
       },
-    }
-  )
-
-  const user2Client = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+    })
+    user2Client = createClient(url, anonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${process.env.RLS_TEST_USER2_TOKEN}`,
         },
       },
-    }
-  )
-
-  const user1Id = process.env.RLS_TEST_USER1_ID!
+    })
+    user1Id = process.env.RLS_TEST_USER1_ID!
+  })
 
   let productId: string | null = null
   let orderId: string | null = null

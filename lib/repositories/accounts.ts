@@ -83,6 +83,36 @@ export const accountsRepo = {
     return db.prepare(query).all(...params) as AccountRow[]
   },
 
+  getPage(type: string | null | undefined, limit: number, offset: number): { rows: AccountRow[]; total: number } {
+    const db = getDatabase()
+    const params: string[] = []
+    let where = ' WHERE a.deleted_at IS NULL'
+    if (type) {
+      where += ' AND a.type = ?'
+      params.push(type)
+    }
+    const countRow = db.prepare(`
+      SELECT COUNT(*) as total FROM accounts a ${where}
+    `).get(...params) as CountRow
+    const total = countRow?.count ?? 0
+    const query = `
+      SELECT 
+        a.*,
+        creator.full_name as created_by_name,
+        creator.username as created_by_username,
+        updater.full_name as updated_by_name,
+        updater.username as updated_by_username
+      FROM accounts a
+      LEFT JOIN users creator ON a.created_by = creator.id
+      LEFT JOIN users updater ON a.updated_by = updater.id
+      ${where}
+      ORDER BY a.code ASC
+      LIMIT ? OFFSET ?
+    `
+    const rows = db.prepare(query).all(...params, limit, offset) as AccountRow[]
+    return { rows, total }
+  },
+
   getById(id: string): AccountRow | undefined {
     const db = getDatabase()
     return db.prepare(`
@@ -110,7 +140,7 @@ export const accountsRepo = {
     return row?.code || null
   },
 
-  insert(account: AccountInsert) {
+  insert(account: AccountInsert): { id: string; code: string } {
     const db = getDatabase()
     
     // Tüm gerekli kolonların varlığını kontrol et ve yoksa ekle
@@ -193,7 +223,7 @@ export const accountsRepo = {
     }
   },
 
-  update(id: string, update: AccountUpdate) {
+  update(id: string, update: AccountUpdate): void {
     const db = getDatabase()
     
     // Tüm gerekli kolonların varlığını kontrol et ve yoksa ekle

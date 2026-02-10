@@ -15,6 +15,7 @@ import GlobalBarcodeListener from '@/components/GlobalBarcodeListener'
 import { ThemeProvider } from '@/lib/theme'
 import ScrollToTop from '@/components/ScrollToTop'
 import MainShell from '@/components/MainShell'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import SuppressHydrationWarnings from './suppress-hydration-warnings'
 import { Toaster } from 'sonner'
 
@@ -23,7 +24,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'LIVASOFA - Süper ERP',
   description: 'Koltuk Üretim Yönetim Sistemi',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest',
 }
 
 export default function RootLayout({
@@ -48,7 +49,9 @@ export default function RootLayout({
                 <Toaster richColors position="top-right" closeButton />
                 <SidebarProvider>
                   <Sidebar />
-                  <MainShell>{children}</MainShell>
+                  <MainShell>
+                    <ErrorBoundary>{children}</ErrorBoundary>
+                  </MainShell>
                 </SidebarProvider>
               </AuthGuard>
           </SWRProvider>

@@ -139,10 +139,14 @@ interface ListWidgetProps {
     statusColor?: 'primary' | 'success' | 'warning' | 'error'
     avatar?: React.ReactNode
     actions?: React.ReactNode
+    /** Tıklanınca detay sayfasına gitmek için kullanılır (örn. order_id) */
+    href?: string
   }>
   loading?: boolean
   empty?: string
   className?: string
+  /** Satıra tıklanınca (item) => void; href varsa veya onItemClick verilirse satır tıklanabilir olur */
+  onItemClick?: (item: { id: string; title: string; subtitle?: string; status?: string; href?: string }) => void
 }
 
 export const ListWidget = ({
@@ -150,7 +154,8 @@ export const ListWidget = ({
   items,
   loading = false,
   empty = 'Veri bulunamadı',
-  className
+  className,
+  onItemClick,
 }: ListWidgetProps) => {
   if (loading) {
     return (
@@ -185,8 +190,13 @@ export const ListWidget = ({
           <div className="space-y-3">
             {items.map((item) => (
               <div
-                key={item.id}
-                className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 transition-colors duration-150"
+                key={item.id + (item.status || '')}
+                role={onItemClick || item.href ? 'button' : undefined}
+                onClick={onItemClick ? () => onItemClick(item) : item.href ? undefined : undefined}
+                className={cn(
+                  'flex items-center space-x-3 p-3 rounded-lg transition-colors duration-150',
+                  (onItemClick || item.href) && 'cursor-pointer hover:bg-gray-50'
+                )}
               >
                 {item.avatar && (
                   <div className="flex-shrink-0">

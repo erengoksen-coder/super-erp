@@ -2,17 +2,12 @@
   "preset": "ts-jest/presets/default-esm",
   "testEnvironment": "jsdom",
   "setupFilesAfterEnv": ["<rootDir>/tests/setup.ts"],
-  "modulePathIgnorePatterns": ["<rootDir>/.next/", "<rootDir>/node_modules/"],
-  "testMatch": [
-    "<rootDir>/tests/**/*.{test,spec}.{js,ts,jsx,tsx}",
-    "<rootDir>/__tests__/**/*.{test,spec}.{js,ts,jsx,tsx}"
-  ],
-  "collectCoverageFrom": [
-    "lib/**/*.{js,ts,jsx,tsx}",
-    "!**/*.d.ts",
-    "!**/node_modules/**",
-    "!**/.next/**"
-  ],
+  "modulePathIgnorePatterns": ["<rootDir>/.next/", "<rootDir>/node_modules/", "<rootDir>/testsprite_tests/"],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/$1"
+  },
+  "testMatch": ["<rootDir>/tests/**/*.{test,spec}.{js,ts,jsx,tsx}", "<rootDir>/__tests__/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+  "collectCoverageFrom": ["lib/**/*.{js,ts,jsx,tsx}", "!**/*.d.ts", "!**/node_modules/**", "!**/.next/**"],
   "coverageThreshold": {
     "global": {
       "branches": 70,
@@ -22,11 +17,6 @@
     }
   },
   "transform": {
-    "^.+\\.(ts|tsx)$": ["ts-jest", {
-      "useESM": true,
-      "tsconfig": {
-        "jsx": "react-jsx"
-      }
-    }]
+    "^.+\\.(ts|tsx)$": ["ts-jest", { "useESM": true, "tsconfig": { "jsx": "react-jsx" } }]
   }
 }

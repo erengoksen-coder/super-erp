@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 
 interface Product {
   id: string
@@ -713,7 +714,7 @@ export default function NewProductionOrderPage() {
             allAvailable: false,
             insufficientItems: [],
           })
-          alert(`Bu ürün için reçete (BOM) bulunamadı: ${productInfo}\n\nLütfen önce ürün reçetesini oluşturun.`)
+          toast.warning(`Bu ürün için reçete (BOM) bulunamadı: ${productInfo}. Lütfen önce ürün reçetesini oluşturun.`)
           return
         }
       }
@@ -819,7 +820,7 @@ export default function NewProductionOrderPage() {
         allAvailable: false,
         insufficientItems: [],
       })
-      alert('BOM yüklenirken hata oluştu: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'))
+      toast.error('BOM yüklenirken hata oluştu: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'))
     }
   }
 
@@ -850,7 +851,7 @@ export default function NewProductionOrderPage() {
   async function handleStartProduction() {
     const hasSelectedOrders = selectedOrderIds.size > 0 || Boolean(selectedOrderId)
     if (!hasSelectedOrders && (!selectedProductId || quantity <= 0)) {
-      alert('Lütfen ürün ve miktar seçin')
+      toast.warning('Lütfen ürün ve miktar seçin')
       return
     }
 
@@ -891,7 +892,7 @@ export default function NewProductionOrderPage() {
           alertMessage += `\n\n❌ Hatalar:\n${result.errors.join('\n')}`
         }
         
-        alert(alertMessage)
+        toast.warning(alertMessage)
         setSelectedOrderIds(new Set())
         setSelectedOrderId('')
         setSelectedProductId('')
@@ -900,7 +901,7 @@ export default function NewProductionOrderPage() {
         setStockCheck(null)
         router.push('/production')
       } catch (error: any) {
-        alert('Hata: ' + error.message)
+        toast.error('Hata: ' + error.message)
       } finally {
         setLoading(false)
       }
@@ -920,7 +921,7 @@ export default function NewProductionOrderPage() {
       const bomData = await bomResponse.json()
       
       if (!bomData || bomData.length === 0) {
-        alert('Bu ürün için reçete (BOM) bulunamadı. Lütfen önce ürün reçetesini oluşturun.')
+        toast.warning('Bu ürün için reçete (BOM) bulunamadı. Lütfen önce ürün reçetesini oluşturun.')
         setLoading(false)
         return
       }
@@ -1004,11 +1005,11 @@ export default function NewProductionOrderPage() {
       }
 
       const result = await response.json()
-      alert('✅ Üretim emri oluşturuldu ve stoklar otomatik düşüldü!')
+      toast.success('Üretim emri oluşturuldu ve stoklar otomatik düşüldü!')
       router.push('/production')
     } catch (error: any) {
       console.error('Üretim emri oluşturulurken hata:', error)
-      alert('Hata: ' + (error.message || 'Üretim emri oluşturulamadı'))
+      toast.error('Hata: ' + (error.message || 'Üretim emri oluşturulamadı'))
     } finally {
       setLoading(false)
     }
@@ -1647,12 +1648,12 @@ export default function NewProductionOrderPage() {
                       alertMessage += `\n\n❌ Hatalar:\n${result.errors.join('\n')}`
                     }
                     
-                    alert(alertMessage)
+                    toast.warning(alertMessage)
                     setSelectedOrderIds(new Set())
                     setBomCheckResults([])
                     router.push('/production')
                   } catch (error: any) {
-                    alert('Hata: ' + error.message)
+                    toast.error('Hata: ' + error.message)
                   } finally {
                     setConverting(false)
                   }

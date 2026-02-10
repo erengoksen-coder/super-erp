@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { NextRequest } from 'next/server'
 
-const defaultBodySchema = z.record(z.unknown())
+const defaultBodySchema = z.record(z.string(), z.unknown())
 
 export class ApiValidationError extends Error {
   status = 400

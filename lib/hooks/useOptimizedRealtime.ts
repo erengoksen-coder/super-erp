@@ -91,7 +91,7 @@ export function useOptimizedRealtime<T>(
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table },
-        (payload) => {
+        (payload: { eventType: string; new?: unknown; old?: unknown }) => {
           if (debounce > 0) {
             if (debounceRef.current) {
               clearTimeout(debounceRef.current)
@@ -105,7 +105,7 @@ export function useOptimizedRealtime<T>(
           applyUpdate(payload)
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (status === 'TIMED_OUT') {
           supabase.removeChannel(channel)
           fetchData()

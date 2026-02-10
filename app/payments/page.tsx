@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
 
 type Account = {
@@ -76,7 +77,7 @@ export default function PaymentsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.account_id || !form.amount) {
-      alert('Cari hesap ve tutar zorunludur')
+      toast.warning('Cari hesap ve tutar zorunludur')
       return
     }
     setSaving(true)
@@ -104,9 +105,9 @@ export default function PaymentsPage() {
         notes: ''
       })
       await mutate()
-      alert('✅ Ödeme kaydedildi')
-    } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.success('Ödeme kaydedildi')
+    } catch (error: unknown) {
+      toast.error('Hata: ' + (error instanceof Error ? error.message : 'İşlem başarısız'))
     } finally {
       setSaving(false)
     }

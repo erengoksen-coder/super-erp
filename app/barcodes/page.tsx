@@ -8,6 +8,7 @@ import { getAuthHeaders } from '@/lib/api/client'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { isDepodaStatus } from '@/lib/barcodeStatus'
 import { usePolling } from '@/lib/hooks/usePolling'
+import { toast } from '@/lib/notify'
 
 interface Barcode {
   id: string
@@ -191,11 +192,12 @@ export default function BarcodesPage() {
                 html5QrcodeScanner.clear()
                 qrScannerRef.current = null
               } else {
-                alert('Barkod bulunamadı')
+                toast.warning('Barkod bulunamadı')
               }
-            } catch (e: any) {
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : 'Bilinmeyen hata'
               console.error('QR kod okuma hatası:', e)
-              alert('QR kod okunamadı: ' + (e.message || 'Bilinmeyen hata'))
+              toast.error('QR kod okunamadı: ' + msg)
             }
           },
           (errorMessage: string) => {
@@ -213,7 +215,7 @@ export default function BarcodesPage() {
         }
       }).catch((error) => {
         console.error('html5-qrcode yükleme hatası:', error)
-        alert('QR kod tarayıcı yüklenemedi')
+        toast.error('QR kod tarayıcı yüklenemedi')
         setShowQRScanner(false)
       })
     } else if (!showQRScanner && qrScannerRef.current) {
@@ -242,8 +244,14 @@ export default function BarcodesPage() {
         credentials: 'include',
       })
       if (!response.ok) {
+        if (response.status === 401) {
+          // AuthGuard zaten oturum doğruluyor; 401 tek endpoint'ten gelebilir (geçici/race). Yönlendirme yapma.
+          setBarcodes([])
+          setLoading(false)
+          return
+        }
         const errBody = await response.json().catch(() => ({}))
-        const msg = (errBody as any)?.error || (response.status === 401 ? 'Oturum süresi dolmuş olabilir, tekrar giriş yapın.' : 'Barkodlar yüklenemedi')
+        const msg = (errBody as any)?.error || 'Barkodlar yüklenemedi'
         throw new Error(msg)
       }
       const data = await response.json()
@@ -266,10 +274,11 @@ export default function BarcodesPage() {
         berjer: { label: 'Berjer Aşamasında', className: 'bg-orange-900 text-orange-300' },
         montaj: { label: 'Montaj Aşamasında', className: 'bg-orange-900 text-orange-300' },
         sevkiyat: { label: 'Sevkiyat Aşamasında', className: 'bg-orange-900 text-orange-300' },
+        completed: { label: 'Tamamlandı', className: 'bg-green-900 text-green-300' },
       }
       const stationKey = barcode.current_station.toLowerCase()
       const stationInfo = stationMap[stationKey] || { 
-        label: `${barcode.current_station} Aşamasında`, 
+        label: `${stationKey} Aşamasında`, 
         className: 'bg-orange-900 text-orange-300' 
       }
       return (
@@ -485,9 +494,9 @@ export default function BarcodesPage() {
                   const data = await res.json()
                   setBarcodes([])
                   loadBarcodes()
-                  alert(data?.message || 'Üretim emri olmayan kayıtlar kaldırıldı.')
-                } catch (e: any) {
-                  alert('Hata: ' + (e.message || 'İşlem yapılamadı'))
+                  toast.success(data?.message || 'Üretim emri olmayan kayıtlar kaldırıldı.')
+                } catch (e: unknown) {
+                  toast.error('Hata: ' + (e instanceof Error ? e.message : 'İşlem yapılamadı'))
                 }
               }}
               className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center justify-center space-x-2"
@@ -505,9 +514,9 @@ export default function BarcodesPage() {
                   const data = await res.json()
                   setBarcodes([])
                   loadBarcodes()
-                  alert(data?.message || 'Barkodlar silindi.')
-                } catch (e: any) {
-                  alert('Hata: ' + (e.message || 'Barkodlar silinemedi'))
+                  toast.success(data?.message || 'Barkodlar silindi.')
+                } catch (e: unknown) {
+                  toast.error('Hata: ' + (e instanceof Error ? e.message : 'Barkodlar silinemedi'))
                 }
               }}
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center justify-center space-x-2"

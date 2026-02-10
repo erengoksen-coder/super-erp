@@ -8,6 +8,7 @@ import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 
 interface Product {
   id: string
@@ -241,7 +242,7 @@ export default function BOMPage() {
 
   async function handleSave() {
     if (!productName.trim()) {
-      alert('Lütfen ürün adı girin')
+      toast.warning('Lütfen ürün adı girin')
       return
     }
 
@@ -270,7 +271,7 @@ export default function BOMPage() {
         productId = newProduct.id
         await ensureVersionId(productId)
       } catch (error: any) {
-        alert('Hata: ' + error.message)
+        toast.error('Hata: ' + error.message)
         return
       }
     }
@@ -279,7 +280,7 @@ export default function BOMPage() {
     const validMaterials = materialList.filter(m => m.material_id && m.quantity && parseFloat(m.quantity) > 0)
     
     if (validMaterials.length === 0) {
-      alert('Lütfen en az bir malzeme ekleyin')
+      toast.warning('Lütfen en az bir malzeme ekleyin')
       return
     }
 
@@ -328,7 +329,7 @@ export default function BOMPage() {
         throw new Error(errors.join(', '))
       }
 
-      alert(`✅ ${validMaterials.length} adet BOM kaydı başarıyla oluşturuldu!`)
+      toast.success(`${validMaterials.length} adet BOM kaydı başarıyla oluşturuldu!`)
       setShowAddForm(false)
       setSelectedProduct('')
       setProductName('')
@@ -336,7 +337,7 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + (error?.message || 'BOM kaydı oluşturulamadı'))
+      toast.error('Hata: ' + (error?.message || 'BOM kaydı oluşturulamadı'))
     }
   }
 
@@ -360,10 +361,10 @@ export default function BOMPage() {
         throw new Error(error.error || 'BOM kaydı silinemedi')
       }
 
-      alert('✅ BOM kaydı silindi!')
+      toast.success('BOM kaydı silindi!')
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -387,10 +388,10 @@ export default function BOMPage() {
         throw new Error(error.error || 'BOM kayıtları silinemedi')
       }
 
-      alert('✅ Ürünün tüm BOM kayıtları silindi!')
+      toast.success('Ürünün tüm BOM kayıtları silindi!')
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -443,7 +444,7 @@ export default function BOMPage() {
 
   async function handleUpdate(bomId: string) {
     if (!selectedProduct || !selectedMaterial || !quantity || parseFloat(quantity) <= 0) {
-      alert('Lütfen tüm alanları doldurun ve miktarı pozitif girin')
+      toast.warning('Lütfen tüm alanları doldurun ve miktarı pozitif girin')
       return
     }
 
@@ -473,7 +474,7 @@ export default function BOMPage() {
         }),
       })
 
-      alert('✅ BOM kaydı güncellendi!')
+      toast.success('BOM kaydı güncellendi!')
       setShowAddForm(false)
       setEditingItem(null)
       setSelectedProduct('')
@@ -485,21 +486,21 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
+      toast.error('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
     }
   }
 
   async function handleUpdateProductBOM(productId: string) {
     // Ürünün tüm BOM kayıtlarını güncelle
     if (!selectedProduct) {
-      alert('Lütfen ürün seçin')
+      toast.warning('Lütfen ürün seçin')
       return
     }
 
     const validMaterials = materialList.filter(m => m.material_id && m.quantity && parseFloat(m.quantity) > 0)
     
     if (validMaterials.length === 0) {
-      alert('Lütfen en az bir malzeme ekleyin')
+      toast.warning('Lütfen en az bir malzeme ekleyin')
       return
     }
 
@@ -549,7 +550,7 @@ export default function BOMPage() {
         throw new Error(errors.join(', '))
       }
 
-      alert(`✅ ${validMaterials.length} adet BOM kaydı güncellendi!`)
+      toast.success(`${validMaterials.length} adet BOM kaydı güncellendi!`)
       setShowAddForm(false)
       setEditingProduct(null)
       setSelectedProduct('')
@@ -558,7 +559,7 @@ export default function BOMPage() {
       setMaterialList([{ material_id: '', quantity: '', fire_percentage: '0', unit_price: '0', unit: '' }])
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
+      toast.error('Hata: ' + (error?.message || 'BOM kaydı güncellenemedi'))
     }
   }
 

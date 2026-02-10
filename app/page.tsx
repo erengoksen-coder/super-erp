@@ -19,13 +19,15 @@ import {
   Heart,
   MoreHorizontal,
   Plus,
-  Activity
+  Activity,
+  FileDown
 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { fetchApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
+import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
 import { StatWidget, ChartWidget, ListWidget } from '@/components/widgets/Widget'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -80,55 +82,72 @@ export default function DashboardPage() {
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [planning, setPlanning] = useState<PlanningOrder[]>([])
-  const [planningData, setPlanningData] = useState<{ orders?: PlanningOrder[]; total_cards?: number } | null>(null)
+  const [planningData, setPlanningData] = useState<{
+    orders?: PlanningOrder[]
+    total_cards?: number
+    active_cards?: Array<{ order_id: string; order_number: string; product_name: string; quantity: number; station: string; station_label: string; card_count: number }>
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const [criticalList, setCriticalList] = useState<CriticalMaterial[]>([])
   const user = useAuthStore((state) => state.user)
 
   useEffect(() => {
-    loadStats()
-    loadPlanning()
-    loadCriticalStock()
-    const interval = setInterval(() => {
-      loadStats()
-      loadPlanning()
-      loadCriticalStock()
-    }, 30000)
-    return () => clearInterval(interval)
+    let mounted = true
+    const ac = new AbortController()
+    const load = () => {
+      if (!mounted) return
+      loadStats(ac.signal)
+      loadPlanning(ac.signal)
+      loadCriticalStock(ac.signal)
+    }
+    load()
+    const interval = setInterval(load, 30000)
+    return () => {
+      mounted = false
+      ac.abort()
+      clearInterval(interval)
+    }
   }, [])
 
-  async function loadCriticalStock() {
+  async function loadCriticalStock(signal?: AbortSignal) {
     try {
-      const data = await fetchApi<CriticalMaterial[]>('/api/purchase/critical-stock')
+      const data = await fetchApi<CriticalMaterial[]>('/api/purchase/critical-stock', { signal })
+      if (signal?.aborted) return
       setCriticalList(Array.isArray(data) ? data : [])
-    } catch {
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return
       setCriticalList([])
     }
   }
 
-  async function loadPlanning() {
+  async function loadPlanning(signal?: AbortSignal) {
     try {
-      const data = await fetchApi<PlanningOrder[] | { orders?: PlanningOrder[]; total_cards?: number }>('/api/production/planning')
+      const data = await fetchApi<PlanningOrder[] | { orders?: PlanningOrder[]; total_cards?: number; active_cards?: Array<{ order_id: string; order_number: string; product_name: string; quantity: number; station: string; station_label: string; card_count: number }> }>('/api/production/planning', { signal })
+      if (signal?.aborted) return
       if (Array.isArray(data)) {
         setPlanning(data)
         setPlanningData(null)
       } else {
-        setPlanning(data?.orders ?? [])
-        setPlanningData(data as { orders?: PlanningOrder[]; total_cards?: number })
+        setPlanning((data as any)?.orders ?? [])
+        setPlanningData(data as typeof planningData)
       }
-    } catch (error) {
-      console.error('Error loading planning:', error)
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return
+      setPlanning([])
+      setPlanningData(null)
     }
   }
 
-  async function loadStats() {
+  async function loadStats(signal?: AbortSignal) {
     try {
-      const data = await fetchApi('/api/dashboard/stats')
+      const data = await fetchApi('/api/dashboard/stats', { signal })
+      if (signal?.aborted) return
       setStats(data as DashboardStats)
-    } catch (error) {
-      console.error('Error loading stats:', error)
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return
+      setStats(null)
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }
 
@@ -173,12 +192,40 @@ export default function DashboardPage() {
 
   const userName = user?.full_name || user?.username || ''
   const [showWelcome, setShowWelcome] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const permissions = user?.permissions ?? []
+  const canViewInventory = isAdminRole(user?.role) || canAccessPath(permissions, '/inventory/materials', 'view') || canAccessPath(permissions, '/inventory/products', 'view')
+  const canViewProduction = isAdminRole(user?.role) || canAccessPath(permissions, '/production', 'view')
+  const canViewOrders = isAdminRole(user?.role) || canAccessPath(permissions, '/orders', 'view')
+
+  async function handleExportExcel() {
+    setExporting(true)
+    try {
+      const res = await fetch('/api/dashboard/export', { credentials: 'include' })
+      if (!res.ok) throw new Error('Export başarısız')
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Dashboard_Ozet_${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      // toast or silent
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowWelcome(false)
-    }, 5000)
-    return () => clearTimeout(timer)
+    let timeoutId: ReturnType<typeof setTimeout>
+    const rafId = requestAnimationFrame(() => {
+      timeoutId = setTimeout(() => setShowWelcome(false), 5000)
+    })
+    return () => {
+      cancelAnimationFrame(rafId)
+      clearTimeout(timeoutId!)
+    }
   }, [])
 
   return (
@@ -188,6 +235,10 @@ export default function DashboardPage() {
       icon={Activity}
       actions={
         <>
+          <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={exporting}>
+            <FileDown className="w-4 h-4 mr-2" />
+            {exporting ? 'İndiriliyor...' : 'Excel İndir'}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => router.push('/production/calendar')}>
             <Calendar className="w-4 h-4 mr-2" />
             Plan
@@ -296,39 +347,45 @@ export default function DashboardPage() {
         </CardBody>
       </Card>
 
-      {/* 2. Realtime Overview - Stok / Üretim / Sipariş */}
+      {/* 2. Realtime Overview - Stok / Üretim / Sipariş (yetkiye göre gösterilir) */}
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card
-            className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-            onClick={() => router.push('/inventory')}
-          >
-            <CardHeader title="📦 Stok Durumu" />
-            <CardBody>
-              <StockRealtime />
-            </CardBody>
-          </Card>
+          {canViewInventory && (
+            <Card
+              className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
+              onClick={() => router.push('/inventory/materials')}
+            >
+              <CardHeader title="📦 Stok Durumu" />
+              <CardBody>
+                <StockRealtime />
+              </CardBody>
+            </Card>
+          )}
 
-          <Card
-            className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-            onClick={() => router.push('/production')}
-          >
-            <CardHeader title="🏭 Üretim Durumu" />
-            <CardBody>
-              <ProductionRealtime />
-            </CardBody>
-          </Card>
+          {canViewProduction && (
+            <Card
+              className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
+              onClick={() => router.push('/production')}
+            >
+              <CardHeader title="🏭 Üretim Durumu" />
+              <CardBody>
+                <ProductionRealtime />
+              </CardBody>
+            </Card>
+          )}
         </div>
 
-        <Card
-          className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-          onClick={() => router.push('/orders')}
-        >
-          <CardHeader title="🛒 Sipariş Takibi" />
-          <CardBody>
-            <OrdersRealtime />
-          </CardBody>
-        </Card>
+        {canViewOrders && (
+          <Card
+            className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
+            onClick={() => router.push('/orders')}
+          >
+            <CardHeader title="🛒 Sipariş Takibi" />
+            <CardBody>
+              <OrdersRealtime />
+            </CardBody>
+          </Card>
+        )}
       </div>
 
       {/* Charts Row */}
@@ -406,18 +463,29 @@ export default function DashboardPage() {
         </ChartWidget>
       </div>
 
-      {/* Lists Row - Aktif Üretim Emirleri & Kritik Stoklar */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Lists Row - Aktif kartlar: 2 adet (Aktif Üretim Emirleri + Kritik Stoklar) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-label="2 kart: Aktif Üretim Emirleri ve Kritik Stoklar">
         <ListWidget
-          title={`Aktif Üretim Emirleri${planningData?.total_cards ? ` (${planningData.total_cards} kart)` : planning?.length ? ` (${planning.length} emir)` : ''}`}
-          items={planning?.slice(0, 5).map((order: PlanningOrder) => ({
-            id: order.id,
-            title: order.order_number,
-            subtitle: `${order.product_name} - ${order.quantity} adet`,
-            status: order.current_station,
-            statusColor: 'warning'
-          })) || []}
+          title={`Aktif Üretim Emirleri${planningData?.total_cards != null ? ` (${planningData.total_cards} kart)` : planning?.length ? ` (${planning.length} emir)` : ''}`}
+          items={
+            (planningData?.active_cards?.length
+              ? planningData.active_cards.slice(0, 10).map((ac) => ({
+                  id: ac.order_id,
+                  title: ac.order_number,
+                  subtitle: `${ac.product_name} - ${ac.card_count} adet`,
+                  status: ac.station_label,
+                  statusColor: 'warning' as const,
+                }))
+              : planning?.slice(0, 5).map((order: PlanningOrder) => ({
+                  id: order.id,
+                  title: order.order_number,
+                  subtitle: `${order.product_name} - ${order.quantity} adet`,
+                  status: order.current_station || '',
+                  statusColor: 'warning' as const,
+                }))) || []
+          }
           loading={loading}
+          onItemClick={(item) => router.push(`/production/${item.id}`)}
         />
         <ListWidget
           title="Kritik Stoklar"

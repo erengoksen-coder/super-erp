@@ -159,7 +159,31 @@ export const POST = withAuth(async (
         )
       }
     })()
-    
+
+    const { dispatchWebhook } = await import('@/lib/webhooks/dispatch')
+    void dispatchWebhook('shipment.approved', {
+      shipment_id: shipmentId,
+      shipment_number: shipmentNumber,
+      approved_by: user.userId,
+      approved_at: now,
+    })
+
+    // Müşteriye e-posta bildirimi (SMTP yoksa log)
+    const customer = db.prepare('SELECT id, name, email FROM accounts WHERE id = ? AND deleted_at IS NULL').get(shipment.customer_id) as { id: string; name: string; email: string | null } | undefined
+    if (customer?.email) {
+      const { sendEmail } = await import('@/lib/notifications/send')
+      const { fillTemplate, emailTemplates } = await import('@/lib/notifications/templates')
+      const finalAmount = (shipment.final_amount ?? 0).toFixed(2)
+      const subject = fillTemplate(emailTemplates.shipmentApproved.subject, { shipmentNumber })
+      const text = fillTemplate(emailTemplates.shipmentApproved.text, { customerName: customer.name, shipmentNumber, finalAmount })
+      const html = fillTemplate(emailTemplates.shipmentApproved.html, { customerName: customer.name, shipmentNumber, finalAmount })
+      sendEmail({ to: customer.email, subject, text, html }).then((r) => {
+        if (!r.ok) {
+          import('@/lib/api/logger').then(({ apiLogger }) => apiLogger.warn('Sevkiyat e-posta gönderilemedi', { to: customer.email, error: r.error }))
+        }
+      }).catch(() => {})
+    }
+
     return ok({ message: 'Sevkiyat başarıyla onaylandı' })
   } catch (error: any) {
     return fail(error.message || 'Onay işlemi başarısız', { status: 500 })

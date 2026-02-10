@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Factory, RefreshCw, PlusCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
 
 type ProductionOrder = {
@@ -78,7 +79,7 @@ export default function WorkOrdersPage() {
 
   async function handleCreateWorkOrder() {
     if (!selectedProductionOrder) {
-      alert('Lütfen üretim emri seçin')
+      toast.warning('Lütfen üretim emri seçin')
       return
     }
     setCreating(true)
@@ -98,7 +99,7 @@ export default function WorkOrdersPage() {
       setNotes('')
       await loadData()
     } catch (error: any) {
-      alert(error?.message || 'İş emri oluşturulamadı')
+      toast.error(error?.message || 'İş emri oluşturulamadı')
     } finally {
       setCreating(false)
     }
@@ -125,7 +126,7 @@ export default function WorkOrdersPage() {
       })
       await handleSelectWorkOrder(workOrderDetail.id)
     } catch (error: any) {
-      alert(error?.message || 'Operasyon güncellenemedi')
+      toast.error(error?.message || 'Operasyon güncellenemedi')
     }
   }
 

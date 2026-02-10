@@ -15,6 +15,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         psn.id as barcode_id,
         psn.barcode,
         psn.serial_number,
+        psn.shipment_id,
         psn.status as barcode_status,
         psn.created_at as barcode_created_at,
         p.id as product_id,
@@ -44,13 +45,85 @@ export const GET = withAuth(async (request: NextRequest) => {
       LEFT JOIN accounts a ON psn.customer_id = a.id
       WHERE psn.status IN (${statusList})
         AND p.id IS NOT NULL
-        AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
-      ORDER BY po.completed_at DESC, psn.created_at DESC
+      ORDER BY (CASE WHEN (psn.shipment_id IS NULL OR psn.shipment_id = '') THEN 0 ELSE 1 END), po.completed_at DESC, psn.created_at DESC
     `).all(...DEPODA_STATUSES) as any[]
     
     console.log(`[Warehouse API] Found ${warehouseItems.length} items in warehouse`)
     
     return NextResponse.json(warehouseItems)
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+})
+
+// DELETE: Mamül depodaki tek bir ürünü (barkod kaydını) sil
+export const DELETE = withAuth(async (request: NextRequest) => {
+  try {
+    const { searchParams } = new URL(request.url)
+    const barcodeId = searchParams.get('barcode_id') // product_serial_numbers.id
+    const barcode = searchParams.get('barcode')
+
+    if (!barcodeId && !barcode) {
+      return NextResponse.json(
+        { error: 'barcode_id veya barcode parametresi gerekli' },
+        { status: 400 }
+      )
+    }
+
+    const db = getDatabase()
+
+    const row = barcodeId
+      ? (db.prepare(`
+          SELECT id, product_id, status, shipment_id
+          FROM product_serial_numbers
+          WHERE id = ?
+        `).get(barcodeId) as { id: string; product_id: string; status: string | null; shipment_id: string | null } | undefined)
+      : (db.prepare(`
+          SELECT id, product_id, status, shipment_id
+          FROM product_serial_numbers
+          WHERE barcode = ? OR serial_number = ?
+        `).get(barcode, barcode) as { id: string; product_id: string; status: string | null; shipment_id: string | null } | undefined)
+
+    if (!row) {
+      return NextResponse.json({ error: 'Mamül depoda bu barkod bulunamadı' }, { status: 404 })
+    }
+
+    if (row.shipment_id && row.shipment_id.trim() !== '') {
+      return NextResponse.json(
+        { error: 'Bu ürün zaten sevk edilmiş, silinemez' },
+        { status: 400 }
+      )
+    }
+
+    const statusOk = ['in_stock', 'available', ''].includes((row.status || '').trim()) || !row.status
+    if (!statusOk) {
+      return NextResponse.json(
+        { error: 'Sadece mamül depodaki (depoda/sevke hazır) ürünler silinebilir' },
+        { status: 400 }
+      )
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM product_serial_numbers WHERE id = ?').run(row.id)
+      try {
+        db.prepare(`
+          UPDATE products
+          SET stock_amount = MAX(0, COALESCE(stock_amount, 0) - 1),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(row.product_id)
+      } catch (e: any) {
+        if (e?.message?.includes('no such column: updated_at')) {
+          db.prepare(`
+            UPDATE products
+            SET stock_amount = MAX(0, COALESCE(stock_amount, 0) - 1)
+            WHERE id = ?
+          `).run(row.product_id)
+        } else throw e
+      }
+    })()
+
+    return NextResponse.json({ success: true, message: 'Mamül depodan ürün silindi' })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

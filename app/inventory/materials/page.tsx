@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Package, AlertTriangle, ArrowDown, ArrowUp, ShoppingCart, Filter, Edit, Trash2, Save, X, History as HistoryIcon, Clock, RefreshCw } from 'lucide-react'
+import { Plus, Package, AlertTriangle, ArrowDown, ArrowUp, ShoppingCart, Filter, Edit, Trash2, Save, X, History as HistoryIcon, Clock, RefreshCw, Download } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
+import { getAuthHeaders, fetchApi } from '@/lib/api/fetch'
+import { toast } from '@/lib/notify'
 
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
@@ -49,6 +51,7 @@ export default function MaterialsInventoryPage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü')
   const [categorySearch, setCategorySearch] = useState<string>('')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     loadMaterials()
@@ -81,12 +84,12 @@ export default function MaterialsInventoryPage() {
           })
         }
         
-        alert(message)
+        toast.warning(message)
       }
     } catch (error: any) {
       console.error('Stoklar yeniden hesaplanırken hata:', error)
       if (showAlert) {
-        alert('Hata: ' + (error.message || 'Stoklar yeniden hesaplanamadı'))
+        toast.error('Hata: ' + (error.message || 'Stoklar yeniden hesaplanamadı'))
       }
     } finally {
       setLoading(false)
@@ -115,15 +118,15 @@ export default function MaterialsInventoryPage() {
       const result = await response.json()
       
       if (result.created > 0) {
-        alert(`✅ ${result.created} kumaş malzemesi başarıyla oluşturuldu!${result.skipped > 0 ? `\n\n${result.skipped} malzeme atlandı (zaten mevcut).` : ''}`)
+        toast.success(`${result.created} kumaş malzemesi başarıyla oluşturuldu!${result.skipped > 0 ? `\n\n${result.skipped} malzeme atlandı (zaten mevcut).` : ''}`)
         // Malzemeleri yeniden yükle
         await loadMaterials()
       } else {
-        alert(`ℹ️ Yeni malzeme oluşturulmadı.${result.skipped > 0 ? `\n\n${result.skipped} malzeme zaten mevcut.` : ''}`)
+        toast.info(`Yeni malzeme oluşturulmadı.${result.skipped > 0 ? `\n\n${result.skipped} malzeme zaten mevcut.` : ''}`)
       }
     } catch (error: any) {
       console.error('Kumaş malzemeleri oluşturulurken hata:', error)
-      alert(`❌ Hata: ${error.message}`)
+      toast.error(`Hata: ${error.message}`)
     } finally {
       setCreatingFromOrders(false)
     }
@@ -144,13 +147,13 @@ export default function MaterialsInventoryPage() {
 
   async function handleStockIn() {
     if (!selectedMaterial || stockInQuantity <= 0) {
-      alert('Lütfen hammadde ve miktar seçin')
+      toast.warning('Lütfen hammadde ve miktar seçin')
       return
     }
 
     // Fatura no veya sevk no zorunlu
     if (!stockInInvoiceNumber.trim() && !stockInShipmentNumber.trim()) {
-      alert('Lütfen Fatura No veya Sevk No girin (en az biri zorunludur)')
+      toast.warning('Lütfen Fatura No veya Sevk No girin (en az biri zorunludur)')
       return
     }
 
@@ -172,7 +175,7 @@ export default function MaterialsInventoryPage() {
         throw new Error(error.error || 'Stok girişi yapılamadı')
       }
 
-      alert('✅ Stok girişi başarıyla yapıldı!')
+      toast.success('Stok girişi başarıyla yapıldı!')
       setShowStockIn(false)
       setStockInQuantity(0)
       setStockInInvoiceNumber('')
@@ -180,13 +183,13 @@ export default function MaterialsInventoryPage() {
       setSelectedMaterial('')
       loadMaterials()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
   async function handleStockOut() {
     if (!selectedMaterial || stockOutQuantity <= 0) {
-      alert('Lütfen hammadde ve miktar seçin')
+      toast.warning('Lütfen hammadde ve miktar seçin')
       return
     }
 
@@ -208,13 +211,13 @@ export default function MaterialsInventoryPage() {
       }
 
       const result = await response.json()
-      alert(`✅ Stok çıkışı başarıyla yapıldı! Yeni stok: ${result.new_stock}`)
+      toast.success(`Stok çıkışı başarıyla yapıldı! Yeni stok: ${result.new_stock}`)
       setShowStockOut(false)
       setStockOutQuantity(0)
       setSelectedMaterial('')
       loadMaterials()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -256,11 +259,11 @@ export default function MaterialsInventoryPage() {
         throw new Error(error.error || 'Malzeme güncellenemedi')
       }
 
-      alert('✅ Malzeme başarıyla güncellendi!')
+      toast.success('Malzeme başarıyla güncellendi!')
       setEditingMaterial(null)
       loadMaterials()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -270,19 +273,30 @@ export default function MaterialsInventoryPage() {
     }
 
     try {
-      const response = await fetch(`/api/materials/${materialId}`, {
+      const response = await fetch(`/api/materials/${encodeURIComponent(materialId)}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
       })
 
+      if (response.status === 404) {
+        await loadMaterials()
+        toast.info('Malzeme bulunamadı veya zaten silinmiş. Liste güncellendi.')
+        return
+      }
+
       if (!response.ok) {
-        const error = await response.json()
+        const error = await response.json().catch(() => ({}))
         throw new Error(error.error || 'Malzeme silinemedi')
       }
 
-      alert('✅ Malzeme başarıyla silindi!')
-      loadMaterials()
+      // Listeyi önbelleği atlayarak taze çek; silinen malzeme ekrandan gitsin
+      const fresh = await fetchApi<Material[] | unknown>(`/api/materials?_=${Date.now()}`)
+      setMaterials(Array.isArray(fresh) ? (fresh as Material[]) : [])
+
+      toast.success('Malzeme başarıyla silindi!')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -302,7 +316,7 @@ export default function MaterialsInventoryPage() {
         throw new Error('Hareket geçmişi yüklenemedi')
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
       setMovementHistory([])
     } finally {
       setLoadingHistory(false)
@@ -317,7 +331,7 @@ export default function MaterialsInventoryPage() {
     try {
       const material = materials.find(m => m.id === materialId)
       if (!material) {
-        alert('Malzeme bulunamadı')
+        toast.warning('Malzeme bulunamadı')
         setCreatingPurchase(null)
         return
       }
@@ -328,7 +342,7 @@ export default function MaterialsInventoryPage() {
       const requestedQuantity = Math.max(requiredQuantity * 2, material.min_stock_level)
 
       if (requestedQuantity <= 0) {
-        alert('Talep edilecek miktar hesaplanamadı')
+        toast.warning('Talep edilecek miktar hesaplanamadı')
         setCreatingPurchase(null)
         return
       }
@@ -350,10 +364,10 @@ export default function MaterialsInventoryPage() {
       }
 
       const data = await response.json()
-      alert(`✅ Satın alma talebi oluşturuldu!\nTalep No: ${data.request?.request_number || 'Yok'}\nMiktar: ${requestedQuantity.toFixed(2)} ${material.unit}`)
+      toast.success(`Satın alma talebi oluşturuldu!\nTalep No: ${data.request?.request_number || 'Yok'}\nMiktar: ${requestedQuantity.toFixed(2)} ${material.unit}`)
     } catch (error: any) {
       console.error('Satın alma talebi hatası:', error)
-      alert('Hata: ' + (error.message || 'Satın alma talebi oluşturulamadı'))
+      toast.error('Hata: ' + (error.message || 'Satın alma talebi oluşturulamadı'))
     } finally {
       setCreatingPurchase(null)
     }
@@ -397,7 +411,34 @@ export default function MaterialsInventoryPage() {
             </div>
             <p className="text-gray-400 mt-1">Hammadde stokları ve giriş işlemleri</p>
           </div>
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={async () => {
+                setExporting(true)
+                try {
+                  const res = await fetch('/api/materials/export', { credentials: 'include', headers: getAuthHeaders() })
+                  if (!res.ok) throw new Error('Export başarısız')
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `malzeme_listesi_${new Date().toISOString().split('T')[0]}.xlsx`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  toast.success('Excel dosyası indirildi')
+                } catch (e: any) {
+                  toast.error(e?.message || 'Excel indirilemedi')
+                } finally {
+                  setExporting(false)
+                }
+              }}
+              disabled={exporting}
+              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Malzeme listesini Excel olarak indir"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden md:inline">{exporting ? 'İndiriliyor...' : 'Excel İndir'}</span>
+            </button>
             <button
               onClick={() => recalculateStocks(true)}
               disabled={loading}
@@ -470,9 +511,9 @@ export default function MaterialsInventoryPage() {
                 if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
                 const data = await res.json()
                 await loadMaterials()
-                alert(data?.message || 'Malzemeler silindi.')
+                toast.success(data?.message || 'Malzemeler silindi.')
               } catch (e: any) {
-                alert('Hata: ' + (e.message || 'Malzemeler silinemedi'))
+                toast.error('Hata: ' + (e instanceof Error ? e.message : 'Malzemeler silinemedi'))
               }
             }}
             className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-4 py-2 rounded-lg transition inline-flex items-center space-x-2 text-sm md:text-base touch-manipulation"

@@ -1,4 +1,10 @@
-version: "3.9"
+# Süper ERP - Production (tek komutla ayağa kalkma)
+# Kullanım:
+#   1. .env dosyasında JWT_SECRET ve isteğe bağlı DATABASE_PATH tanımlayın (bkz. .env.example)
+#   2. docker-compose up -d --build
+# Veritabanı ./data dizininde kalıcı olarak saklanır.
+
+version: '3.8'
 
 services:
   app:
@@ -6,36 +12,14 @@ services:
       context: .
       dockerfile: docker/app/Dockerfile
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     environment:
-      NODE_ENV: production
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_PATH=${DATABASE_PATH:-/app/data/erp.db}
+      - PORT=3000
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
-
-  worker:
-    build:
-      context: .
-      dockerfile: docker/worker/Dockerfile
-    environment:
-      NODE_ENV: production
-      WORKER_COMMAND: "node -e \"console.log('Set WORKER_COMMAND to run a job')\""
-    profiles:
-      - jobs
-
-  db:
-    build:
-      context: .
-      dockerfile: docker/db/Dockerfile
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: super_erp
-      POSTGRES_USER: super_erp
-      POSTGRES_PASSWORD: super_erp
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    profiles:
-      - db
-
-volumes:
-  postgres_data:
+    restart: unless-stopped

@@ -52,12 +52,12 @@ export const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(({
     <div ref={ref} className={cn('flex items-center justify-between mb-4', className)} {...props}>
       <div className="flex-1">
         {title && (
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
             {title}
           </h3>
         )}
         {subtitle && (
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-base font-medium text-gray-600 dark:text-white mt-1">
             {subtitle}
           </p>
         )}

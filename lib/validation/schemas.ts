@@ -35,7 +35,7 @@ export const commonSchemas = {
       return v
     })
     .pipe(z.enum(['admin', 'user', 'manager', 'viewer'], {
-      errorMap: () => ({ message: 'Geçersiz rol. Lütfen Kullanıcı, Yönetici, Görüntüleyici veya Admin seçin.' }),
+      message: 'Geçersiz rol. Lütfen Kullanıcı, Yönetici, Görüntüleyici veya Admin seçin.',
     })),
 }
 
@@ -195,6 +195,25 @@ export const productSchemas = {
       .optional(),
     unit_cost: commonSchemas.price.optional(),
     selling_price: commonSchemas.price.optional(),
+  }),
+}
+
+// Account (cari hesap) validation schemas
+export const accountSchemas = {
+  create: z.object({
+    name: z.string()
+      .min(1, 'Ad/Ünvan zorunludur')
+      .max(200, 'Ad/Ünvan en fazla 200 karakter olabilir')
+      .transform((s) => s.trim()),
+    type: z.enum(['customer', 'supplier'], { message: 'Tip müşteri veya tedarikçi olmalı' }),
+    tax_number: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(50).optional()),
+    phone: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(50).optional()),
+    email: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().email('Geçersiz e-posta').max(100).optional()),
+    address: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(500).optional()),
+    risk_limit: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().min(0).max(999999999).optional()),
+    discount_rate: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().min(0).max(100).optional()),
+    authorized_person_name: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(100).optional()),
+    authorized_person_phone: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(50).optional()),
   }),
 }
 

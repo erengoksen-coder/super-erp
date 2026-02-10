@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Wrench } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 
 type Operation = {
   id: string
@@ -46,7 +47,7 @@ export default function OperationsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) {
-      alert('Operasyon adı zorunludur')
+      toast.warning('Operasyon adı zorunludur')
       return
     }
     setSaving(true)
@@ -79,7 +80,7 @@ export default function OperationsPage() {
       setEditingId(null)
       await loadOperations()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -105,7 +106,7 @@ export default function OperationsPage() {
       }
       await loadOperations()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 

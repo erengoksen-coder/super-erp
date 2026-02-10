@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Package, QrCode, Download } from 'lucide-react'
+import { toast } from '@/lib/notify'
 
 interface Material {
   id: string
@@ -46,7 +47,7 @@ export default function MaterialQRPage() {
       generateQRCode(qrData)
     } catch (error) {
       console.error('Error loading material:', error)
-      alert('Malzeme yüklenirken hata oluştu')
+      toast.error('Malzeme yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }

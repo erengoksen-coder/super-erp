@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Users, Building2, Edit, Trash2, X } from 'lucide-react'
+import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
@@ -43,7 +43,9 @@ export default function AccountsPage() {
   const [filterType, setFilterType] = useState<string>('all')
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
-  const userId = useAuthStore((state) => state.user?.id ?? null)
+  const user = useAuthStore((state) => state.user)
+  const userId = user?.id ?? null
+  const isBayi = (user?.role ?? '').toString().trim().toLowerCase() === 'bayi'
   const [editForm, setEditForm] = useState({
     name: '',
     type: 'customer',
@@ -56,6 +58,7 @@ export default function AccountsPage() {
     authorized_person_name: '',
     authorized_person_phone: ''
   })
+  const [applyDiscountToShipments, setApplyDiscountToShipments] = useState(false)
 
   const accountsUrl = useMemo(() => (
     filterType === 'all'
@@ -84,38 +87,54 @@ export default function AccountsPage() {
     )
   })
 
-  function handleEdit(account: Account) {
-    // Sayfayı yukarı kaydır (işlem alanına)
-    setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }, 100)
+  async function handleEdit(account: Account) {
+    if (isBayi) return
     setEditingAccount(account)
-    setEditForm({
-      name: account.name,
-      type: account.type,
-      tax_number: account.tax_number || '',
-      phone: account.phone || '',
-      email: account.email || '',
-      address: account.address || '',
-      risk_limit: account.risk_limit ? String(account.risk_limit) : '',
-      discount_rate: account.discount_rate ? String(account.discount_rate) : '',
-      authorized_person_name: account.authorized_person_name || '',
-      authorized_person_phone: account.authorized_person_phone || ''
+    const fillForm = (a: Account) => ({
+      name: a.name,
+      type: a.type,
+      tax_number: a.tax_number || '',
+      phone: a.phone || '',
+      email: a.email || '',
+      address: a.address || '',
+      risk_limit: a.risk_limit != null ? String(a.risk_limit) : '',
+      discount_rate: a.discount_rate != null ? String(a.discount_rate) : '',
+      authorized_person_name: a.authorized_person_name || '',
+      authorized_person_phone: a.authorized_person_phone || ''
     })
+    setEditForm(fillForm(account))
     setShowEditModal(true)
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+    // Başka cihazda güncellenmiş veriyi göstermek için sunucudan güncel cari çek
+    try {
+      const res = await fetch(`/api/accounts/${account.id}`, { headers: getAuthHeaders(), credentials: 'include' })
+      if (res.ok) {
+        const json = await res.json()
+        const data = json?.data ?? json
+        if (data && typeof data === 'object') {
+          setEditForm(fillForm({ ...account, ...data }))
+        }
+      }
+    } catch {
+      // Ağ hatasında listedeki veri zaten dolu
+    }
   }
 
   async function handleUpdate() {
     if (!editingAccount) return
     
     try {
-      const response = await fetch(`/api/accounts/${editingAccount.id}`, {
+      const url = `/api/accounts/${editingAccount.id}${applyDiscountToShipments ? '?apply_discount_to_shipments=1' : ''}`
+      const rawDiscount = editForm.discount_rate.trim().replace(',', '.')
+      const discountRate = rawDiscount === '' ? null : (Number(rawDiscount) || null)
+      const response = await fetch(url, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
         body: JSON.stringify({
           ...editForm,
           risk_limit: editForm.risk_limit.trim() === '' ? null : Number(editForm.risk_limit),
-          discount_rate: editForm.discount_rate.trim() === '' ? null : Number(editForm.discount_rate),
+          discount_rate: discountRate,
           authorized_person_name: editForm.authorized_person_name.trim() || null,
           authorized_person_phone: editForm.authorized_person_phone.trim() || null,
           updated_by: userId
@@ -138,9 +157,10 @@ export default function AccountsPage() {
         throw new Error(errorMessage)
       }
       
-      toast.success('Cari hesap başarıyla güncellendi')
+      toast.success(applyDiscountToShipments ? 'Cari güncellendi; iskonto oranı sevkiyat fişlerine uygulandı.' : 'Cari hesap başarıyla güncellendi')
       setShowEditModal(false)
       setEditingAccount(null)
+      setApplyDiscountToShipments(false)
       await mutate()
     } catch (error: any) {
       let errorMessage = error.message || 'Bilinmeyen hata'
@@ -247,6 +267,33 @@ export default function AccountsPage() {
           <Trash2 size={20} />
           <span>Tüm Carileri Sil</span>
         </button>
+        {!isBayi && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const params = new URLSearchParams()
+                if (filterType !== 'all') params.set('type', filterType)
+                const res = await fetch(`/api/accounts/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
+                if (!res.ok) throw new Error(res.status === 403 ? 'Yetkiniz yok' : 'İndirme başarısız')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `cari_hesaplar_${new Date().toISOString().split('T')[0]}.xlsx`
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success('Excel dosyası indirildi')
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
+              }
+            }}
+            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition inline-flex items-center space-x-2"
+          >
+            <FileDown size={20} />
+            <span>Excel İndir</span>
+          </button>
+        )}
         <Link
           href="/accounts/new"
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
@@ -515,6 +562,15 @@ export default function AccountsPage() {
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                   placeholder="Örn: 5.00"
                 />
+                <label className="mt-2 flex items-center gap-2 cursor-pointer text-sm text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={applyDiscountToShipments}
+                    onChange={(e) => setApplyDiscountToShipments(e.target.checked)}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span>Bir seferlik: İskonto oranını bu carinin tüm sevkiyat fişlerine uygula</span>
+                </label>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -557,6 +613,7 @@ export default function AccountsPage() {
                   onClick={() => {
                     setShowEditModal(false)
                     setEditingAccount(null)
+                    setApplyDiscountToShipments(false)
                   }}
                   className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
                 >

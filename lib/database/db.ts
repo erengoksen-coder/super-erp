@@ -4,7 +4,7 @@
  */
 
 import Database from 'better-sqlite3'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { hashPassword } from '@/lib/auth/password'
 
@@ -16,11 +16,17 @@ export const DEFAULT_WAREHOUSE_ID = 'warehouse_default'
 const DEFAULT_WAREHOUSE_NAME = 'Ana Depo'
 const DEFAULT_WAREHOUSE_CODE = 'DEP-001'
 
-// Veritabanı dosyası proje klasöründe saklanır
-const dbPath = join(process.cwd(), 'data', 'erp.db')
-
-// Klasör yoksa oluştur
-const dataDir = join(process.cwd(), 'data')
+// Veritabanı yolu: DATABASE_PATH env (Docker/production) veya proje/data/erp.db
+function getDbPath(): string {
+  const envPath = process.env.DATABASE_PATH || process.env.DATABASE_URL
+  if (envPath) {
+    const p = envPath.replace(/^file:/i, '').trim()
+    if (p && p !== ':memory:') return p
+  }
+  return join(process.cwd(), 'data', 'erp.db')
+}
+const dbPath = getDbPath()
+const dataDir = dirname(dbPath)
 if (!existsSync(dataDir)) {
   mkdirSync(dataDir, { recursive: true })
 }
@@ -183,6 +189,16 @@ function initializeDatabase() {
     )
   `)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `)
+
   // Push Subscriptions
   db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -210,6 +226,12 @@ function initializeDatabase() {
   } catch {}
   try {
     db.exec('ALTER TABLE users ADD COLUMN last_activity TEXT')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN is_locked INTEGER DEFAULT 0')
+  } catch {}
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN dealer_name TEXT')
   } catch {}
   try {
     db.exec(`
@@ -395,6 +417,11 @@ function initializeDatabase() {
       'role_user',
       'user',
       'Standard user'
+    )
+    db.prepare('INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)').run(
+      'role_bayi',
+      'bayi',
+      'Bayi portal kullanıcısı (sadece kendi cari verileri)'
     )
   } catch {}
 
@@ -1122,6 +1149,7 @@ function initializeDatabase() {
     )
   `)
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_attendance_employee_date ON hr_attendance(employee_id, date)') } catch {}
+  try { db.exec('ALTER TABLE hr_attendance ADD COLUMN workplace_id TEXT') } catch {}
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS hr_payrolls (
@@ -2698,6 +2726,19 @@ function initializeDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (count_id) REFERENCES stock_counts(id) ON DELETE CASCADE,
       FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+
+  // Webhook endpoints (entegrasyon: olaylar için dış URL'lere POST)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_endpoints (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      events TEXT,
+      secret TEXT,
+      description TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
 

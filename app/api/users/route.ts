@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { apiLogger } from '@/lib/api/logger'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, getDatabase } from '@/lib/database/db'
 import { hashPassword } from '@/lib/auth/password'
 import { randomUUID } from 'crypto'
@@ -39,11 +40,13 @@ export const GET = withAuth(async (request: NextRequest) => {
         u.position,
         u.job_title,
         u.is_approved,
+        COALESCE(u.is_locked, 0) as is_locked,
         u.approved_by,
         u.approved_at,
         u.created_at,
         u.last_login,
         u.last_activity,
+        u.dealer_name,
         a.full_name as approved_by_name
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
@@ -52,7 +55,19 @@ export const GET = withAuth(async (request: NextRequest) => {
       ORDER BY u.created_at DESC
     `).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
-    const ONLINE_THRESHOLD_MS = 15 * 60 * 1000 // 15 dakika
+    const ONLINE_THRESHOLD_MS = 60 * 60 * 1000 // 1 saat (heartbeat ile güncellenir)
+
+    // SQLite CURRENT_TIMESTAMP UTC; JS'de UTC olarak oku (yerel saat yanlış çevrimdışı gösterebilir)
+    function parseActivityMs(val: string | null | undefined): number {
+      if (!val) return 0
+      const s = String(val).trim()
+      if (!s) return 0
+      const asUtc = s.length === 19 && s.includes(' ') && !s.endsWith('Z')
+        ? s.replace(' ', 'T') + 'Z'
+        : s
+      const ms = new Date(asUtc).getTime()
+      return Number.isFinite(ms) ? ms : 0
+    }
 
     // Her kullanıcı için izinleri ve çevrimiçi bilgisini ekle
     const usersWithPermissions = users.map((user: any) => {
@@ -62,8 +77,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         WHERE user_id = ? AND company_id = ? AND branch_id = ?
       `).all(user.id, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
-      const activityAt = user.last_activity || user.last_login
-      const activityMs = activityAt ? new Date(activityAt).getTime() : 0
+      const activityMs = parseActivityMs(user.last_activity || user.last_login)
       const is_online = activityMs > 0 && Date.now() - activityMs < ONLINE_THRESHOLD_MS
 
       return {
@@ -74,8 +88,10 @@ export const GET = withAuth(async (request: NextRequest) => {
     })
 
     return NextResponse.json(usersWithPermissions)
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Users API GET failed'
+    apiLogger.error('Users API GET failed', { message, path: request.nextUrl.pathname })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }, ['admin'])
 
@@ -83,7 +99,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await parseJsonBody(request)
-    const { username, email, password, full_name, job_title, role, position, is_approved, permissions } = body
+    const { username, email, password, full_name, job_title, role, position, is_approved, permissions, dealer_name } = body
 
     if (!username || !password) {
       return NextResponse.json(
@@ -118,8 +134,8 @@ export const POST = withAuth(async (request: NextRequest) => {
       const roleId = getRoleId(roleName)
 
       db.prepare(`
-        INSERT INTO users (id, username, email, password_hash, full_name, role, position, job_title, is_approved, company_id, branch_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, username, email, password_hash, full_name, role, position, job_title, is_approved, company_id, branch_id, dealer_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         username,
@@ -131,7 +147,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         job_title || null,
         is_approved ? 1 : 0,
         DEFAULT_COMPANY_ID,
-        DEFAULT_BRANCH_ID
+        DEFAULT_BRANCH_ID,
+        (dealer_name != null && String(dealer_name).trim() !== '') ? String(dealer_name).trim() : null
       )
 
       db.prepare(`
@@ -194,8 +211,10 @@ export const POST = withAuth(async (request: NextRequest) => {
         is_approved: is_approved ? 1 : 0,
       },
     })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Users API POST failed'
+    apiLogger.error('Users API POST failed', { message, path: request.nextUrl.pathname })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }, ['admin'])
 

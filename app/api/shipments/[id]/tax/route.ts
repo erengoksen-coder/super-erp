@@ -86,10 +86,10 @@ export const PATCH = withAuth(async (
       }>
 
       for (const item of items) {
-        // Kalem bazında iskonto ve KDV hesapla
-        const itemTotal = item.total_price || 0
-        const itemDiscountAmount = (itemTotal * discountRate) / 100
-        const itemAmountAfterDiscount = itemTotal - itemDiscountAmount
+        // total_price kalemde cari iskontosu uygulanmış tutar (iskonto sonrası, KDV öncesi)
+        const itemAmountAfterDiscount = item.total_price || 0
+        const itemTotalBeforeDiscount = (item.unit_price || 0) * (item.quantity || 0)
+        const itemDiscountAmount = itemTotalBeforeDiscount - itemAmountAfterDiscount
         const itemTaxAmount = amountAfterDiscount > 0 ? (itemAmountAfterDiscount / amountAfterDiscount) * newTaxAmount : 0
         const itemFinalAmount = itemAmountAfterDiscount + itemTaxAmount
 
@@ -97,7 +97,7 @@ export const PATCH = withAuth(async (
         const transaction = db.prepare(`
           SELECT * FROM account_transactions 
           WHERE reference_id = ? AND reference_type = 'shipment_item'
-        `).get(item.id)
+        `).get(item.id) as { id: string } | undefined
 
         if (transaction) {
           // Açıklamayı güncelle

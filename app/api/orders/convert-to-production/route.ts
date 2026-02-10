@@ -7,6 +7,7 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
 import { generateProductionOrderNumber } from '@/lib/utils/codeGenerator'
 import { logger } from '@/lib/utils/logger'
+import { dispatchWebhook } from '@/lib/webhooks/dispatch'
 
 // POST: Siparişleri üretim emrine dönüştür
 export const POST = withAuth(async (request: NextRequest) => {
@@ -615,23 +616,29 @@ export const POST = withAuth(async (request: NextRequest) => {
         order_fabric_code: orderFabricCode
       })
       
-      // Siparişteki kumaş koduna göre hammadde depodan kumaşı bul
+      // Siparişteki kumaş koduna göre hammadde depodan kumaşı bul (sadece silinmemiş, ekrandaki ile aynı kayıt)
       let orderFabricMaterial: any = null
       if (orderFabricCode) {
-        // Hammadde depodan siparişteki kumaş koduna sahip malzemeyi bul
+        const fabricCodeLower = orderFabricCode.toLowerCase().trim()
+        // Önce tam eşleşme (name veya code), sonra LIKE; sadece deleted_at IS NULL
         orderFabricMaterial = db.prepare(`
           SELECT id, code, name, stock_amount, unit, category
           FROM materials
-          WHERE category = 'Kumaş' AND (
+          WHERE deleted_at IS NULL AND category = 'Kumaş' AND (
             LOWER(TRIM(name)) = ? OR 
-            LOWER(TRIM(name)) LIKE ? OR
-            LOWER(TRIM(code)) = ?
+            LOWER(TRIM(code)) = ? OR
+            LOWER(TRIM(name)) LIKE ?
           )
+          ORDER BY 
+            CASE WHEN LOWER(TRIM(name)) = ? OR LOWER(TRIM(code)) = ? THEN 0 ELSE 1 END,
+            stock_amount DESC
           LIMIT 1
         `).get(
-          orderFabricCode.toLowerCase().trim(),
-          `%${orderFabricCode.toLowerCase().trim()}%`,
-          orderFabricCode.toLowerCase().trim()
+          fabricCodeLower,
+          fabricCodeLower,
+          `%${fabricCodeLower}%`,
+          fabricCodeLower,
+          fabricCodeLower
         ) as any
         
         if (orderFabricMaterial) {
@@ -1270,6 +1277,15 @@ export const POST = withAuth(async (request: NextRequest) => {
         
         logger.info(`[TAMAMLANDI] Sipariş ${orderNumberToUpdate} başarıyla üretim emrine dönüştürüldü`, result)
         convertedOrders.push(result)
+        dispatchWebhook('production.started', {
+          production_order_id: productionOrderId,
+          production_order_number: orderNumber,
+          order_id: orderIdToUpdate,
+          order_number: orderNumberToUpdate,
+          product_id: order.product_id,
+          quantity: order.quantity,
+          started_at: now,
+        }).catch(() => {})
       } catch (error: any) {
         logger.error(`[HATA] Sipariş ${orderNumberToUpdate} dönüştürülürken hata`, {
           error_message: error.message,

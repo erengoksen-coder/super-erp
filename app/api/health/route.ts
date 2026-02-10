@@ -1,51 +1,48 @@
 import { NextRequest } from 'next/server'
-import { createSuccessResponse } from '@/lib/utils/errors'
 
-// Simple health check without dependencies
-export const GET = async (request: NextRequest) => {
-  try {
-    const { searchParams } = new URL(request.url)
-    const period = searchParams.get('period') || 'current'
-    const startDate = searchParams.get('startDate') || ''
-    const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0]
+const DEFAULT_PAGE_SIZE = 50
+const MAX_PAGE_SIZE = 500
 
-    // Mock health checks
-    const healthChecks = {
-      database: 'healthy',
-      api: 'healthy',
-      performance: 'healthy',
-      multiTenant: { healthy: true },
-      workflows: 'healthy'
-    }
+/**
+ * Sağlık kontrolü: veritabanı bağlantısı ve API yanıtı.
+ * Monitoring / load balancer için kullanılabilir.
+ */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const deep = searchParams.get('deep') === 'true'
 
-    const overallHealth = Object.values(healthChecks).every(status => 
-      typeof status === 'string' ? status === 'healthy' : status.healthy
-    )
-
-    return new Response(
-      JSON.stringify({
-        period,
-        startDate,
-        endDate,
-        checks: healthChecks,
-        overallHealth,
-        recommendations: overallHealth ? [] : ['Some checks failed']
-      }),
-      { 
-        status: 200, 
-        headers: { 'Content-Type': 'application/json' } 
-      }
-    )
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      }),
-      { 
-        status: 500, 
-        headers: { 'Content-Type': 'application/json' } 
-      }
-    )
+  const checks: Record<string, { status: string; detail?: string }> = {
+    api: { status: 'healthy' },
   }
+
+  if (deep) {
+    try {
+      const { getDatabase } = await import('@/lib/database/db')
+      const db = getDatabase()
+      db.prepare('SELECT 1').get()
+      checks.database = { status: 'healthy' }
+    } catch (e) {
+      checks.database = {
+        status: 'unhealthy',
+        detail: e instanceof Error ? e.message : 'Veritabanı bağlantı hatası',
+      }
+    }
+  } else {
+    checks.database = { status: 'healthy' }
+  }
+
+  const overallHealth = Object.values(checks).every((c) => c.status === 'healthy')
+  const status = overallHealth ? 200 : 503
+
+  return new Response(
+    JSON.stringify({
+      ok: overallHealth,
+      checks,
+      timestamp: new Date().toISOString(),
+    }),
+    {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  )
 }

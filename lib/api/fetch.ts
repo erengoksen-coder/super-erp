@@ -42,7 +42,7 @@ export function clearStoredAuthToken(): void {
 function getNgrokSkipHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   const h = window.location.hostname || ''
-  if (h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io')) {
+  if (h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io') || h.endsWith('ngrok-free.app')) {
     return { 'ngrok-skip-browser-warning': 'true' }
   }
   return {}
@@ -84,12 +84,13 @@ export async function fetchApi<T>(
   if (!response.ok) {
     if (response.status === 401) clearStoredAuthToken()
     if (isApiEnvelope<T>(payload) && payload.success === false) {
-      throw new Error(payload.error)
+      throw new Error(String(payload.error || 'Request failed'))
     }
     if (payload && typeof payload === 'object' && 'error' in payload) {
       throw new Error(String((payload as { error?: unknown }).error || 'Request failed'))
     }
-    throw new Error(response.statusText || 'Request failed')
+    const statusMsg = response.status ? ` (${response.status})` : ''
+    throw new Error(response.statusText ? `${response.statusText}${statusMsg}` : `Request failed${statusMsg}`)
   }
 
   if (isApiEnvelope<T>(payload)) {

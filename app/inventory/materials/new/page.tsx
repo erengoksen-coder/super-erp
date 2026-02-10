@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, X } from 'lucide-react'
+import { toast } from '@/lib/notify'
 
 interface Category {
   id: string
@@ -42,7 +43,7 @@ export default function NewMaterialPage() {
 
   async function handleCreateCategory() {
     if (!newCategoryName.trim()) {
-      alert('Kategori adı gerekli')
+      toast.warning('Kategori adı gerekli')
       return
     }
 
@@ -65,9 +66,9 @@ export default function NewMaterialPage() {
       setNewCategoryName('')
       setShowCategoryModal(false)
       loadCategories() // Kategorileri yeniden yükle
-      alert('✅ Kategori başarıyla oluşturuldu!')
+      toast.success('Kategori başarıyla oluşturuldu!')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -97,10 +98,10 @@ export default function NewMaterialPage() {
         throw new Error(error.error || 'Hammadde oluşturulamadı')
       }
 
-      alert('✅ Hammadde başarıyla oluşturuldu!')
+      toast.success('Hammadde başarıyla oluşturuldu!')
       router.push('/inventory/materials')
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setLoading(false)
     }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield, Circle } from 'lucide-react'
+import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield, Circle, KeyRound } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { isAdminRole } from '@/lib/auth/permissions-check'
@@ -20,11 +20,13 @@ interface User {
   position?: string
   job_title?: string
   is_approved: number
+  is_locked?: number
   approved_by?: string
   approved_at?: string
   created_at: string
   last_login?: string
   is_online?: boolean
+  dealer_name?: string | null
   permissions?: Array<{
     page_path: string
     can_view: number
@@ -86,6 +88,7 @@ const AVAILABLE_PAGES: PageOption[] = [
   { path: '/units/conversions', name: 'Birim Çevrimleri', category: 'Stok' },
   { path: '/settings', name: 'Ayarlar', category: 'Sistem' },
   { path: '/users', name: 'Kullanıcı Yönetimi', category: 'Sistem' },
+  { path: '/bayi', name: 'Bayi Portal (Yeni Sipariş Girme)', category: 'Bayi' },
   { path: '/hr', name: 'İnsan Kaynakları', category: 'İK' },
   { path: '/crm', name: 'CRM', category: 'Satış' },
   { path: '/fixed-assets', name: 'Sabit Kıymet', category: 'Finans' },
@@ -104,7 +107,9 @@ export default function UsersPage() {
     job_title: '',
     role: 'user',
     position: '',
+    dealer_name: '',
     is_approved: false,
+    is_locked: false,
   })
   const [selectedPermissions, setSelectedPermissions] = useState<Record<string, {
     can_view: boolean
@@ -112,9 +117,18 @@ export default function UsersPage() {
     can_edit: boolean
     can_delete: boolean
   }>>({})
+  const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null)
+  const [userListTab, setUserListTab] = useState<'all' | 'bayiler'>('all')
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const user = useAuthStore((state) => state.user)
   const router = useRouter()
+
+  const displayedUsers = userListTab === 'bayiler'
+    ? users.filter((u) => (u.role || '').toString().trim().toLowerCase() === 'bayi')
+    : users.filter((u) => (u.role || '').toString().trim().toLowerCase() !== 'bayi')
+
+  // Sadece admin rolü (yönetici değil) kullanıcı şifrelerini görebilir / sıfırlayabilir
+  const isStrictAdmin = (user?.role ?? '').toString().trim().toLowerCase() === 'admin'
 
   // Sadece admin/yönetici kullanıcılar sayfayı görebilir
   useEffect(() => {
@@ -126,12 +140,22 @@ export default function UsersPage() {
     }
   }, [user, router])
 
+  const userId = user?.id
   useEffect(() => {
     if (!user || !isAdminRole(user.role)) return
     loadUsers()
-  }, [user])
+  }, [userId])
 
-  // Rol değiştiğinde yönetici ise tüm izinleri otomatik aktif et
+  // Çevrimiçi durumu güncel kalsın: 1 dakikada bir listeyi yenile (form açıkken yenileme yapma, sayfa başa dönmesin)
+  useEffect(() => {
+    if (!user || !isAdminRole(user.role)) return
+    const t = setInterval(() => {
+      if (!showAddForm && !editingUserId) loadUsers()
+    }, 60 * 1000)
+    return () => clearInterval(t)
+  }, [userId, showAddForm, editingUserId])
+
+  // Rol değiştiğinde yönetici ise tüm izinleri otomatik aktif et; Bayi ise sadece Bayi portalı (gör + yeni sipariş + düzenle, silme yok)
   useEffect(() => {
     if (formData.role === 'yönetici' || formData.role === 'yonetici' || formData.role === 'admin') {
       const allPermissions: Record<string, {
@@ -151,6 +175,16 @@ export default function UsersPage() {
       })
       
       setSelectedPermissions(allPermissions)
+    } else if (formData.role === 'bayi') {
+      setFormData((prev) => ({ ...prev, position: 'bayi' }))
+      setSelectedPermissions({
+        '/bayi': {
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+        },
+      })
     }
   }, [formData.role])
 
@@ -179,7 +213,9 @@ export default function UsersPage() {
       job_title: user.job_title || '',
       role: user.role,
       position: (user as any).position || '',
+      dealer_name: (user as any).dealer_name || '',
       is_approved: user.is_approved === 1,
+      is_locked: (user as User).is_locked === 1,
     })
 
     // İzinleri yükle
@@ -211,7 +247,9 @@ export default function UsersPage() {
       job_title: '',
       role: 'user',
       position: '',
+      dealer_name: '',
       is_approved: false,
+      is_locked: false,
     })
     setSelectedPermissions({})
   }
@@ -225,6 +263,7 @@ export default function UsersPage() {
         const payload: Record<string, unknown> = {
           ...restForm,
           is_approved: formData.is_approved,
+          is_locked: (formData as { is_locked?: boolean }).is_locked,
           approved_by: formData.is_approved && !users.find(u => u.id === userId)?.is_approved ? currentUserId : undefined,
           permissions: Object.entries(selectedPermissions).map(([path, perms]) => ({
             page_path: path,
@@ -298,6 +337,34 @@ export default function UsersPage() {
       loadUsers()
     } catch (error: any) {
       toast.error(error.message || 'Silme işlemi başarısız')
+    }
+  }
+
+  async function handleResetPassword(u: User) {
+    const newPassword = window.prompt(`${u.username} için yeni şifre (en az 6 karakter):`)
+    if (newPassword == null) return
+    const trimmed = newPassword.trim()
+    if (trimmed.length < 6) {
+      toast.error('Şifre en az 6 karakter olmalıdır')
+      return
+    }
+    setResettingPasswordId(u.id)
+    try {
+      const response = await fetch(`/api/users/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: trimmed }),
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Şifre güncellenemedi')
+      }
+      toast.success('Şifre güncellendi')
+      toast.success(`Şifre sıfırlandı. Kullanıcı: ${u.username} — Yeni şifre: ${trimmed}. Bu şifreyi kullanıcıya iletin; bir kez gösterilir.`)
+    } catch (error: any) {
+      toast.error(error.message || 'Şifre sıfırlanamadı')
+    } finally {
+      setResettingPasswordId(null)
     }
   }
 
@@ -434,33 +501,46 @@ export default function UsersPage() {
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                {editingUserId ? 'Yeni Şifre (değiştirmek istemiyorsanız boş bırakın)' : 'Şifre *'}
-              </label>
-              <input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                required={!editingUserId}
-                minLength={6}
-              />
-              {editingUserId && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Şifreler güvenlik nedeniyle şifrelenmiş saklanır; görüntülenemez. Sadece yeni şifre belirleyebilirsiniz.
-                </p>
-              )}
-            </div>
+            {(isStrictAdmin || !editingUserId) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  {editingUserId ? 'Yeni Şifre (değiştirmek istemiyorsanız boş bırakın)' : 'Şifre *'}
+                </label>
+                <input
+                  type={editingUserId ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder={editingUserId ? 'Yeni şifre girince burada görünür' : ''}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  required={!editingUserId}
+                  minLength={6}
+                />
+                {editingUserId ? (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Mevcut şifre güvenlik nedeniyle görüntülenemez. Yeni şifre yazarsanız burada görünür; kaydedince kullanıcıya iletebilirsiniz. (Sadece admin)
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500">
+                    En az 6 karakter.
+                  </p>
+                )}
+              </div>
+            )}
+            {editingUserId && !isStrictAdmin && (
+              <p className="text-xs text-gray-500">Şifre değiştirmek için admin rolü gerekir.</p>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Rol *</label>
               <select
                 value={formData.role}
                 onChange={(e) => {
                   const newRole = e.target.value
-                  setFormData({ ...formData, role: newRole })
+                  setFormData((prev) => ({
+                    ...prev,
+                    role: newRole,
+                    position: newRole === 'bayi' ? 'bayi' : prev.position,
+                  }))
                   
-                  // Yönetici veya Admin seçildiğinde tüm izinleri otomatik aktif et
                   if (newRole === 'yönetici' || newRole === 'yonetici' || newRole === 'admin') {
                     const allPermissions: Record<string, {
                       can_view: boolean
@@ -468,7 +548,6 @@ export default function UsersPage() {
                       can_edit: boolean
                       can_delete: boolean
                     }> = {}
-                    
                     AVAILABLE_PAGES.forEach(page => {
                       allPermissions[page.path] = {
                         can_view: true,
@@ -477,8 +556,16 @@ export default function UsersPage() {
                         can_delete: true,
                       }
                     })
-                    
                     setSelectedPermissions(allPermissions)
+                  } else if (newRole === 'bayi') {
+                    setSelectedPermissions({
+                      '/bayi': {
+                        can_view: true,
+                        can_create: true,
+                        can_edit: true,
+                        can_delete: false,
+                      },
+                    })
                   }
                 }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
@@ -487,27 +574,48 @@ export default function UsersPage() {
                 <option value="user">Kullanıcı</option>
                 <option value="admin">Admin</option>
                 <option value="yönetici">Yönetici</option>
+                <option value="bayi">Bayi</option>
               </select>
             </div>
+            {(formData.role === 'bayi') && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-1">Cari Adı (Bayi) *</label>
+                <input
+                  type="text"
+                  value={formData.dealer_name ?? ''}
+                  onChange={(e) => setFormData({ ...formData, dealer_name: e.target.value })}
+                  placeholder="Siparişlerdeki / Cari hesaplardaki cari adı ile aynı olmalı"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Pozisyon</label>
               <select
-                value={formData.position}
+                value={formData.role === 'bayi' ? 'bayi' : formData.position}
                 onChange={(e) => setFormData({ ...formData, position: e.target.value })}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                disabled={formData.role === 'bayi'}
               >
-                <option value="">Pozisyon Seçiniz</option>
-                <option value="genel_mudur">Genel Müdür</option>
-                <option value="uretim_muduru">Üretim Müdürü</option>
-                <option value="uretim_sorumlusu">Üretim Sorumlusu</option>
-                <option value="usta">Usta</option>
-                <option value="terzi">Terzi</option>
-                <option value="depo_sorumlusu">Depo Sorumlusu</option>
-                <option value="satis_sorumlusu">Satış Sorumlusu</option>
-                <option value="muhasebe">Muhasebe</option>
-                <option value="kalite_kontrol">Kalite Kontrol</option>
-                <option value="planlama">Planlama</option>
-                <option value="sevkiyat">Sevkiyat</option>
+                {formData.role === 'bayi' ? (
+                  <option value="bayi">Bayi</option>
+                ) : (
+                  <>
+                    <option value="">Pozisyon Seçiniz</option>
+                    <option value="genel_mudur">Genel Müdür</option>
+                    <option value="uretim_muduru">Üretim Müdürü</option>
+                    <option value="uretim_sorumlusu">Üretim Sorumlusu</option>
+                    <option value="usta">Usta</option>
+                    <option value="terzi">Terzi</option>
+                    <option value="depo_sorumlusu">Depo Sorumlusu</option>
+                    <option value="satis_sorumlusu">Satış Sorumlusu</option>
+                    <option value="muhasebe">Muhasebe</option>
+                    <option value="kalite_kontrol">Kalite Kontrol</option>
+                    <option value="planlama">Planlama</option>
+                    <option value="sevkiyat">Sevkiyat</option>
+                    <option value="bayi">Bayi</option>
+                  </>
+                )}
               </select>
             </div>
             <div className="md:col-span-2">
@@ -519,6 +627,17 @@ export default function UsersPage() {
                   className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-700 rounded focus:ring-blue-500"
                 />
                 <span className="text-sm text-gray-300">Hemen Onayla</span>
+              </label>
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={(formData as { is_locked?: boolean }).is_locked}
+                  onChange={(e) => setFormData({ ...formData, is_locked: e.target.checked })}
+                  className="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500"
+                />
+                <span className="text-sm text-gray-300">Hesabı kilitle</span>
               </label>
             </div>
           </div>
@@ -617,6 +736,38 @@ export default function UsersPage() {
         </div>
       )}
 
+      {/* Sekmeler: Kullanıcılar (sistem) / Bayiler */}
+      <div className="flex gap-2 mb-4 border-b border-gray-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setUserListTab('all')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+            userListTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Kullanıcılar
+          {users.filter((u) => (u.role || '').toString().trim().toLowerCase() !== 'bayi').length > 0 && (
+            <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs bg-gray-700">
+              {users.filter((u) => (u.role || '').toString().trim().toLowerCase() !== 'bayi').length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setUserListTab('bayiler')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+            userListTab === 'bayiler' ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Bayiler
+          {users.filter((u) => (u.role || '').toString().trim().toLowerCase() === 'bayi').length > 0 && (
+            <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs bg-gray-700">
+              {users.filter((u) => (u.role || '').toString().trim().toLowerCase() === 'bayi').length}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Kullanıcı Listesi */}
       {loading ? (
         <PageLoader fullScreen label="Kullanıcılar yükleniyor..." />
@@ -637,6 +788,32 @@ export default function UsersPage() {
             }
           />
         </div>
+      ) : displayedUsers.length === 0 ? (
+        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <EmptyState
+            title={userListTab === 'bayiler' ? 'Henüz bayi kullanıcı yok' : 'Henüz kullanıcı yok'}
+            description={userListTab === 'bayiler' ? 'Rolü "Bayi" olan kullanıcılar burada listelenir.' : 'Yeni kullanıcı ekleyerek başlayın'}
+            icon={Users}
+            action={
+              userListTab === 'bayiler' ? (
+                <button
+                  onClick={() => setUserListTab('all')}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition text-sm"
+                >
+                  Kullanıcılar
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setShowAddForm(true); cancelEdit() }}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2 text-sm"
+                >
+                  <UserPlus size={18} />
+                  <span>Yeni Kullanıcı</span>
+                </button>
+              )
+            }
+          />
+        </div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <div className="overflow-x-auto">
@@ -648,18 +825,21 @@ export default function UsersPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Görev</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Rol</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Pozisyon</th>
+                  {userListTab === 'bayiler' && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Cari (Bayi)</th>}
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Durum</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Kilit</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Aktif</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Son Giriş</th>
+                  {isStrictAdmin && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">Şifre</th>}
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300">İşlemler</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-800">
-                      <td className="px-4 py-3 text-sm text-white font-mono">{user.username}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{user.full_name || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{user.job_title || '-'}</td>
+                {displayedUsers.map((userRow) => (
+                    <tr key={userRow.id} className="hover:bg-gray-800">
+                      <td className="px-4 py-3 text-sm text-white font-mono">{userRow.username}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300">{userRow.full_name || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300">{userRow.job_title || '-'}</td>
                       <td className="px-4 py-3 text-sm">
                         {(() => {
                           const roleLabels: Record<string, { label: string; className: string; icon: any }> = {
@@ -667,8 +847,9 @@ export default function UsersPage() {
                             yönetici: { label: 'Yönetici', className: 'bg-red-800 text-red-200', icon: Shield },
                             yonetici: { label: 'Yönetici', className: 'bg-red-800 text-red-200', icon: Shield },
                             user: { label: 'Kullanıcı', className: 'bg-blue-900 text-blue-300', icon: Users },
+                            bayi: { label: 'Bayi', className: 'bg-emerald-900 text-emerald-300', icon: Users },
                           }
-                          const roleInfo = roleLabels[user.role] || { label: user.role, className: 'bg-gray-900 text-gray-300', icon: Users }
+                          const roleInfo = roleLabels[userRow.role] || { label: userRow.role, className: 'bg-gray-900 text-gray-300', icon: Users }
                           const Icon = roleInfo.icon
                           return (
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${roleInfo.className}`}>
@@ -692,8 +873,9 @@ export default function UsersPage() {
                             kalite_kontrol: { label: 'Kalite Kontrol', className: 'bg-emerald-900 text-emerald-300', icon: Users },
                             planlama: { label: 'Planlama', className: 'bg-violet-900 text-violet-300', icon: Users },
                             sevkiyat: { label: 'Sevkiyat', className: 'bg-amber-900 text-amber-300', icon: Users },
+                            bayi: { label: 'Bayi', className: 'bg-emerald-900 text-emerald-300', icon: Users },
                           }
-                          const position = (user as any).position
+                          const position = (userRow as any).position
                           if (!position) {
                             return <span className="text-gray-400 text-xs">-</span>
                           }
@@ -707,8 +889,11 @@ export default function UsersPage() {
                           )
                         })()}
                       </td>
+                      {userListTab === 'bayiler' && (
+                        <td className="px-4 py-3 text-sm text-gray-300">{(userRow as any).dealer_name || '-'}</td>
+                      )}
                       <td className="px-4 py-3 text-sm">
-                        {user.is_approved === 1 ? (
+                        {userRow.is_approved === 1 ? (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
                             <CheckCircle className="w-3 h-3 mr-1" />
                             Onaylı
@@ -721,7 +906,17 @@ export default function UsersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {user.is_online ? (
+                        {userRow.is_locked ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-900 text-red-300" title="Hesap kilitli">
+                            <Shield className="w-3 h-3 mr-1" />
+                            Kilitli
+                          </span>
+                        ) : (
+                          <span className="text-gray-500 text-xs">Aktif</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {userRow.is_online ? (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300" title="Online / Aktif">
                             <Circle className="w-3 h-3 mr-1 fill-current" />
                             Aktif
@@ -731,20 +926,36 @@ export default function UsersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-400">
-                        {formatDateTime(user.last_login)}
+                        {formatDateTime(userRow.last_login)}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="flex items-center space-x-2">
+                      {isStrictAdmin && (
+                        <td className="px-4 py-3 text-sm">
+                          <span className="text-gray-500 text-xs mr-2">••••••</span>
                           <button
-                            onClick={() => startEdit(user)}
-                            className="p-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                            title="Düzenle"
+                            type="button"
+                            onClick={() => handleResetPassword(userRow)}
+                            disabled={resettingPasswordId === userRow.id}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-amber-600/80 text-white rounded hover:bg-amber-600 transition text-xs disabled:opacity-50"
+                            title="Yeni şifre belirle ve bir kez görüntüle"
                           >
-                            <Edit className="w-3 h-3" />
+                            <KeyRound className="w-3 h-3" />
+                            {resettingPasswordId === userRow.id ? '...' : 'Sıfırla'}
                           </button>
-                          {user.role !== 'admin' && (
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => startEdit(userRow)}
+                            className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-xs"
+                            title="Kullanıcıyı düzenle (şifre dahil)"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            Düzenle
+                          </button>
+                          {userRow.role !== 'admin' && (
                             <button
-                              onClick={() => handleDelete(user.id)}
+                              onClick={() => handleDelete(userRow.id)}
                               className="p-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
                               title="Sil"
                             >

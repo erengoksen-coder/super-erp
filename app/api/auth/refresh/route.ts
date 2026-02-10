@@ -62,11 +62,11 @@ export async function POST(request: NextRequest) {
     }
 
     const permissions = loadUserPermissions(db, user.id)
+    // JWT'de izin yok; cookie 4KB sınırı için (izinler /api/auth/me ile alınır)
     const accessToken = await createToken({
       userId: user.id,
       role: user.role,
       username: user.username,
-      permissions,
     })
     const newRefreshToken = generateRefreshToken()
     const refreshTtlSeconds = refreshTokenTtlDays * 24 * 60 * 60

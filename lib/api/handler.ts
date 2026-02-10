@@ -1,20 +1,18 @@
 import { fail } from '@/lib/api/response'
-import { logger } from '@/lib/utils/logger'
+import { apiLogger } from '@/lib/api/logger'
 
 export async function handleApi<T>(handler: () => Promise<T>, context?: { status?: number }) {
   try {
     return await handler()
-  } catch (error: any) {
-    const message = error?.message || 'Beklenmeyen hata'
-    const status = typeof error?.status === 'number' ? error.status : context?.status || 500
-    try {
-      await logger.error('[API] Unhandled error', {
-        message,
-        stack: error?.stack,
-      })
-    } catch {
-      // logging failure should not break API responses
-    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Beklenmeyen hata'
+    const status = error && typeof (error as { status?: number }).status === 'number'
+      ? (error as { status: number }).status
+      : context?.status ?? 500
+    apiLogger.error('[API] Unhandled error', {
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return fail(message, { status })
   }
 }

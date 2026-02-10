@@ -3,12 +3,13 @@
 import { useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle, Trash2 } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
+import { toast } from '@/lib/notify'
 
 interface Shipment {
   id: string
@@ -58,6 +59,7 @@ export default function ShipmentsPage() {
   const [customers, setCustomers] = useState<any[]>([])
   const [exporting, setExporting] = useState(false)
   const [creatingInvoiceId, setCreatingInvoiceId] = useState<string | null>(null)
+  const [clearingShipmentData, setClearingShipmentData] = useState(false)
 
   useEffect(() => {
     loadCustomers()
@@ -133,10 +135,29 @@ export default function ShipmentsPage() {
   }, [filterStatus, selectedReadyCustomerId])
 
   const { data: shipmentsData, isLoading: shipmentsLoading, mutate: mutateShipments } = useApi<Shipment[]>(shipmentsKey)
+
+  const clearShipmentData = async () => {
+    if (!confirm('Sevkiyata verilmiş tüm barkodlar sevkiyattan çıkarılacak; siparişler "Tamamlanan"da görünecek. Emin misiniz?')) return
+    setClearingShipmentData(true)
+    try {
+      const res = await fetchApi<{ message?: string; cleared_barcodes?: number }>('/api/admin/clear-shipment-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const msg = (res as { message?: string; data?: { message?: string } })?.message ?? (res as { data?: { message?: string } })?.data?.message ?? 'Sevkiyat verileri temizlendi.'
+      toast.success(msg)
+      mutateShipments()
+    } catch (e: unknown) {
+      toast.error('Hata: ' + (e instanceof Error ? e.message : 'İşlem başarısız'))
+    } finally {
+      setClearingShipmentData(false)
+    }
+  }
   const { data: readyItemsData, isLoading: readyItemsLoading } = useApi<{ items: any[] }>(readyItemsKey)
   const { data: readyProductsData, isLoading: readyProductsLoading } = useApi<{ items: any[] }>(readyProductsKey)
 
-  usePolling(mutateShipments)
+  usePolling(() => { void mutateShipments() })
 
   const isLoading = shipmentsLoading || readyItemsLoading || readyProductsLoading
 
@@ -359,7 +380,7 @@ export default function ShipmentsPage() {
       doc.save(fileName)
     } catch (error: any) {
       console.error('PDF export hatası:', error)
-      alert('PDF oluşturulurken hata oluştu: ' + error.message)
+      toast.error('PDF oluşturulurken hata oluştu: ' + error.message)
     } finally {
       setExporting(false)
     }
@@ -377,10 +398,10 @@ export default function ShipmentsPage() {
         router.push(`/invoices/${(result as any).invoice.id}`)
       } else {
         await mutateShipments()
-        alert('Fatura oluşturuldu')
+        toast.success('Fatura oluşturuldu')
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setCreatingInvoiceId(null)
     }
@@ -434,6 +455,16 @@ export default function ShipmentsPage() {
             <Package size={20} />
             <span>Yeni Sevkiyat</span>
           </Link>
+          <button
+            type="button"
+            onClick={clearShipmentData}
+            disabled={clearingShipmentData}
+            style={{ backgroundColor: '#dc2626', color: '#fff', borderColor: '#ef4444' }}
+            className="px-3 py-2 rounded-lg hover:opacity-90 transition inline-flex items-center space-x-2 text-sm touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed border"
+          >
+            <Trash2 size={20} />
+            <span>{clearingShipmentData ? 'Temizleniyor...' : 'Sevkiyat Verilerini Sil'}</span>
+          </button>
         </div>
       </div>
 

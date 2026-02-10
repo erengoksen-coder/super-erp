@@ -70,12 +70,13 @@ export const withAuth = <TContext = unknown>(
         // Response'un bir Response objesi olduğundan emin ol
         // NextResponse, Response'un bir alt sınıfıdır, bu yüzden instanceof Response kontrolü yeterli
         if (!(response instanceof Response)) {
-          console.error('[withAuth] Handler returned invalid response type:', typeof response, response)
-          console.error('[withAuth] Response constructor:', response?.constructor?.name)
-          console.error('[withAuth] Response value:', JSON.stringify(response, null, 2))
+          const resp = response as unknown
+          console.error('[withAuth] Handler returned invalid response type:', typeof resp, resp)
+          console.error('[withAuth] Response constructor:', resp?.constructor?.name)
+          console.error('[withAuth] Response value:', JSON.stringify(resp, null, 2))
           return NextResponse.json({ 
             error: 'Handler geçersiz response tipi döndürdü',
-            details: process.env.NODE_ENV === 'development' ? `Response type: ${typeof response}, constructor: ${response?.constructor?.name}` : undefined
+            details: process.env.NODE_ENV === 'development' ? `Response type: ${typeof resp}, constructor: ${resp?.constructor?.name}` : undefined
           }, { status: 500, headers: { 'Content-Type': 'application/json' } })
         }
       } catch (handlerError: any) {

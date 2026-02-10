@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/api/withAuth'
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
+import { apiLogger } from '@/lib/api/logger'
 
 type PaymentRow = {
   id: string
@@ -88,6 +89,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const rows = db.prepare(query).all(...params) as PaymentRow[]
     return ok(rows)
   } catch (error: any) {
+    apiLogger.error('Payments API GET failed', { error: error?.message })
     return fail(error.message, { status: 500 })
   }
 })
@@ -226,6 +228,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     return ok({ id: paymentId }, { status: 201, message: '�deme kaydedildi' })
   } catch (error: any) {
+    apiLogger.error('Payments API POST failed', { error: error?.message })
     return fail(error.message, { status: 500 })
   }
 })

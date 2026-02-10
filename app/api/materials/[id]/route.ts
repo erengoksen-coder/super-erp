@@ -196,14 +196,19 @@ export const DELETE = withAuth(async (
   try {
     const db = getDatabase()
     const resolvedParams = await Promise.resolve(context?.params)
-    const materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    let materialId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    if (materialId) materialId = decodeURIComponent(materialId).trim()
 
     if (!materialId) {
       return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
     }
 
-    // Malzemeyi bul
-    const material = materialsRepo.getById(materialId)
+    // Malzemeyi bul (önce id ile, yoksa code ile - liste sunucu ile senkron değilse)
+    let material: ReturnType<typeof materialsRepo.getById> = materialsRepo.getById(materialId)
+    if (!material && materialId) {
+      const byCode = db.prepare('SELECT * FROM materials WHERE code = ? AND deleted_at IS NULL').get(materialId) as MaterialRow | undefined
+      if (byCode) material = { ...byCode, stock_amount: byCode.stock_amount ?? 0 } as import('@/lib/repositories/materials').MaterialRow
+    }
     if (!material) {
       return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
     }
@@ -211,8 +216,8 @@ export const DELETE = withAuth(async (
     const isAdmin = ['admin', 'yönetici', 'yonetici'].includes((user.role || '').toString().trim().toLowerCase())
     if (!isAdmin) {
       // Admin değilse: BOM veya stok hareketinde kullanılıyorsa silmeyi engelle
-      const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(materialId) as CountRow | undefined
-      const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(materialId) as CountRow | undefined
+      const bomCount = db.prepare('SELECT COUNT(*) as count FROM bom WHERE material_id = ?').get(material.id) as CountRow | undefined
+      const movementCount = db.prepare('SELECT COUNT(*) as count FROM stock_movements WHERE material_id = ?').get(material.id) as CountRow | undefined
       if ((bomCount?.count || 0) > 0 || (movementCount?.count || 0) > 0) {
         return fail('Bu malzeme BOM veya stok hareketi kayıtlarında kullanılıyor. Silinemez.', {
           status: 400,
@@ -224,9 +229,10 @@ export const DELETE = withAuth(async (
       }
     }
 
-    // Malzemeyi pasife al
+    // Malzemeyi pasife al (material.id kullan - code ile bulunduysa doğru id ile sil)
+    const idToDelete = material.id
     db.prepare('UPDATE materials SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL')
-      .run(materialId)
+      .run(idToDelete)
 
     return ok(null, { message: 'Malzeme başarıyla silindi' })
   } catch (error: any) {

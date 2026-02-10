@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, FileSpreadsheet } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 
 type ProductionOrder = {
   id: string
@@ -129,7 +130,7 @@ export default function OrderOperationsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.production_order_id || !form.operation_id) {
-      alert('Üretim emri ve operasyon zorunludur')
+      toast.warning('Üretim emri ve operasyon zorunludur')
       return
     }
     setSaving(true)
@@ -168,7 +169,7 @@ export default function OrderOperationsPage() {
       })
       await loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSaving(false)
     }

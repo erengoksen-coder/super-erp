@@ -1,6 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
-const cache = new LRUCache<string, unknown>({
+const cache = new LRUCache<string, object>({
   max: 500,
   ttl: 60_000,
 })
@@ -15,7 +15,7 @@ export async function getOrSetCache<T>(
     return cached
   }
   const value = await resolver()
-  cache.set(key, value, { ttl: ttlMs })
+  cache.set(key, value as object, { ttl: ttlMs })
   return value
 }
 

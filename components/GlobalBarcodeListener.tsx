@@ -23,6 +23,7 @@ type BarcodeApiItem = {
   shipment_number?: string | null
   current_station?: string | null
   production_order_status?: string | null
+  production_order_id?: string | null
 }
 
 function formatStage(status?: string | null) {

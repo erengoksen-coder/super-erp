@@ -92,15 +92,19 @@ function StockRealtimeView({
   loading: boolean
   error: Error | null
 }) {
-  const [showDetails, setShowDetails] = useState(false)
-  const { lowStockItems, totalStockValue, activeProductCount } = useMemo(() => {
+  const [showDetails, setShowDetails] = useState(true)
+  const { lowStockItems, totalStockValue, activeProductCount, materialsWithStock } = useMemo(() => {
     const lowStock = inventory.filter(
       (item) => (item.stock_amount ?? 0) < (item.min_stock_level ?? 0)
     )
     const total = inventory.reduce((sum, item) => sum + (item.stock_amount ?? 0), 0)
     // Aktif ürünler = stokta miktarı > 0 olanlar (veri olarak "stokta olan" sayılır)
     const activeCount = inventory.filter((item) => (item.stock_amount ?? 0) > 0).length
-    return { lowStockItems: lowStock, totalStockValue: total, activeProductCount: activeCount }
+    // Canlı stok listesinde sadece hammadde (material) ve stoku > 0 olanlar
+    const materialsOnly = inventory.filter(
+      (item) => item.item_type === 'material' && (item.stock_amount ?? 0) > 0
+    )
+    return { lowStockItems: lowStock, totalStockValue: total, activeProductCount: activeCount, materialsWithStock: materialsOnly }
   }, [inventory])
 
   if (loading) return <div>Yükleniyor...</div>
@@ -115,7 +119,7 @@ function StockRealtimeView({
               <div>
                 <p className="text-sm text-gray-600">Toplam Stok</p>
                 <p className="text-2xl font-semibold text-gray-900">{totalStockValue}</p>
-                <p className="text-xs text-gray-500">tüm ürünler</p>
+                <p className="text-xs text-gray-500">toplam adet</p>
               </div>
               <Package className="h-5 w-5 text-gray-400" />
             </div>
@@ -162,11 +166,14 @@ function StockRealtimeView({
           className="cursor-pointer"
           onClick={() => setShowDetails((prev) => !prev)}
         >
-          <CardHeader title="Canlı Stok Durumu" />
+          <CardHeader title="Canlı Stok Durumu (Hammadde depo)" />
         </div>
         {showDetails && (
           <CardBody className="space-y-2">
-            {inventory.map((item) => (
+            {materialsWithStock.length === 0 ? (
+              <p className="py-4 text-center text-sm text-gray-500">Stokta hammadde bulunmuyor.</p>
+            ) : (
+            materialsWithStock.map((item) => (
               <div
                 key={item.id}
                 className="flex items-center justify-between rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors"
@@ -192,7 +199,8 @@ function StockRealtimeView({
                 {item.stock_amount} {item.unit || 'adet'}
                 </Badge>
               </div>
-            ))}
+            ))
+            )}
           </CardBody>
         )}
       </Card>

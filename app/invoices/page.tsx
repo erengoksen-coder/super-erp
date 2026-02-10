@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText } from 'lucide-react'
-import { useApi } from '@/lib/api/client'
+import { FileText, FileDown } from 'lucide-react'
+import { useApi, getAuthHeaders } from '@/lib/api/client'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 type Invoice = {
   id: string
@@ -45,6 +46,32 @@ export default function InvoicesPage() {
           </h1>
           <LogoWithBackground size="sm" />
         </div>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const params = new URLSearchParams()
+              if (filterType !== 'all') params.set('type', filterType)
+              if (filterStatus !== 'all') params.set('status', filterStatus)
+              const res = await fetch(`/api/invoices/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
+              if (!res.ok) throw new Error('İndirme başarısız')
+              const blob = await res.blob()
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `faturalar_${new Date().toISOString().split('T')[0]}.xlsx`
+              a.click()
+              URL.revokeObjectURL(url)
+              toast.success('Excel dosyası indirildi')
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
+            }
+          }}
+          className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition inline-flex items-center gap-2"
+        >
+          <FileDown className="w-4 h-4" />
+          Excel İndir
+        </button>
         <Link
           href="/shipments"
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"

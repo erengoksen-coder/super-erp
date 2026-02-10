@@ -2,12 +2,16 @@ import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { DEFAULT_BRANCH_ID, DEFAULT_COMPANY_ID, DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
+import { apiLogger } from '@/lib/api/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
 import { logAudit as logAuditEntry } from '@/lib/audit/logger'
 import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+
+const DEFAULT_PAGE_SIZE = 50
+const MAX_PAGE_SIZE = 500
 
 type Db = ReturnType<typeof getDatabase>
 
@@ -131,18 +135,18 @@ function createMaterialIfNotExists(db: Db, fabricCode: string | null, unit?: str
   }
 
   const trimmedCode = fabricCode.trim()
-  const name = `Kumaş ${trimmedCode}`
+  // Hammadde adı = kumaş kodu (siparişten otomatik alırken)
+  const name = trimmedCode
   const existingMaterial = db
-    .prepare('SELECT id, unit FROM materials WHERE name = ? COLLATE NOCASE')
-    .all(name) as Array<{ id: string; unit: string | null }>
+    .prepare('SELECT id, unit FROM materials WHERE (code = ? OR name = ? COLLATE NOCASE) AND deleted_at IS NULL')
+    .all(trimmedCode, trimmedCode) as Array<{ id: string; unit: string | null }>
 
   if (existingMaterial.length > 0) {
     const hasMetre = existingMaterial.some((row) => (row.unit || '').toLowerCase() === 'metre')
     if (hasMetre) {
-      db.prepare('DELETE FROM materials WHERE name = ? COLLATE NOCASE AND LOWER(COALESCE(unit, \"\")) != \"metre\"')
-        .run(name)
+      db.prepare("DELETE FROM materials WHERE (code = ? OR name = ? COLLATE NOCASE) AND LOWER(COALESCE(unit, '')) != 'metre' AND (deleted_at IS NULL OR deleted_at = '')")
+        .run(trimmedCode, trimmedCode)
     }
-    console.warn(`Hammadde aynı isimle kayıtlı: ${name}`)
     return
   }
 
@@ -191,8 +195,14 @@ export const GET = withAuthAndPermission(async (request) => {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
     let status = searchParams.get('status')
+    const wantShippedOnly = status === 'shipped'
+    const wantCompletedNotShipped = status === 'completed'
+    const limitParam = searchParams.get('limit')
+    const offsetParam = searchParams.get('offset')
+    const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE) : null
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0
     if (status === 'shipped') {
-      status = 'completed'
+      status = 'completed' // shipped orders have o.status='completed', filtered by display_status below
     }
 
     // Pending status için özel sorgu - production_order_id olmayanları getir
@@ -255,7 +265,7 @@ export const GET = withAuthAndPermission(async (request) => {
       })
       
       logger.info(`[Orders API - Pending] SQL'den gelen: ${orders.length}, JavaScript filtrelenmiş: ${filteredOrders.length}`)
-      
+
       // Eşer SQL'den gelen ile filtrelenmiş arasında fark varsa, logla
       if (orders.length !== filteredOrders.length) {
         const diff = orders.filter(o => {
@@ -270,19 +280,11 @@ export const GET = withAuthAndPermission(async (request) => {
           }))
         })
       }
-      
-      // Her siparişin detaylarını logla (debug için - sadece ilk 3)
-      if (orders.length > 0) {
-        logger.debug(`[Orders API - Pending] İlk 3 sipariş detayı`, {
-          sample_orders: orders.slice(0, 3).map(o => ({
-            order_number: o.order_number,
-            status: o.status,
-            production_order_id: o.production_order_id,
-            product_id: o.product_id
-          }))
-        })
+      const total = filteredOrders.length
+      const paginated = limit != null ? filteredOrders.slice(offset, offset + limit) : filteredOrders
+      if (limit != null) {
+        return ok(paginated, { headers: CACHE_HEADERS_LIST, meta: { total, limit, offset } })
       }
-      
       return ok(filteredOrders, { headers: CACHE_HEADERS_LIST })
     }
 
@@ -293,9 +295,19 @@ export const GET = withAuthAndPermission(async (request) => {
       SELECT 
         o.*,
         p.name as matched_product_name,
-        p.sku as matched_product_sku
-        FROM active_orders o
+        p.sku as matched_product_sku,
+        po.order_number as production_order_number,
+        po.due_date as production_order_due_date,
+        CASE 
+          WHEN o.status = 'completed' AND o.production_order_id IS NOT NULL AND o.production_order_id != '' AND NOT EXISTS (
+            SELECT 1 FROM product_serial_numbers psn 
+            WHERE psn.production_order_id = o.production_order_id AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+          ) THEN 'shipped'
+          ELSE o.status
+        END as display_status
+      FROM active_orders o
       LEFT JOIN active_products p ON o.product_id = p.id
+      LEFT JOIN production_orders po ON po.id = o.production_order_id AND (po.deleted_at IS NULL OR po.deleted_at = '')
       WHERE 1=1
     `
     const params: string[] = []
@@ -318,12 +330,23 @@ export const GET = withAuthAndPermission(async (request) => {
 
     query += ' ORDER BY COALESCE(o.order_date, o.created_at) ASC'
 
-    const orders = db.prepare(query).all(...params) as OrderRow[]
+    type OrderRowWithDisplay = OrderRow & { display_status?: string }
+    let orders = db.prepare(query).all(...params) as OrderRowWithDisplay[]
     
-    // Status pending deşilse normal filtreleme
+    if (wantShippedOnly) {
+      orders = orders.filter((o) => o.display_status === 'shipped')
+    } else if (wantCompletedNotShipped) {
+      orders = orders.filter((o) => o.display_status !== 'shipped')
+    }
+    const total = orders.length
+    const paginated = limit != null ? orders.slice(offset, offset + limit) : orders
+    if (limit != null) {
+      return ok(paginated, { headers: CACHE_HEADERS_LIST, meta: { total, limit, offset } })
+    }
     return ok(orders, { headers: CACHE_HEADERS_LIST })
   } catch (error: any) {
     console.error('Siparişler yüklenirken hata:', error)
+    apiLogger.error('Orders API GET failed', { error: error?.message, stack: error?.stack })
     try {
       await logger.error('[Orders API] GET failed', {
         message: error?.message,
@@ -401,9 +424,9 @@ export const POST = withAuth(async (request, user) => {
           }
         }
 
-        // Bayi/Müşteri isminden otomatik cari hesap oluştur (eğer yoksa)
+        // Sadece Cari Adı (dealer_name) ile cari hesap oluştur; Müşteri Adı ile cari açılmaz
         createAccountIfNotExists(db, order.dealer_name ?? null)
-        // Kumaş kodu varsa hammaddeye ekle
+        // Kumaş kodu varsa hammaddeye ekle (yoksa otomatik oluştur)
         createMaterialIfNotExists(db, order.fabric_code ?? null, order.unit ?? null)
 
         db.prepare(`
@@ -458,6 +481,32 @@ export const POST = withAuth(async (request, user) => {
 
     insertOrders()
 
+    const { dispatchWebhook } = await import('@/lib/webhooks/dispatch')
+    void dispatchWebhook('order.created', { orders: insertedOrders })
+
+    // E-posta bildirimi (müşteri e-postası varsa, SMTP yoksa log)
+    const uniqueDealers = [...new Set((manualOrders as { dealer_name?: string }[]).map((o) => (o.dealer_name || '').trim()).filter(Boolean))]
+    if (uniqueDealers.length > 0) {
+      const { sendEmail } = await import('@/lib/notifications/send')
+      const { fillTemplate, emailTemplates } = await import('@/lib/notifications/templates')
+      for (const dealerName of uniqueDealers) {
+        const acc = db.prepare('SELECT id, name, email FROM accounts WHERE name = ? AND deleted_at IS NULL').get(dealerName) as { id: string; name: string; email: string | null } | undefined
+        if (acc?.email) {
+          const orderNumbers = (manualOrders as { dealer_name?: string }[])
+            .filter((o) => (o.dealer_name || '').trim() === dealerName)
+            .map((o) => (o as { order_number?: string }).order_number || '')
+            .filter(Boolean)
+          const orderNumbersStr = orderNumbers.length > 0 ? orderNumbers.join(', ') : insertedOrders.map((o) => o.order_number).join(', ')
+          const subject = fillTemplate(emailTemplates.orderConfirmation.subject, { orderNumbers: orderNumbersStr })
+          const text = fillTemplate(emailTemplates.orderConfirmation.text, { customerName: acc.name, orderNumbers: orderNumbersStr })
+          const html = fillTemplate(emailTemplates.orderConfirmation.html, { customerName: acc.name, orderNumbers: orderNumbersStr })
+          sendEmail({ to: acc.email, subject, text, html }).then((r) => {
+            if (!r.ok) apiLogger.warn('Sipariş e-posta gönderilemedi', { to: acc.email, error: r.error })
+          }).catch(() => {})
+        }
+      }
+    }
+
     return ok(
       {
         orders: insertedOrders,
@@ -466,9 +515,110 @@ export const POST = withAuth(async (request, user) => {
     )
   } catch (error: any) {
     console.error('Sipariş oluşturulurken hata:', error)
+    apiLogger.error('Orders API POST failed', { error: error?.message, stack: error?.stack })
     return fail(error.message, { status: 500 })
   }
 }, ['admin', 'sales'])
+
+// PUT: Sipariş düzenle (sadece beklemedeki, üretime alınmamış)
+export const PUT = withAuth(async (request: NextRequest, user) => {
+  try {
+    const body = await parseJsonBody(request) as ManualOrderInput & { id?: string }
+    const orderId = body?.id
+    if (!orderId || typeof orderId !== 'string') {
+      return fail('Sipariş id gerekli', { status: 400 })
+    }
+
+    const db = getDatabase()
+    const current = db.prepare(`
+      SELECT id, status, production_order_id, order_number FROM orders WHERE id = ? AND deleted_at IS NULL
+    `).get(orderId) as { id: string; status: string; production_order_id: string | null; order_number: string } | undefined
+
+    if (!current) {
+      return fail('Sipariş bulunamadı', { status: 404 })
+    }
+    if (current.status !== 'pending') {
+      return fail('Sadece beklemedeki siparişler düzenlenebilir', { status: 400 })
+    }
+    if (current.production_order_id && String(current.production_order_id).trim() !== '') {
+      return fail('Üretime alınan sipariş düzenlenemez', { status: 400 })
+    }
+
+    const {
+      dealer_name, customer_name, customer_code, product_name, product_sku, quantity, unit_price,
+      order_date, configuration, fabric_code, case_info, leg_info, cushion_info, unit, notes
+    } = body
+
+    let combinedNotes = typeof notes === 'string' ? notes.trim() : ''
+    if (fabric_code !== undefined && fabric_code !== null && String(fabric_code).trim()) {
+      combinedNotes += (combinedNotes ? ' | ' : '') + `Kumaş: ${String(fabric_code).trim()}`
+    }
+    if (case_info !== undefined && case_info !== null && String(case_info).trim()) {
+      combinedNotes += (combinedNotes ? ' | ' : '') + `Kasa: ${String(case_info).trim()}`
+    }
+    if (leg_info !== undefined && leg_info !== null && String(leg_info).trim()) {
+      combinedNotes += (combinedNotes ? ' | ' : '') + `Ayak: ${String(leg_info).trim()}`
+    }
+    if (cushion_info !== undefined && cushion_info !== null && String(cushion_info).trim()) {
+      combinedNotes += (combinedNotes ? ' | ' : '') + `Kirlent: ${String(cushion_info).trim()}`
+    }
+    if (unit !== undefined && unit !== null && String(unit).trim()) {
+      combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${String(unit).trim()}`
+    }
+
+    let productId: string | null = (body as any).product_id ?? null
+    if (!productId && product_sku) {
+      const product = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(product_sku) as ProductIdRow | undefined
+      if (product) productId = product.id
+    }
+    if (!productId && product_name) {
+      const product = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${product_name}%`) as ProductIdRow | undefined
+      if (product) productId = product.id
+    }
+
+    // Sadece Cari Adı (dealer_name) ile cari hesap oluştur; Müşteri Adı ile cari açılmaz
+    createAccountIfNotExists(db, dealer_name ?? null)
+    if (fabric_code) {
+      createMaterialIfNotExists(db, fabric_code ?? null, unit ?? null)
+    }
+
+    const totalAmount = (Number(quantity) || 0) * (Number(unit_price) || 0)
+    db.prepare(`
+      UPDATE orders SET
+        dealer_name = ?, customer_name = ?, customer_code = ?, product_name = ?, product_sku = ?,
+        product_id = ?, quantity = ?, unit_price = ?, total_amount = ?, order_date = ?,
+        configuration = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NULL
+    `).run(
+      dealer_name ?? null,
+      customer_name ?? null,
+      customer_code ?? null,
+      product_name ?? '',
+      product_sku ?? null,
+      productId,
+      Number(quantity) || 0,
+      Number(unit_price) || 0,
+      totalAmount,
+      order_date ?? null,
+      configuration ?? null,
+      combinedNotes || null,
+      orderId
+    )
+
+    logAudit(db, {
+      tableName: 'orders',
+      action: 'update',
+      recordId: orderId,
+      userId: user.userId,
+      after: { order_number: current.order_number, status: current.status },
+    })
+
+    return ok({ id: orderId }, { message: 'Sipariş güncellendi' })
+  } catch (error: any) {
+    logger.error('[Orders API - PUT] Hata', { error: error?.message })
+    return fail(error.message || 'Sipariş güncellenemedi', { status: 500 })
+  }
+})
 
 // PATCH: Sipariş durumunu güncelle (ör. iptal)
 export const PATCH = withAuth(async (request: NextRequest, user) => {

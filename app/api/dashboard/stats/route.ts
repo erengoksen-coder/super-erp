@@ -104,11 +104,12 @@ export const GET = withAuth(async (request) => {
         GROUP BY COALESCE(psn.current_station, po.current_station)
       `).all() as StationStatRow[]
       
-      // Mamül Depo: depoda ve sevk edilmemiş tüm mamüller (barkod yönetimi ile aynı)
+      // Mamül Depo: sadece depoda ve henüz sevk edilmemiş mamüller (sevk edilenler hariç)
       const completedStats = db.prepare(`
         SELECT COUNT(id) as count FROM product_serial_numbers psn
-        WHERE psn.status IN ('available', 'in_stock')
-          AND (psn.shipment_id IS NULL OR psn.shipment_id = '')
+        WHERE (psn.status IN ('available', 'in_stock') OR (psn.status IS NULL AND (COALESCE(psn.shipment_id, '') = '')))
+          AND (COALESCE(psn.shipment_id, '') = '')
+          AND (psn.status IS NULL OR psn.status != 'shipped')
       `).get() as { count: number | null }
       const completedCount = Number(completedStats?.count ?? 0)
       

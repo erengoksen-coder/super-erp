@@ -25,6 +25,7 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeft,
+  Store,
 } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { LogoWithBackground } from './Logo'
@@ -36,6 +37,7 @@ import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/cn'
+import { ROUTES } from '@/lib/constants'
 
 type SubItem = { name: string; href: string }
 type MenuItem = {
@@ -47,52 +49,52 @@ type MenuItem = {
 }
 
 const menuItems: MenuItem[] = [
-  { name: 'Kontrol Paneli', href: '/', icon: LayoutDashboard, group: '' },
+  { name: 'Kontrol Paneli', href: ROUTES.HOME, icon: LayoutDashboard, group: '' },
   {
     name: 'Üretim',
-    href: '/production',
+    href: ROUTES.PRODUCTION,
     icon: Factory,
     group: 'Üretim & Stok',
     submenu: [
-      { name: 'Üretim Emirleri', href: '/production' },
-      { name: 'Yeni Üretim', href: '/production/new' },
-      { name: 'Ürün Reçetesi', href: '/bom' },
-      { name: 'İş Emirleri', href: '/production/work-orders' },
-      { name: 'Operasyonlar', href: '/production/operations' },
-      { name: 'İş Merkezleri', href: '/production/work-centers' },
-      { name: 'Üretim Operasyonları', href: '/production/order-operations' },
-      { name: 'MRP', href: '/production/mrp' },
-      { name: 'Üretim Takvimi', href: '/production/calendar' },
+      { name: 'Üretim Emirleri', href: ROUTES.PRODUCTION },
+      { name: 'Yeni Üretim', href: `${ROUTES.PRODUCTION}/new` },
+      { name: 'Ürün Reçetesi', href: ROUTES.BOM },
+      { name: 'İş Emirleri', href: `${ROUTES.PRODUCTION}/work-orders` },
+      { name: 'Operasyonlar', href: `${ROUTES.PRODUCTION}/operations` },
+      { name: 'İş Merkezleri', href: `${ROUTES.PRODUCTION}/work-centers` },
+      { name: 'Üretim Operasyonları', href: `${ROUTES.PRODUCTION}/order-operations` },
+      { name: 'MRP', href: `${ROUTES.PRODUCTION}/mrp` },
+      { name: 'Üretim Takvimi', href: `${ROUTES.PRODUCTION}/calendar` },
       { name: 'Usta Terminali', href: '/mobile/workstation' },
     ],
   },
   {
     name: 'Stok',
-    href: '/inventory',
+    href: ROUTES.INVENTORY,
     icon: Package,
     group: 'Üretim & Stok',
     submenu: [
-      { name: 'Depo Genel', href: '/inventory' },
-      { name: 'Hammadde', href: '/inventory/materials' },
-      { name: 'Fiyat Geçmişi', href: '/inventory/materials/price-history' },
-      { name: 'Rezervasyon', href: '/inventory/materials/reservations' },
-      { name: 'Mamül', href: '/inventory/products' },
-      { name: 'Etiket / Barkod', href: '/inventory/products/print-barcode-label' },
-      { name: 'Barkod Yönetimi', href: '/barcodes' },
+      { name: 'Depo Genel', href: ROUTES.INVENTORY },
+      { name: 'Hammadde', href: `${ROUTES.INVENTORY}/materials` },
+      { name: 'Fiyat Geçmişi', href: `${ROUTES.INVENTORY}/materials/price-history` },
+      { name: 'Rezervasyon', href: `${ROUTES.INVENTORY}/materials/reservations` },
+      { name: 'Mamül', href: `${ROUTES.INVENTORY}/products` },
+      { name: 'Etiket / Barkod', href: `${ROUTES.INVENTORY}/products/print-barcode-label` },
+      { name: 'Barkod Yönetimi', href: ROUTES.BARCODES },
       { name: 'Depo Hızlı İşlem', href: '/mobile/material-stock' },
     ],
   },
   {
     name: 'Satış',
-    href: '/orders',
+    href: ROUTES.ORDERS,
     icon: ShoppingCart,
     group: 'Satış & Tedarik',
     submenu: [
-      { name: 'Siparişler', href: '/orders' },
+      { name: 'Siparişler', href: ROUTES.ORDERS },
       { name: 'Satış Siparişleri', href: '/sales-orders' },
-      { name: 'Sevkiyat', href: '/shipments' },
-      { name: 'Faturalar', href: '/invoices' },
-      { name: 'Yeni Fatura', href: '/invoices/new' },
+      { name: 'Sevkiyat', href: ROUTES.SHIPMENTS },
+      { name: 'Faturalar', href: ROUTES.INVOICES },
+      { name: 'Yeni Fatura', href: `${ROUTES.INVOICES}/new` },
     ],
   },
   {
@@ -109,69 +111,77 @@ const menuItems: MenuItem[] = [
   { name: 'Tedarik', href: '/procurement', icon: ClipboardList, group: 'Satış & Tedarik' },
   {
     name: 'Finans',
-    href: '/finance',
+    href: ROUTES.FINANCE,
     icon: Wallet,
     group: 'Finans',
     submenu: [
-      { name: 'Cari Hesaplar', href: '/accounts' },
+      { name: 'Cari Hesaplar', href: ROUTES.ACCOUNTS },
       { name: 'Ödemeler', href: '/payments' },
-      { name: 'Yevmiye Fişleri', href: '/finance/journal-entries' },
-      { name: 'Yeni Fiş', href: '/finance/new' },
-      { name: 'Hesap Planı', href: '/finance/chart-of-accounts' },
-      { name: 'Büyük Defter', href: '/finance/general-ledger' },
-      { name: 'Mizan', href: '/finance/trial-balance' },
-      { name: 'Gelir Tablosu', href: '/finance/income-statement' },
-      { name: 'Bilanço', href: '/finance/balance-sheet' },
-      { name: 'Nakit Akışı', href: '/finance/cash-flow' },
-      { name: 'Fire / Maliyet', href: '/finance/fire-analysis' },
+      { name: 'Yevmiye Fişleri', href: `${ROUTES.FINANCE}/journal-entries` },
+      { name: 'Yeni Fiş', href: `${ROUTES.FINANCE}/new` },
+      { name: 'Hesap Planı', href: `${ROUTES.FINANCE}/chart-of-accounts` },
+      { name: 'Büyük Defter', href: `${ROUTES.FINANCE}/general-ledger` },
+      { name: 'Mizan', href: `${ROUTES.FINANCE}/trial-balance` },
+      { name: 'Gelir Tablosu', href: `${ROUTES.FINANCE}/income-statement` },
+      { name: 'Bilanço', href: `${ROUTES.FINANCE}/balance-sheet` },
+      { name: 'Nakit Akışı', href: `${ROUTES.FINANCE}/cash-flow` },
+      { name: 'Finansal Metrikler', href: `${ROUTES.FINANCE}/metrics` },
+      { name: 'Fire / Maliyet', href: `${ROUTES.FINANCE}/fire-analysis` },
     ],
   },
   { name: 'Muhasebe', href: '/accounting', icon: BookOpen, group: 'Finans' },
   {
     name: 'İnsan Kaynakları',
-    href: '/hr',
+    href: ROUTES.HR,
     icon: Users,
     group: 'Diğer',
     submenu: [
-      { name: 'Özet', href: '/hr' },
-      { name: 'İzinler', href: '/hr/leave' },
-      { name: 'Bordro', href: '/hr/payroll' },
-      { name: 'Performans', href: '/hr/performance' },
-      { name: 'İşe Alım', href: '/hr/recruitment' },
-      { name: 'Vardiya', href: '/hr/shifts' },
-      { name: 'Devam / Puantaj', href: '/hr/attendance' },
+      { name: 'Özet', href: ROUTES.HR },
+      { name: 'Giriş/Çıkış (Puantaj)', href: `${ROUTES.HR}/clock` },
+      { name: 'Devam / Puantaj', href: `${ROUTES.HR}/attendance` },
+      { name: 'İzinler', href: `${ROUTES.HR}/leave` },
+      { name: 'Bordro', href: `${ROUTES.HR}/payroll` },
+      { name: 'Performans', href: `${ROUTES.HR}/performance` },
+      { name: 'İşe Alım', href: `${ROUTES.HR}/recruitment` },
+      { name: 'Vardiya', href: `${ROUTES.HR}/shifts` },
     ],
   },
   { name: 'CRM', href: '/crm', icon: Handshake, group: 'Diğer' },
   { name: 'Sabit Kıymet', href: '/fixed-assets', icon: Landmark, group: 'Diğer' },
   {
     name: 'Raporlar',
-    href: '/reports',
+    href: ROUTES.REPORTS,
     icon: BarChart3,
     group: 'Diğer',
     submenu: [
-      { name: 'Genel', href: '/reports' },
-      { name: 'Maliyet', href: '/reports/costs' },
-      { name: 'Fire', href: '/reports/fire' },
+      { name: 'Genel', href: ROUTES.REPORTS },
+      { name: 'Maliyet', href: `${ROUTES.REPORTS}/costs` },
+      { name: 'Fire', href: `${ROUTES.REPORTS}/fire` },
     ],
   },
   {
     name: 'Ayarlar',
-    href: '/settings',
+    href: ROUTES.SETTINGS,
     icon: Settings,
     group: 'Sistem',
     submenu: [
-      { name: 'Genel', href: '/settings' },
-      { name: 'Kullanıcılar', href: '/users' },
+      { name: 'Genel', href: ROUTES.SETTINGS },
+      { name: 'Yönetici Paneli', href: '/admin' },
+      { name: 'Kullanıcılar', href: ROUTES.USERS },
       { name: 'Mesajlaşma (Admin)', href: '/admin/messaging' },
       { name: 'Birim Çevrimleri', href: '/units/conversions' },
       { name: 'Bildirimler', href: '/notifications' },
+      { name: 'Webhook\'lar', href: '/admin/webhooks' },
       { name: 'API Katalogu', href: '/api-catalog' },
     ],
   },
 ]
 
 const GROUP_ORDER = ['', 'Üretim & Stok', 'Satış & Tedarik', 'Finans', 'Diğer', 'Sistem']
+
+const bayiMenuGroups: { label?: string; items: MenuItem[] }[] = [
+  { label: undefined, items: [{ name: 'Bayi Portal', href: '/bayi', icon: Store }] },
+]
 
 function buildMenuGroups() {
   const map = new Map<string, MenuItem[]>()
@@ -234,10 +244,11 @@ export default function Sidebar() {
   const { mode, toggleMode } = useTheme()
 
   const isAdmin = isAdminRole(user?.role)
+  const isBayiUser = (user?.role || '').toString().trim().toLowerCase() === 'bayi'
   const permissions = user?.permissions ?? []
   const visibleMenuGroups = useMemo(
-    () => filterMenuByPermissions(menuGroups, permissions, isAdmin),
-    [isAdmin, permissions]
+    () => (isBayiUser ? bayiMenuGroups : filterMenuByPermissions(menuGroups, permissions, isAdmin)),
+    [isAdmin, isBayiUser, permissions]
   )
 
   useEffect(() => {
@@ -276,7 +287,7 @@ export default function Sidebar() {
     setTimeout(() => document.querySelector<HTMLInputElement>('[data-search-input]')?.focus(), 50)
   }
 
-  if (pathname === '/auth/login' || pathname === '/auth/register') return null
+  if (pathname === ROUTES.LOGIN || pathname === ROUTES.REGISTER) return null
 
   const navContent = (
     <nav
@@ -304,6 +315,7 @@ export default function Sidebar() {
           data-command-palette-trigger
           className="w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mb-2"
           title="Ara (Ctrl+K)"
+          aria-label="Ara"
         >
           <Search className="w-5 h-5" />
         </button>
@@ -411,7 +423,7 @@ export default function Sidebar() {
         {/* Logo + collapse */}
         <div className="flex items-center justify-between h-14 px-3 border-b border-slate-700/80 gap-2">
           <Link
-            href="/"
+            href={ROUTES.HOME}
             className={cn(
               'flex items-center gap-2 overflow-hidden min-w-0',
               collapsed ? 'justify-center w-full' : 'flex-1'
@@ -433,6 +445,7 @@ export default function Sidebar() {
               size="icon"
               onClick={() => setIsOpen(false)}
               className="lg:hidden shrink-0 text-gray-400 hover:text-white"
+              aria-label="Menüyü kapat"
             >
               <X className="w-5 h-5" />
             </Button>
@@ -474,6 +487,7 @@ export default function Sidebar() {
             onClick={toggle}
             className="shrink-0 text-gray-400 hover:text-white hidden lg:flex"
             title={collapsed ? 'Menüyü aç' : 'Menüyü daralt'}
+            aria-label={collapsed ? 'Menüyü aç' : 'Menüyü daralt'}
           >
             {collapsed ? (
               <PanelLeft className="w-5 h-5" />
@@ -487,6 +501,7 @@ export default function Sidebar() {
             onClick={toggleMode}
             className="shrink-0 text-gray-400 hover:text-white"
             title={mode === 'dark' ? 'Açık tema' : 'Koyu tema'}
+            aria-label={mode === 'dark' ? 'Açık tema' : 'Koyu tema'}
           >
             {mode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </Button>
@@ -495,6 +510,7 @@ export default function Sidebar() {
             size={collapsed ? 'icon' : 'sm'}
             className="shrink-0 text-gray-400 hover:text-red-400"
             title="Çıkış"
+            aria-label="Çıkış"
             disabled={isLoggingOut}
             onClick={(e) => {
               e.preventDefault()
@@ -520,6 +536,7 @@ export default function Sidebar() {
           className="rounded-full shadow-lg bg-slate-700 hover:bg-slate-600 text-white"
           size="lg"
           onClick={() => setIsOpen(true)}
+          aria-label="Menüyü aç"
         >
           <Menu className="w-6 h-6" />
         </Button>

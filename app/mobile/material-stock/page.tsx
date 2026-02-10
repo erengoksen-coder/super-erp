@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Package, Plus, Minus, Save, QrCode, ArrowLeft } from 'lucide-react'
+import { toast } from '@/lib/notify'
 
 interface Material {
   id: string
@@ -54,7 +55,7 @@ export default function MaterialStockPage() {
       const data = await response.json()
       setMaterial(data.material)
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -331,13 +332,13 @@ export default function MaterialStockPage() {
 
       await loadMaterialFromQR(qrData)
     } catch (error: any) {
-      alert('QR kod okunamadı: ' + error.message)
+      toast.error('QR kod okunamadı: ' + error.message)
     }
   }
 
   async function handleStockChange() {
     if (!material || stockChange === 0) {
-      alert('Miktar girin')
+      toast.warning('Miktar girin')
       return
     }
 
@@ -370,10 +371,10 @@ export default function MaterialStockPage() {
         setMaterial(materialData)
       }
 
-      alert(`✅ Stok ${stockType === 'in' ? 'artırıldı' : 'azaltıldı'}! Yeni stok: ${result.new_stock} ${material.unit}`)
+      toast.success(`Stok ${stockType === 'in' ? 'artırıldı' : 'azaltıldı'}! Yeni stok: ${result.new_stock} ${material.unit}`)
       setStockChange(0)
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSaving(false)
     }

@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload, Trash2 } from 'lucide-react'
+import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload, Trash2, Pencil } from 'lucide-react'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { fetchApi, useApi, getAuthHeaders } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
-import { formatOrderDateDisplay } from '@/lib/utils/dateFormat'
+import { formatDate, formatOrderDateDisplay } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
 
 interface Order {
@@ -28,6 +29,7 @@ interface Order {
   status: 'pending' | 'in_production' | 'completed' | 'cancelled'
   production_order_id: string | null
   production_order_number: string | null
+  production_order_due_date: string | null
   production_status: string | null
   notes: string | null
   created_at: string
@@ -54,7 +56,30 @@ export default function OrdersPage() {
   const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([])
   const [showDealerSuggestions, setShowDealerSuggestions] = useState(false)
   const dealerInputRef = useRef<HTMLInputElement>(null)
-  
+  const [orderProducts, setOrderProducts] = useState<Array<{ id: string; name: string; sku: string }>>([])
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
+
+  // Ürün adına göre BOM’daki ürün kodunu (SKU) bul
+  function findSkuByProductName(productName: string): string | null {
+    const n = (productName || '').trim().toLowerCase()
+    if (!n || orderProducts.length === 0) return null
+    const products = orderProducts
+    // Tam eşleşme (tam ad veya "PRD-xxx - Ürün Adı" formatında display kısmı)
+    let found = products.find((p) => {
+      const name = (p.name || '').trim()
+      const display = name.includes(' - ') ? name.split(' - ').slice(1).join(' - ').trim().toLowerCase() : name.toLowerCase()
+      return name.toLowerCase() === n || display === n
+    })
+    if (found) return found.sku
+    // Ürün adı girilen metni içeriyorsa veya girilen metin ürün adını içeriyorsa
+    found = products.find((p) => {
+      const name = (p.name || '').trim().toLowerCase()
+      const display = name.includes(' - ') ? name.split(' - ').slice(1).join(' - ').trim().toLowerCase() : name
+      return display.includes(n) || n.includes(display) || name.includes(n)
+    })
+    return found ? found.sku : null
+  }
+
   // Sistem tarih+saatini formatla (datetime-local için)
   const getCurrentDateTimeLocal = () => {
     const now = new Date()
@@ -93,15 +118,19 @@ export default function OrdersPage() {
 
   const { data: ordersData, isLoading, mutate } = useApi<Order[]>(ordersKey)
 
-  usePolling(mutate)
+  usePolling(() => { void mutate() })
 
   useEffect(() => {
     loadAccounts()
   }, [])
 
-  // Modal açıldığında tarih+saati otomatik güncelle
+  // Modal açıldığında cari listesini ve ürün listesini (BOM’daki kodlar için) taze çek
   useEffect(() => {
     if (showCreateModal) {
+      loadAccounts(true)
+      fetchApi<Array<{ id: string; name: string; sku: string }>>('/api/products?has_bom=1').then((data) => {
+        setOrderProducts(Array.isArray(data) ? data : [])
+      }).catch(() => setOrderProducts([]))
       setNewOrder(prev => ({
         ...prev,
         order_date: getCurrentDateTimeLocal()
@@ -122,9 +151,12 @@ export default function OrdersPage() {
     setOrders(sorted)
   }, [ordersData])
 
-  async function loadAccounts() {
+  async function loadAccounts(skipCache?: boolean) {
     try {
-      const data = await fetchApi('/api/accounts?type=customer')
+      const url = skipCache
+        ? `/api/accounts?type=customer&_=${Date.now()}`
+        : '/api/accounts?type=customer'
+      const data = await fetchApi(url)
       const sorted = (Array.isArray(data) ? data : []).sort((a: any, b: any) => {
         const codeA = a.code || ''
         const codeB = b.code || ''
@@ -158,6 +190,73 @@ export default function OrdersPage() {
   async function selectDealer(account: Account) {
     setNewOrder({ ...newOrder, dealer_name: account.name })
     setShowDealerSuggestions(false)
+  }
+
+  function parseOrderNotes(notes: string | null | undefined) {
+    const text = notes || ''
+    const fabricMatch = text.match(/Kumaş:\s*([^|]+)/i)
+    const caseMatch = text.match(/Kasa:\s*([^|]+)/i)
+    const legMatch = text.match(/Ayak:\s*([^|]+)/i)
+    const cushionMatch = text.match(/Kirlent:\s*([^|]+)/i) || text.match(/KİRLENT:\s*([^|]+)/)
+    const unitMatch = text.match(/Birim:\s*([^|]+)/i)
+    let desc = text
+      .replace(/Kumaş:\s*[^|]+/gi, '')
+      .replace(/Kasa:\s*[^|]+/gi, '')
+      .replace(/Ayak:\s*[^|]+/gi, '')
+      .replace(/Kirlent:\s*[^|]+/gi, '')
+      .replace(/KİRLENT:\s*[^|]+/gi, '')
+      .replace(/Birim:\s*[^|]+/gi, '')
+      .replace(/\|\s*\|\s*/g, '|')
+      .replace(/^\|\s*|\s*\|$/g, '')
+      .trim()
+    return {
+      fabric_code: fabricMatch ? fabricMatch[1].trim() : '',
+      case_info: caseMatch ? caseMatch[1].trim() : '',
+      leg_info: legMatch ? legMatch[1].trim() : '',
+      cushion_info: cushionMatch ? cushionMatch[1].trim() : '',
+      unit: unitMatch ? unitMatch[1].trim() : '',
+      notes: desc || ''
+    }
+  }
+
+  function handleEditOrder(order: Order) {
+    const parsed = parseOrderNotes(order.notes)
+    const orderDate = order.order_date || order.created_at || ''
+    let dateLocal = ''
+    if (orderDate) {
+      try {
+        const d = new Date(orderDate)
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear()
+          const m = String(d.getMonth() + 1).padStart(2, '0')
+          const day = String(d.getDate()).padStart(2, '0')
+          const h = String(d.getHours()).padStart(2, '0')
+          const min = String(d.getMinutes()).padStart(2, '0')
+          dateLocal = `${y}-${m}-${day}T${h}:${min}`
+        }
+      } catch {}
+    }
+    if (!dateLocal) dateLocal = getCurrentDateTimeLocal()
+    setNewOrder({
+      order_number: order.order_number,
+      dealer_name: order.dealer_name || '',
+      customer_name: order.customer_name || '',
+      customer_code: order.customer_code || '',
+      product_name: order.product_name || '',
+      product_sku: order.product_sku || '',
+      quantity: order.quantity || 1,
+      unit_price: order.unit_price ?? 0,
+      order_date: dateLocal,
+      configuration: (order as any).configuration || '',
+      fabric_code: parsed.fabric_code,
+      case_info: parsed.case_info,
+      leg_info: parsed.leg_info,
+      cushion_info: parsed.cushion_info,
+      unit: parsed.unit,
+      notes: parsed.notes
+    })
+    setEditingOrder(order)
+    setShowCreateModal(true)
   }
 
   async function handleCreateOrder() {
@@ -220,11 +319,67 @@ export default function OrdersPage() {
       customerCode = `MUS-${String(codeNumber).padStart(4, '0')}`
     }
 
-    // Sipariş oluştur
+    // Sipariş oluştur (AYAK, KASA, KİRLENT boşsa KATALOG; Ürün kodu boşsa BOM’daki ürün adına göre otomatik)
     try {
+      const caseInfo = (newOrder.case_info || '').trim() || 'KATALOG'
+      const legInfo = (newOrder.leg_info || '').trim() || 'KATALOG'
+      const cushionInfo = (newOrder.cushion_info || '').trim() || 'KATALOG'
+      let productSku = (newOrder.product_sku || '').trim()
+      if (!productSku && (newOrder.product_name || '').trim()) {
+        const skuFromName = findSkuByProductName(newOrder.product_name)
+        if (skuFromName) productSku = skuFromName
+        else productSku = `PRD-${Date.now().toString().slice(-6)}`
+      }
+      if (!productSku) productSku = `PRD-${Date.now().toString().slice(-6)}`
+
+      if (editingOrder) {
+        const response = await fetch('/api/orders', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({
+            id: editingOrder.id,
+            dealer_name: newOrder.dealer_name,
+            customer_name: newOrder.customer_name,
+            customer_code: customerCode,
+            product_name: newOrder.product_name,
+            product_sku: productSku,
+            quantity: parseInt(String(newOrder.quantity)) || 1,
+            unit_price: parseFloat(String(newOrder.unit_price)) || 0,
+            order_date: newOrder.order_date,
+            configuration: newOrder.configuration,
+            fabric_code: newOrder.fabric_code,
+            case_info: caseInfo,
+            leg_info: legInfo,
+            cushion_info: cushionInfo,
+            unit: newOrder.unit,
+            notes: newOrder.notes
+          }),
+          credentials: 'include',
+        })
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Sipariş güncellenemedi')
+        }
+        toast.success('Sipariş güncellendi')
+        setEditingOrder(null)
+        setShowCreateModal(false)
+        setNewOrder({
+          order_number: '', dealer_name: '', customer_name: '', customer_code: '',
+          product_name: '', product_sku: '', quantity: 1, unit_price: 0,
+          order_date: getCurrentDateTimeLocal(), configuration: '', fabric_code: '',
+          case_info: '', leg_info: '', cushion_info: '', unit: '', notes: ''
+        })
+        await mutate()
+        return
+      }
+
       const orderData = {
         orders: [{
           ...newOrder,
+          product_sku: productSku,
+          case_info: caseInfo,
+          leg_info: legInfo,
+          cushion_info: cushionInfo,
           customer_code: customerCode,
           quantity: parseInt(String(newOrder.quantity)) || 1,
           unit_price: parseFloat(String(newOrder.unit_price)) || 0
@@ -243,7 +398,38 @@ export default function OrdersPage() {
         throw new Error(error.error || 'Sipariş oluşturulamadı')
       }
 
-      toast.success('Sipariş başarıyla oluşturuldu')
+      const result = await response.json()
+      const createdOrders = result?.data?.orders ?? result?.orders ?? []
+      const createdIds = Array.isArray(createdOrders) ? createdOrders.map((o: { id: string }) => o.id).filter(Boolean) : []
+
+      if (createdIds.length > 0) {
+        try {
+          const dueDate = newOrder.order_date
+            ? new Date(newOrder.order_date).toISOString().slice(0, 10)
+            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          const convertRes = await fetch('/api/orders/convert-to-production', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ order_ids: createdIds, due_date: dueDate }),
+            credentials: 'include',
+          })
+          if (convertRes.ok) {
+            const convertData = await convertRes.json()
+            const count = convertData?.converted_orders?.length ?? createdIds.length
+            toast.success(`Sipariş oluşturuldu ve ${count} sipariş üretim emrine aktarıldı`)
+          } else {
+            const errData = await convertRes.json().catch(() => ({}))
+            toast.success('Sipariş oluşturuldu')
+            toast.warning(errData?.error || 'Üretim emrine aktarılamadı. Siparişler sayfasından "Üretim Emrine Dönüştür" ile aktarabilirsiniz.')
+          }
+        } catch (_e) {
+          toast.success('Sipariş oluşturuldu')
+          toast.warning('Üretim emrine otomatik aktarılamadı. Siparişlerden "Üretim Emrine Dönüştür" ile aktarabilirsiniz.')
+        }
+      } else {
+        toast.success('Sipariş başarıyla oluşturuldu')
+      }
+
       setShowCreateModal(false)
       setNewOrder({
         order_number: '',
@@ -542,7 +728,10 @@ export default function OrdersPage() {
             variant="solid"
             color="primary"
             size="sm"
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => {
+              setEditingOrder(null)
+              setShowCreateModal(true)
+            }}
           >
             <Plus className="w-4 h-4 mr-2" />
             Yeni Sipariş
@@ -686,15 +875,18 @@ export default function OrdersPage() {
           <p className="text-gray-400 mt-4">Yükleniyor...</p>
         </div>
       ) : filteredOrders.length === 0 ? (
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-12 text-center">
-          <FileSpreadsheet className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-lg md:text-xl font-semibold text-white mb-2">Sipariş Bulunmuyor</h3>
-          <div className="flex flex-col items-center justify-center py-8">
-            <LogoWithBackground size="md" className="mb-4" />
-            <p className="text-sm text-gray-400 mt-4">
-              {searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş eklenmemiş. Yeni sipariş butonuna tıklayarak sipariş ekleyebilirsiniz.'}
-            </p>
-          </div>
+        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <EmptyState
+            title={searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş yok'}
+            description={searchTerm ? 'Farklı bir arama deneyin' : 'Yeni sipariş butonuna tıklayarak sipariş ekleyebilirsiniz.'}
+            icon={FileSpreadsheet}
+            action={!searchTerm ? (
+              <Button onClick={() => setShowCreateModal(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Yeni Sipariş
+              </Button>
+            ) : undefined}
+          />
         </div>
       ) : (
         <div className="space-y-4">
@@ -707,15 +899,28 @@ export default function OrdersPage() {
             >
               <div className="flex justify-between items-start gap-3 mb-3">
                 <span className="text-xs text-gray-400 font-mono">{order.order_number}</span>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteOrder(order)}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition"
-                  title="Siparişi sil"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Sil
-                </button>
+                <div className="flex items-center gap-2">
+                  {order.status === 'pending' && !order.production_order_id && (
+                    <button
+                      type="button"
+                      onClick={() => handleEditOrder(order)}
+                      className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-blue-400 bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 rounded-lg text-xs font-medium transition-colors"
+                      title="Siparişi düzenle"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Düzenle
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteOrder(order)}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded-lg text-xs font-medium transition-colors"
+                    title="Siparişi sil"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Sil
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Sol Sütun */}
@@ -794,12 +999,19 @@ export default function OrdersPage() {
                   <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
                   <div className="text-white text-sm">
                     {order.production_order_number ? (
-                      <a
-                        href={`/production/${order.production_order_id}`}
-                        className="text-blue-400 hover:text-blue-300 underline"
-                      >
-                        {order.production_order_number}
-                      </a>
+                      <>
+                        <a
+                          href={`/production/${order.production_order_id}`}
+                          className="text-blue-400 hover:text-blue-300 underline"
+                        >
+                          {order.production_order_number}
+                        </a>
+                        {order.status === 'in_production' && order.production_order_due_date && (
+                          <span className="block text-gray-400 text-xs mt-0.5">
+                            Emir tarihi: {formatDate(order.production_order_due_date) || '-'}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       '-'
                     )}
@@ -864,10 +1076,11 @@ export default function OrdersPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Yeni Sipariş Oluştur</h2>
+              <h2 className="text-xl font-bold text-white">{editingOrder ? 'Sipariş Düzenle' : 'Yeni Sipariş Oluştur'}</h2>
               <button
                 onClick={() => {
                   setShowCreateModal(false)
+                  setEditingOrder(null)
                   setNewOrder({
                     order_number: '',
                     dealer_name: '',
@@ -1019,55 +1232,50 @@ export default function OrdersPage() {
                     type="text"
                     value={newOrder.product_name}
                     onChange={(e) => setNewOrder({ ...newOrder, product_name: e.target.value })}
+                    onBlur={() => {
+                      const name = (newOrder.product_name || '').trim()
+                      if (!name) return
+                      const sku = findSkuByProductName(name)
+                      if (sku) setNewOrder((prev) => ({ ...prev, product_sku: sku }))
+                    }}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">SKU / Ürün Kodu</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">SKU / Ürün Kodu <span className="text-gray-400 text-xs">(Ürün adına göre BOM ile aynı)</span></label>
                   <input
                     type="text"
                     value={newOrder.product_sku}
                     onChange={(e) => setNewOrder({ ...newOrder, product_sku: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="Ürün adına göre otomatik"
                   />
                 </div>
               </div>
 
-              {/* Beşinci Satır: SİP MİKTAR, Birim Fiyat, BRİM */}
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">SİP MİKTAR (Miktar) *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newOrder.quantity}
-                    onChange={(e) => setNewOrder({ ...newOrder, quantity: parseInt(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Birim Fiyat</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={newOrder.unit_price}
-                    onChange={(e) => setNewOrder({ ...newOrder, unit_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">BRİM (Birim)</label>
-                  <input
-                    type="text"
-                    value={newOrder.unit}
-                    onChange={(e) => setNewOrder({ ...newOrder, unit: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                    placeholder="Adet, m², kg, vb."
-                  />
-                </div>
+              {/* Beşinci Satır: SİP MİKTAR (BRİM / Birim alanı kaldırıldı) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">SİP MİKTAR (Miktar) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  step="1"
+                  value={newOrder.quantity === 0 ? '' : newOrder.quantity}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    if (raw === '') {
+                      setNewOrder((prev) => ({ ...prev, quantity: 0 }))
+                      return
+                    }
+                    const num = parseInt(raw, 10)
+                    if (!Number.isNaN(num) && num >= 0) {
+                      setNewOrder((prev) => ({ ...prev, quantity: num }))
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  required
+                />
               </div>
 
               {/* Altıncı Satır: KONFİGÜRASYON ve KUMAŞ KODU */}
@@ -1168,7 +1376,7 @@ export default function OrdersPage() {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
                 >
-                  Sipariş Oluştur
+                  {editingOrder ? 'Güncelle' : 'Sipariş Oluştur'}
                 </button>
               </div>
             </form>

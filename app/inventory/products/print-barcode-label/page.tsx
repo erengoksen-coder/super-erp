@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { QRCodeSVG } from 'qrcode.react'
 // Logo bileşeni yerine doğrudan resim kullanılacak
 import { Printer, ArrowLeft } from 'lucide-react'
+import { toast } from '@/lib/notify'
 // JsBarcode'ı dinamik import ile yükle (CSP sorunlarını önlemek için)
 
 interface BarcodeData {
@@ -39,7 +40,7 @@ export default function PrintBarcodeLabelPage() {
     logo_width: '96',
     logo_height: '14',
     logo_align: 'left',
-    product_name_font_size: '16',
+    product_name_font_size: '27',
     barcode_height: '18',
     qr_code_size: '28',
     detail_font_size: '13',
@@ -203,11 +204,11 @@ export default function PrintBarcodeLabelPage() {
         setBarcodeData(data[0])
       } else {
         console.error('Barkod bulunamadı:', barcodeId)
-        alert('Barkod bulunamadı. Lütfen geçerli bir barkod numarası girin.')
+        toast.warning('Barkod bulunamadı. Lütfen geçerli bir barkod numarası girin.')
       }
     } catch (error: any) {
       console.error('Barkod yüklenirken hata:', error)
-      alert('Barkod yüklenirken hata oluştu: ' + (error.message || 'Bilinmeyen hata'))
+      toast.error('Barkod yüklenirken hata oluştu: ' + (error.message || 'Bilinmeyen hata'))
     } finally {
       setLoading(false)
     }
@@ -217,7 +218,7 @@ export default function PrintBarcodeLabelPage() {
     try {
       // Yazdırma öncesi kontrol
       if (!barcodeData) {
-        alert('Barkod verisi yüklenmedi. Lütfen sayfayı yenileyin.')
+        toast.error('Barkod verisi yüklenmedi. Lütfen sayfayı yenileyin.')
         return
       }
       
@@ -225,7 +226,7 @@ export default function PrintBarcodeLabelPage() {
       window.print()
     } catch (error: any) {
       console.error('Yazdırma hatası:', error)
-      alert('Yazdırma sırasında hata oluştu: ' + (error.message || 'Bilinmeyen hata'))
+      toast.error('Yazdırma sırasında hata oluştu: ' + (error.message || 'Bilinmeyen hata'))
     }
   }
 
@@ -426,15 +427,124 @@ export default function PrintBarcodeLabelPage() {
             )
           })()}
 
-          {/* Ürün Adı */}
-          <div className="text-center" style={{ marginBottom: '0.8mm' }}>
-            <div className="font-black text-black leading-tight" style={{ fontSize: `${labelSettings.product_name_font_size}px`, fontWeight: 900, lineHeight: '1.2', color: '#000000' }}>{barcodeData.product_name}</div>
-            <div className="text-black font-bold" style={{ fontSize: '10px', marginTop: '0.3mm', color: '#000000' }}>{barcodeData.sku}</div>
+          {/* Ürün Adı + QR Kod yan yana (kırlent etiketinde üstte görünsün) */}
+          <div className="flex justify-between items-start gap-2" style={{ marginBottom: '0.6mm', width: '100%' }}>
+            <div className="flex-1 min-w-0 text-left">
+              <div className="font-black text-black leading-tight" style={{ fontSize: `${(parseFloat(labelSettings.product_name_font_size) || 27) + 4}px`, fontWeight: 900, lineHeight: '1.2', color: '#000000' }}>{barcodeData.product_name}</div>
+            </div>
+            <div className="flex-shrink-0" style={{ marginLeft: '1mm' }}>
+              <QRCodeSVG
+                value={qrContent}
+                size={parseInt(labelSettings.qr_code_size) || 28}
+                level="M"
+                includeMargin={false}
+                style={{
+                  display: 'block',
+                  visibility: 'visible',
+                  opacity: 1,
+                  width: `${labelSettings.qr_code_size}px`,
+                  height: `${labelSettings.qr_code_size}px`
+                }}
+              />
+            </div>
           </div>
 
-          {/* Barkod Görseli */}
-          <div className="flex flex-col items-center justify-center" style={{ marginBottom: '0.8mm', width: '100%' }}>
-            <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '0.3mm', padding: '0 1mm' }}>
+          {/* Detay yazıları - KIRLENT ile CARİ yeri değişti; CARİ 3 punto büyük */}
+          {(() => {
+            const notes = barcodeData.notes || ''
+            const detailSize = parseFloat(labelSettings.detail_font_size) || 13
+            const cariFontSize = detailSize + 7
+            const musFontSize = detailSize + 3
+            const fabricMatch = notes.match(/Kumaş:\s*([^|]+)/i)
+            const caseMatch = notes.match(/Kasa:\s*([^|]+)/i)
+            const legMatch = notes.match(/Ayak:\s*([^|]+)/i)
+            const cushionMatch = notes.match(/Kirlent:\s*([^|]+)/i) || notes.match(/KİRLENT:\s*([^|]+)/)
+            const fabricCode = fabricMatch ? fabricMatch[1].trim() : null
+            const caseInfo = caseMatch ? caseMatch[1].trim() : null
+            const legInfo = legMatch ? legMatch[1].trim() : null
+            const cushionInfo = cushionMatch ? cushionMatch[1].trim() : null
+            return (
+              <div className="font-black text-black leading-tight print-details" style={{
+                color: '#000000',
+                fontSize: `${labelSettings.detail_font_size}px`,
+                display: 'flex !important',
+                visibility: 'visible',
+                opacity: 1,
+                flexDirection: 'column',
+                justifyContent: 'flex-start',
+                gap: '0.35mm',
+                overflow: 'visible',
+                lineHeight: '1.15',
+                width: '100%',
+                marginBottom: '0.25mm'
+              }}>
+                <div className="flex justify-between items-start gap-2">
+                  <span className="font-black whitespace-nowrap shrink-0" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>SERİ:</span>
+                  <span className="font-black font-mono text-right ml-1 break-all flex-1 min-w-0" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.serial_number || '-'}</span>
+                  {barcodeData.sku && (
+                    <span className="font-black font-mono shrink-0" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.sku}</span>
+                  )}
+                </div>
+                <div className="flex justify-between items-start">
+                  <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>SİP TRH:</span>
+                  <span className="font-black text-right ml-1" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{formatDate(productionDate)}</span>
+                </div>
+                {(barcodeData.customer_order_number || barcodeData.production_order_number) && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>TAKİP:</span>
+                    <span className="font-black font-mono text-right ml-1 break-all" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{(barcodeData.customer_order_number || barcodeData.production_order_number || '-').substring(0, 18)}</span>
+                  </div>
+                )}
+                {/* KIRLENT - TAKİP sonrasında */}
+                <div className="flex justify-between items-start">
+                  <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>KIRLENT:</span>
+                  <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{(cushionInfo || '-').substring(0, 22)}</span>
+                </div>
+                {barcodeData.configuration && barcodeData.configuration !== '-' && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>KONF:</span>
+                    <span className="font-black text-right ml-1" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.configuration}</span>
+                  </div>
+                )}
+                {fabricCode && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>KUMAŞ:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{fabricCode.substring(0, 22)}</span>
+                  </div>
+                )}
+                {legInfo && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>AYAK:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{legInfo.substring(0, 22)}</span>
+                  </div>
+                )}
+                {caseInfo && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${detailSize}px`, fontWeight: 900, color: '#000000' }}>KASA:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${detailSize}px`, fontWeight: 700, color: '#000000' }}>{caseInfo.substring(0, 22)}</span>
+                  </div>
+                )}
+                {/* MÜŞ - carinin üstünde */}
+                {barcodeData.customer_name && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${musFontSize}px`, fontWeight: 900, color: '#000000' }}>MÜŞ:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${musFontSize}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.customer_name.substring(0, 22)}</span>
+                  </div>
+                )}
+                {/* CARİ - MÜŞ sonrasında; 7 punto büyük */}
+                {barcodeData.dealer_name && (
+                  <div className="flex justify-between items-start">
+                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${cariFontSize}px`, fontWeight: 900, color: '#000000' }}>CARİ:</span>
+                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${cariFontSize}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.dealer_name.substring(0, 22)}</span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Barkod - detayların altında; barkod numarası yukarıda (canvas'a yakın) */}
+          <div className="flex flex-col items-center justify-center" style={{ marginTop: 'auto', marginBottom: '0.4mm', width: '100%' }}>
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15mm', padding: '0 1mm' }}>
               <canvas 
                 id={barcodeCanvasId} 
                 style={{ 
@@ -442,120 +552,14 @@ export default function PrintBarcodeLabelPage() {
                   maxWidth: '100%',
                   height: `${labelSettings.barcode_height}mm`, 
                   maxHeight: `${labelSettings.barcode_height}mm`,
-                  display: 'block !important',
-                  visibility: 'visible !important',
-                  opacity: '1 !important',
+                  display: 'block',
+                  visibility: 'visible',
+                  opacity: 1,
                   backgroundColor: '#ffffff'
                 }}
               ></canvas>
+              <div className="text-black font-mono font-bold text-center" style={{ fontSize: '11px', marginTop: '0', lineHeight: '1.1', width: '100%', color: '#000000' }}>{barcodeData.barcode}</div>
             </div>
-            <div className="text-black font-mono font-bold text-center" style={{ fontSize: '9px', marginTop: '0.3mm', width: '100%', color: '#000000' }}>{barcodeData.barcode}</div>
-          </div>
-
-          {/* QR Kod */}
-          <div className="flex justify-center" style={{ marginBottom: '0.8mm', width: '100%' }}>
-            <QRCodeSVG
-              value={qrContent}
-              size={parseInt(labelSettings.qr_code_size) || 28}
-              level="M"
-              includeMargin={false}
-              style={{
-                display: 'block',
-                visibility: 'visible',
-                opacity: 1,
-                width: `${labelSettings.qr_code_size}px`,
-                height: `${labelSettings.qr_code_size}px`
-              }}
-            />
-          </div>
-
-          {/* Üretim Emri Kartı Detayları - Ayarlardan gelen font boyutu */}
-          <div className="font-black text-black leading-tight print-details" style={{
-            color: '#000000', 
-            fontSize: `${labelSettings.detail_font_size}px`,
-            flex: 1, 
-            display: 'flex !important', 
-            visibility: 'visible !important',
-            opacity: '1 !important',
-            flexDirection: 'column', 
-            justifyContent: 'flex-start', 
-            gap: '0.4mm', 
-            overflow: 'visible',
-            lineHeight: '1.2',
-            width: '100%'
-          }}>
-            <div className="flex justify-between items-start">
-              <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>SERİ:</span>
-              <span className="font-black font-mono text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.serial_number || '-'}</span>
-            </div>
-            <div className="flex justify-between items-start">
-              <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>SİP TRH:</span>
-              <span className="font-black text-right ml-1" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{formatDate(productionDate)}</span>
-            </div>
-            {(barcodeData.customer_order_number || barcodeData.production_order_number) && (
-              <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>TAKİP:</span>
-                <span className="font-black font-mono text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{(barcodeData.customer_order_number || barcodeData.production_order_number || '-').substring(0, 18)}</span>
-              </div>
-            )}
-            {barcodeData.dealer_name && (
-              <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>CARİ:</span>
-                <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.dealer_name.substring(0, 22)}</span>
-              </div>
-            )}
-            {barcodeData.customer_name && (
-              <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>MÜŞ:</span>
-                <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.customer_name.substring(0, 22)}</span>
-              </div>
-            )}
-            {barcodeData.configuration && barcodeData.configuration !== '-' && (
-              <div className="flex justify-between items-start">
-                <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KONF:</span>
-                <span className="font-black text-right ml-1" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{barcodeData.configuration}</span>
-              </div>
-            )}
-            {(() => {
-              // Notes'tan kumaş, ayak, kasa, kirlent bilgilerini çıkar
-              const notes = barcodeData.notes || ''
-              const fabricMatch = notes.match(/Kumaş:\s*([^|]+)/i)
-              const caseMatch = notes.match(/Kasa:\s*([^|]+)/i)
-              const legMatch = notes.match(/Ayak:\s*([^|]+)/i)
-              const cushionMatch = notes.match(/Kirlent:\s*([^|]+)/i)
-              const fabricCode = fabricMatch ? fabricMatch[1].trim() : null
-              const caseInfo = caseMatch ? caseMatch[1].trim() : null
-              const legInfo = legMatch ? legMatch[1].trim() : null
-              const cushionInfo = cushionMatch ? cushionMatch[1].trim() : null
-              
-              return (
-                <>
-                  {fabricCode && (
-                    <div className="flex justify-between items-start">
-                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KUMAŞ:</span>
-                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{fabricCode.substring(0, 22)}</span>
-                    </div>
-                  )}
-                  {legInfo && (
-                    <div className="flex justify-between items-start">
-                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>AYAK:</span>
-                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{legInfo.substring(0, 22)}</span>
-                    </div>
-                  )}
-                  {caseInfo && (
-                    <div className="flex justify-between items-start">
-                      <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KASA:</span>
-                      <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{caseInfo.substring(0, 22)}</span>
-                    </div>
-                  )}
-                  {/* Kırlent detayı - etikette her zaman gösterilir */}
-                  <div className="flex justify-between items-start">
-                    <span className="font-black whitespace-nowrap" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 900, color: '#000000' }}>KIRLENT:</span>
-                    <span className="font-black text-right ml-1 break-all" style={{ fontSize: `${labelSettings.detail_font_size}px`, fontWeight: 700, color: '#000000' }}>{(cushionInfo || '-').substring(0, 22)}</span>
-                  </div>
-                </>
-              )
-            })()}
           </div>
         </div>
       </div>

@@ -72,6 +72,13 @@ export function applyMaterialStockChange(
             materialId,
             `Kritik stok seviyesi: Mevcut ${available.toFixed(2)}`
           )
+          import('@/lib/webhooks/dispatch').then(({ dispatchWebhook }) => {
+            dispatchWebhook('stock.low', {
+              materialId,
+              currentStock: available,
+              minLevel,
+            }).catch(() => {})
+          }).catch(() => {})
         }
       } else if (hasAlert?.id) {
         db.prepare(`

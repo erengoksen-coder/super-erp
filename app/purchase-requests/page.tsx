@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 interface PurchaseRequest {
   id: string
@@ -52,7 +53,7 @@ export default function PurchaseRequestsPage() {
       setRequests(activeData)
     } catch (error) {
       console.error('Satın alma talepleri yüklenirken hata:', error)
-      alert('Satın alma talepleri yüklenirken hata oluştu')
+      toast.error('Satın alma talepleri yüklenirken hata oluştu')
     } finally {
       setLoading(false)
     }
@@ -79,7 +80,7 @@ export default function PurchaseRequestsPage() {
     if (!editingRequest) return
 
     if (editQuantity <= 0) {
-      alert('Miktar pozitif bir değer olmalıdır')
+      toast.warning('Miktar pozitif bir değer olmalıdır')
       return
     }
 
@@ -99,11 +100,11 @@ export default function PurchaseRequestsPage() {
         throw new Error(error.error || 'Talebi güncellenemedi')
       }
 
-      alert('✅ Miktar başarıyla güncellendi!')
+      toast.success('Miktar başarıyla güncellendi!')
       cancelEdit()
       loadRequests()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -120,10 +121,10 @@ export default function PurchaseRequestsPage() {
         throw new Error(error.error || 'Durum güncellenemedi')
       }
 
-      alert('✅ Durum başarıyla güncellendi!')
+      toast.success('Durum başarıyla güncellendi!')
       loadRequests()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -142,10 +143,10 @@ export default function PurchaseRequestsPage() {
         throw new Error(error.error || 'Talebi silinemedi')
       }
 
-      alert('✅ Satın alma talebi silindi!')
+      toast.success('Satın alma talebi silindi!')
       loadRequests()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -156,7 +157,7 @@ export default function PurchaseRequestsPage() {
     const orderedRequests = requests.filter(r => r.status === 'ordered')
     
     if (orderedRequests.length === 0) {
-      alert('Sipariş edilmiş talep bulunmuyor!')
+      toast.warning('Sipariş edilmiş talep bulunmuyor!')
       return
     }
 
@@ -314,10 +315,10 @@ export default function PurchaseRequestsPage() {
       const fileName = `Siparis_Edilmis_Talepler_${new Date().toISOString().split('T')[0]}.pdf`
       doc.save(fileName)
       
-      alert(`✅ PDF başarıyla oluşturuldu!\n${orderedRequests.length} adet sipariş edilmiş talep PDF'e aktarıldı.`)
+      toast.success(`PDF başarıyla oluşturuldu. ${orderedRequests.length} adet sipariş edilmiş talep PDF'e aktarıldı.`)
     } catch (error) {
       console.error('PDF export error:', error)
-      alert('PDF oluşturulurken hata oluştu')
+      toast.error('PDF oluşturulurken hata oluştu')
     } finally {
       setExporting(false)
     }

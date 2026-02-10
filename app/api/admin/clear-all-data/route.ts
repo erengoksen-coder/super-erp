@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
+import { logAudit } from '@/lib/audit'
 
-// POST: Tüm veri girişlerini sil (yapısal tablolar korunur)
+// POST: Tüm veri girişlerini sil (yapısal tablolar korunur) - Sadece admin
 // Yapısal tablolar (korunur): users, user_permissions, products, materials, bom, accounts, chart_of_accounts
 // Veri tabloları (silinir): orders, production_orders, stock_movements, shipments, purchase_requests, vb.
-export const POST = withAuth(async (request: NextRequest) => {
+export const POST = withAuth(async (request: NextRequest, user: { userId: string }) => {
   try {
+    const body = await request.json().catch(() => ({})) as { confirm?: boolean }
+    if (body?.confirm !== true) {
+      return NextResponse.json(
+        { error: 'Bu işlem tehlikelidir. Onaylamak için body\'de { "confirm": true } gönderin.' },
+        { status: 400 }
+      )
+    }
+
     const db = getDatabase()
     
     logger.info('[TEMİZLEME] Tüm veri girişleri siliniyor (yapısal tablolar korunuyor)...')
@@ -147,6 +156,14 @@ export const POST = withAuth(async (request: NextRequest) => {
     logger.info('[TEMİZLEME] Tüm veri girişleri başarıyla silindi', result)
     
     const totalDeleted = Object.values(result).reduce((sum, count) => sum + (count || 0), 0)
+
+    logAudit(db, {
+      tableName: 'admin_operation',
+      action: 'delete',
+      recordId: 'clear-all-data',
+      userId: user.userId,
+      after: { ...result, total_deleted: totalDeleted },
+    })
     
     return NextResponse.json({
       success: true,
@@ -161,5 +178,5 @@ export const POST = withAuth(async (request: NextRequest) => {
       { status: 500 }
     )
   }
-})
+}, ['admin'])
 

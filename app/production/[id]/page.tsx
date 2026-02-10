@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
 
 interface ProductionOrder {
@@ -164,10 +165,10 @@ export default function ProductionOrderDetailPage() {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'İptal işlemi başarısız')
       }
-      alert('✅ Üretim emri iptal edildi')
+      toast.success('Üretim emri iptal edildi')
       await loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -196,14 +197,14 @@ export default function ProductionOrderDetailPage() {
         setBarcodes(barcodesData)
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
   async function handleSaveActualQuantity(materialId: string) {
     const actualQty = parseFloat(actualQuantities[materialId] || '0')
     if (isNaN(actualQty) || actualQty < 0) {
-      alert('Geçerli bir miktar girin')
+      toast.warning('Geçerli bir miktar girin')
       return
     }
 
@@ -225,12 +226,12 @@ export default function ProductionOrderDetailPage() {
       }
 
       const result = await response.json()
-      alert(`✅ Kaydedildi! Varyans: ${result.variancePercentage}%`)
+      toast.success(`Kaydedildi! Varyans: ${result.variancePercentage}%`)
       
       // Veriyi yeniden yükle
       await loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     } finally {
       setSaving(false)
     }

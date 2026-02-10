@@ -1,27 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken } from '@/lib/auth/jwt'
+import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { logAudit } from '@/lib/audit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest, user: { userId: string }) => {
   try {
-    // Auth kontrolü
-    const authHeader = request.headers.get('authorization')
-    const headerToken = authHeader?.startsWith('Bearer ')
-      ? authHeader.replace('Bearer ', '').trim()
-      : authHeader?.trim()
-    const cookieToken = request.cookies.get('auth-token')?.value || request.cookies.get('access_token')?.value
-    const token = headerToken || cookieToken
-
-    if (!token) {
-      return NextResponse.json({ error: 'Yetkilendirme gerekli' }, { status: 401 })
-    }
-
-    const payload = await verifyToken(token)
-    if (!payload) {
-      return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
+    const body = await request.json().catch(() => ({})) as { confirm?: boolean }
+    if (body?.confirm !== true) {
+      return NextResponse.json(
+        { error: 'Bu işlem tehlikelidir. Onaylamak için body\'de { "confirm": true } gönderin.' },
+        { status: 400 }
+      )
     }
 
     const db = getDatabase()
@@ -73,6 +65,14 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
+    logAudit(db, {
+      tableName: 'admin_operation',
+      action: 'delete',
+      recordId: 'cleanup',
+      userId: user.userId,
+      after: results,
+    })
+
     return NextResponse.json({
       message: 'Veriler başarıyla silindi',
       deleted: results
@@ -84,4 +84,4 @@ export async function POST(request: NextRequest) {
       details: error?.message || 'Bilinmeyen hata'
     }, { status: 500 })
   }
-}
+}, ['admin'])

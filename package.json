@@ -9,6 +9,8 @@
     "dev:simple:clean": "cross-env NODE_OPTIONS=--max-old-space-size=4096 NEXT_DISABLE_TURBO=1 next dev -H 0.0.0.0 -p 3000",
     "dev:clean": "rm -rf .next .turbo && next dev -H 0.0.0.0",
     "dev:local": "next dev",
+    "dev:reset": "powershell -ExecutionPolicy Bypass -File ./scripts/sunucu-sifirla-ve-baslat.ps1",
+    "ngrok:ac": "powershell -ExecutionPolicy Bypass -File ./scripts/ngrok-ac.ps1",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "start:internet": "powershell -ExecutionPolicy Bypass -File ./scripts/start-internet.ps1",
@@ -22,6 +24,9 @@
     "start:production": "cross-env NODE_ENV=production node server-https.js",
     "lint": "eslint",
     "test": "jest",
+    "test:all": "npm test && npm run test:e2e",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:rls": "node scripts/test-rls-policies.js",
@@ -37,6 +42,7 @@
     "prepare": "husky install"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
     "@types/better-sqlite3": "^7.6.13",
@@ -53,9 +59,11 @@
     "lru-cache": "^11.2.5",
     "lucide-react": "^0.562.0",
     "next": "16.1.1",
+    "nodemailer": "^6.10.1",
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-hook-form": "^7.71.1",
     "recharts": "^2.12.7",
     "selfsigned": "^2.1.1",
     "sonner": "^2.0.7",
@@ -67,6 +75,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

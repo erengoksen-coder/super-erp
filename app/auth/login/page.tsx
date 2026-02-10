@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { LogIn, User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnUrl = searchParams.get('returnUrl') || ''
@@ -19,10 +20,16 @@ export default function LoginPage() {
   const setAuth = useAuthStore((state) => state.setAuth)
   const setHydrated = useAuthStore((state) => state.setHydrated)
   const [isNgrok, setIsNgrok] = useState(false)
+  const [showSplash, setShowSplash] = useState(true)
 
   useEffect(() => {
     const h = typeof window !== 'undefined' ? window.location.hostname : ''
     setIsNgrok(h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io'))
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 1500)
+    return () => clearTimeout(t)
   }, [])
 
   async function handleLogin(e: React.FormEvent) {
@@ -54,7 +61,9 @@ export default function LoginPage() {
       const name = (user as any)?.full_name || (user as any)?.username || ''
       toast.success(name ? `Hoş geldiniz, ${name}` : 'Giriş başarılı')
 
-      const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/'
+      const role = (user as any)?.role ?? ''
+        const isBayi = (typeof role === 'string' && role.trim().toLowerCase() === 'bayi')
+        const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : (isBayi ? '/bayi' : '/')
       router.push(target)
     } catch (error: any) {
       // API'den gelen hata mesajını al
@@ -67,21 +76,52 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Açılış: önce logo tam ekran, sonra giriş formu */}
+      {showSplash ? (
+        <div className="absolute inset-0 bg-gray-900 z-20 overflow-hidden" aria-hidden>
+          <img
+            src="/LOGO-2.png"
+            alt="LIVASOFTWARE"
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-20"
+            style={{ transform: 'scale(1.5)' }}
+            onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }}
+          />
+        </div>
+      ) : null}
+
+      {/* Arka plan: logo görsel olarak büyük, sayfaya sığdırılmış (soluk) */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
+        <img
+          src="/LOGO-2.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover object-center opacity-[0.08]"
+          style={{ transform: 'scale(1.5)' }}
+          onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }}
+        />
+      </div>
+      <div
+        className={`w-full max-w-lg relative z-10 transition-opacity duration-500 ${showSplash ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      >
+        <div className="bg-gray-800/95 rounded-lg border border-gray-700 p-8 backdrop-blur-sm">
           <div className="text-center mb-8">
+            <img src="/LOGO-2.png" alt="LIVASOFTWARE" className="w-full max-h-36 object-contain mx-auto mb-4" onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
             <h1 className="text-3xl font-bold text-white mb-2">LIVASOFA ERP</h1>
             <p className="text-gray-400">Giriş Yapın</p>
             {isNgrok && (
-              <p className="text-xs text-green-400 mt-2">İnternet erişimi: Ngrok üzerinden bağlandınız.</p>
+              <p className="text-xs text-green-400 mt-2">İnternet erişimi: Ngrok üzerinden bağlandınız. İlk açılışta Ngrok uyarı sayfasında &quot;Siteye Git&quot; / &quot;Visit Site&quot; butonuna tıklayın.</p>
             )}
           </div>
 
           {error && (
             <div className="mb-4 bg-red-900/30 border border-red-700 rounded-lg p-3 flex items-start space-x-2">
               <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <div className="text-red-300 text-sm">{error}</div>
+              <div className="text-red-300 text-sm">
+                <p>{error}</p>
+                {isNgrok && (error.includes('hatalı') || error.includes('incorrect')) && (
+                  <p className="mt-2 text-red-200/90 text-xs">Farklı bilgisayardan girişte: Kullanıcı adı ve şifreyi tekrar yazın; klavye dili (TR/EN) veya büyük/küçük harf farkı olabilir.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -115,6 +155,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-10 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Şifrenizi girin"
+                  autoComplete="current-password"
                   required
                 />
                 <button
@@ -136,19 +177,37 @@ export default function LoginPage() {
               <LogIn className="w-5 h-5" />
               <span>{loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}</span>
             </button>
+            <p className="mt-3 text-center">
+              <Link href="/auth/forgot-password" className="text-gray-400 hover:text-blue-400 text-sm">
+                Şifremi unuttum
+              </Link>
+            </p>
           </form>
 
           <div className="mt-6 text-center">
-            <a
+            <Link
               href="/auth/register"
               className="text-blue-400 hover:text-blue-300 text-sm"
             >
               Hesabınız yok mu? Kayıt olun
-            </a>
+            </Link>
+            <p className="mt-3 text-sm font-medium text-blue-500">Powered by LIVASOFTWARE</p>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   )
 }
 

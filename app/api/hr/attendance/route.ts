@@ -92,7 +92,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           recalcAttendance(db, existing.id, employee_id, today, existing.check_in, t)
           return NextResponse.json({ id: existing.id, check_out: t })
         }
-        checkInVal = existing?.check_in || null
+        checkInVal = (existing as { check_in: string | null } | undefined)?.check_in ?? null
       }
     } else {
       checkInVal = check_in != null ? String(check_in).trim() : null

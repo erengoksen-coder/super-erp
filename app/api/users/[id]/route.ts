@@ -49,6 +49,7 @@ export const GET = withAuth(async (
         u.position,
         u.job_title,
         u.is_approved,
+        COALESCE(u.is_locked, 0) as is_locked,
         u.approved_by,
         u.approved_at,
         u.created_at,
@@ -80,9 +81,10 @@ export const GET = withAuth(async (
   }
 }, ['admin'])
 
-// PATCH: Kullanıcı güncelle (onaylama, izin güncelleme)
+// PATCH: Kullanıcı güncelle (onaylama, izin güncelleme). Şifre değiştirme sadece admin rolüne açıktır.
 export const PATCH = withAuth(async (
-  request: NextRequest, user,
+  request: NextRequest,
+  authUser: { userId: string; role?: string },
   context?: unknown
 ) => {
   try {
@@ -94,7 +96,18 @@ export const PATCH = withAuth(async (
     }
     const userId = resolvedParams.id
     const body = await parseJsonBody(request)
-    const { is_approved, approved_by, permissions, password, full_name, job_title, role, position, email } = body
+    const { is_approved, approved_by, permissions, password, full_name, job_title, role, position, email, is_locked, dealer_name } = body
+
+    // Şifre değiştirme / görme sadece admin rolüne (yönetici değil)
+    if (password != null && String(password).trim() !== '') {
+      const actorRole = (authUser?.role ?? '').toString().trim().toLowerCase()
+      if (actorRole !== 'admin') {
+        return NextResponse.json(
+          { error: 'Kullanıcı şifresi sadece admin rolü tarafından değiştirilebilir.' },
+          { status: 403 }
+        )
+      }
+    }
 
     const db = getDatabase()
 
@@ -107,10 +120,14 @@ export const PATCH = withAuth(async (
 
     db.transaction(() => {
       // Kullanıcı bilgilerini güncelle
-      if (is_approved !== undefined || approved_by || full_name !== undefined || job_title !== undefined || role !== undefined || position !== undefined || email !== undefined) {
+      if (is_approved !== undefined || approved_by || full_name !== undefined || job_title !== undefined || role !== undefined || position !== undefined || email !== undefined || is_locked !== undefined || dealer_name !== undefined) {
         let updateQuery = 'UPDATE users SET updated_at = CURRENT_TIMESTAMP'
         const updateParams: any[] = []
 
+        if (is_locked !== undefined) {
+          updateQuery += ', is_locked = ?'
+          updateParams.push(is_locked ? 1 : 0)
+        }
         if (is_approved !== undefined) {
           updateQuery += ', is_approved = ?'
           updateParams.push(is_approved ? 1 : 0)
@@ -144,6 +161,11 @@ export const PATCH = withAuth(async (
         if (position !== undefined) {
           updateQuery += ', position = ?'
           updateParams.push(position || null)
+        }
+
+        if (dealer_name !== undefined) {
+          updateQuery += ', dealer_name = ?'
+          updateParams.push((dealer_name != null && String(dealer_name).trim() !== '') ? String(dealer_name).trim() : null)
         }
 
         if (password) {

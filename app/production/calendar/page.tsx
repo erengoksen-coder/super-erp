@@ -190,7 +190,7 @@ export default function ProductionCalendarPage() {
   const days = viewMode === 'week' ? getWeekDays(new Date(currentDate)) : getMonthDays(new Date(currentDate))
   const weekDays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz']
 
-  const handleOrderClick = (order: ProductionOrder) => {
+  const handleOrderClick = (order: import('@/components/production/KanbanBoard').ProductionOrder) => {
     router.push(`/production/${order.id}`)
   }
 
@@ -206,7 +206,7 @@ export default function ProductionCalendarPage() {
         </div>
       </div>
 
-      <KanbanBoard orders={filteredOrders} onOrderClick={handleOrderClick} />
+      <KanbanBoard orders={filteredOrders as import('@/components/production/KanbanBoard').ProductionOrder[]} onOrderClick={handleOrderClick} />
 
       {/* Kontroller */}
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-6">

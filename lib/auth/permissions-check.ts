@@ -6,6 +6,9 @@ export type Permission = {
   can_delete: number
 }
 
+/** İzin kontrolünde kullanılabilir (can_create/edit/delete opsiyonel). */
+export type PermissionLike = Pick<Permission, 'page_path' | 'can_view'> & Partial<Pick<Permission, 'can_create' | 'can_edit' | 'can_delete'>>
+
 /** Admin/yönetici rolü tüm menü ve API erişimine sahip; izin kontrolü atlanır. */
 export function isAdminRole(role: string | undefined | null): boolean {
   const r = (role ?? '').toString().trim().toLowerCase()
@@ -24,7 +27,7 @@ export function getActionFromMethod(method: string): PermissionAction {
 }
 
 export function canAccessPath(
-  permissions: Permission[],
+  permissions: PermissionLike[],
   pathname: string,
   action: PermissionAction
 ) {

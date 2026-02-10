@@ -98,10 +98,14 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
+        <img src="/LOGO-2.png" alt="" className="absolute inset-0 w-full h-full object-cover object-center opacity-[0.08]" style={{ transform: 'scale(1.5)' }} onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
+      </div>
+      <div className="w-full max-w-lg relative z-10">
+        <div className="bg-gray-800/95 rounded-lg border border-gray-700 p-8 backdrop-blur-sm">
           <div className="text-center mb-8">
+            <img src="/LOGO-2.png" alt="LIVASOFTWARE" className="w-full max-h-36 object-contain mx-auto mb-4" onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
             <h1 className="text-3xl font-bold text-white mb-2">LIVASOFA ERP</h1>
             <p className="text-gray-400">Yeni Hesap Oluştur</p>
           </div>
@@ -252,6 +256,7 @@ export default function RegisterPage() {
             >
               Zaten hesabınız var mı? Giriş yapın
             </a>
+            <p className="mt-3 text-sm font-medium text-blue-500">Powered by LIVASOFTWARE</p>
           </div>
         </div>
       </div>

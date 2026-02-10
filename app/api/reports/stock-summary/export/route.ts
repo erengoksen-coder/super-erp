@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { EXPORT_MAX_LIMIT } from '@/lib/constants'
 import * as XLSX from 'xlsx'
 
 export const GET = withAuth(async (request) => {
@@ -9,14 +10,17 @@ export const GET = withAuth(async (request) => {
     const materials = db.prepare(`
       SELECT code, name, unit, stock_amount, min_stock_level
       FROM materials
+      WHERE deleted_at IS NULL
       ORDER BY name
-    `).all() as Array<Record<string, string | number | null>>
+      LIMIT ?
+    `).all(EXPORT_MAX_LIMIT) as Array<Record<string, string | number | null>>
 
     const products = db.prepare(`
       SELECT sku, name, stock_amount, min_stock_level
       FROM active_products
       ORDER BY sku
-    `).all() as Array<Record<string, string | number | null>>
+      LIMIT ?
+    `).all(EXPORT_MAX_LIMIT) as Array<Record<string, string | number | null>>
 
     const workbook = XLSX.utils.book_new()
     const materialsSheet = XLSX.utils.json_to_sheet(materials)

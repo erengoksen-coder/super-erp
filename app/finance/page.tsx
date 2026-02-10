@@ -15,6 +15,7 @@ import {
   FileText,
   Flame,
   Calculator,
+  Activity,
 } from 'lucide-react'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -49,9 +50,16 @@ function FinanceHubCard({
   )
 }
 
+type MetricsRes = {
+  liquidityRatios?: { currentRatio?: number; quickRatio?: number }
+  profitabilityRatios?: { netProfitMargin?: number; returnOnEquity?: number }
+}
+
 export default function FinancePage() {
   const [kpi, setKpi] = useState<{ totalDebit?: number; totalCredit?: number } | null>(null)
   const [kpiLoading, setKpiLoading] = useState(false)
+  const [metrics, setMetrics] = useState<MetricsRes | null>(null)
+  const [metricsLoading, setMetricsLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -75,6 +83,25 @@ export default function FinancePage() {
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    setMetricsLoading(true)
+    const end = new Date().toISOString().split('T')[0]
+    const start = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0]
+    fetchApi<{ data?: MetricsRes }>(`/api/financial/metrics?startDate=${start}&endDate=${end}`)
+      .then((res: any) => {
+        if (cancelled) return
+        setMetrics(res?.data ?? res ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setMetrics(null)
+      })
+      .finally(() => {
+        if (!cancelled) setMetricsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <AppDashboardLayout
       title="Finans & Muhasebe"
@@ -90,22 +117,56 @@ export default function FinancePage() {
       }
     >
       {/* Kısa özet / KPI */}
-      <div className="mb-6 p-4 bg-gray-900 rounded-lg border border-gray-800">
-        <h3 className="text-sm font-medium text-gray-400 mb-2">Dönem özeti (Mizan)</h3>
-        {kpiLoading ? (
-          <p className="text-gray-500 text-sm">Yükleniyor...</p>
-        ) : kpi && (kpi.totalDebit !== undefined || kpi.totalCredit !== undefined) ? (
-          <div className="flex flex-wrap gap-4 text-sm">
-            <span className="text-gray-300">
-              Toplam Borç: <strong className="text-white">{Number(kpi.totalDebit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</strong>
-            </span>
-            <span className="text-gray-300">
-              Toplam Alacak: <strong className="text-white">{Number(kpi.totalCredit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</strong>
-            </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="p-4 bg-gray-900 rounded-lg border border-gray-800">
+          <h3 className="text-sm font-medium text-gray-400 mb-2">Dönem özeti (Mizan)</h3>
+          {kpiLoading ? (
+            <p className="text-gray-500 text-sm">Yükleniyor...</p>
+          ) : kpi && (kpi.totalDebit !== undefined || kpi.totalCredit !== undefined) ? (
+            <div className="flex flex-wrap gap-4 text-sm">
+              <span className="text-gray-300">
+                Toplam Borç: <strong className="text-white">{Number(kpi.totalDebit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</strong>
+              </span>
+              <span className="text-gray-300">
+                Toplam Alacak: <strong className="text-white">{Number(kpi.totalCredit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</strong>
+              </span>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm">Mizan ve raporlarda dönem seçerek detayları görüntüleyebilirsiniz.</p>
+          )}
+        </div>
+        <div className="p-4 bg-gray-900 rounded-lg border border-gray-800">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-400">Finansal metrikler</h3>
+            <Link href="/finance/metrics" className="text-xs text-blue-400 hover:text-blue-300">Tümü</Link>
           </div>
-        ) : (
-          <p className="text-gray-500 text-sm">Mizan ve raporlarda dönem seçerek detayları görüntüleyebilirsiniz.</p>
-        )}
+          {metricsLoading ? (
+            <p className="text-gray-500 text-sm">Yükleniyor...</p>
+          ) : metrics ? (
+            <div className="flex flex-wrap gap-4 text-sm">
+              {metrics.liquidityRatios?.currentRatio != null && (
+                <span className="text-gray-300">
+                  Cari oran: <strong className="text-white">{Number(metrics.liquidityRatios.currentRatio).toFixed(2)}</strong>
+                </span>
+              )}
+              {metrics.profitabilityRatios?.netProfitMargin != null && (
+                <span className="text-gray-300">
+                  Net kâr marjı: <strong className="text-white">%{Number(metrics.profitabilityRatios.netProfitMargin).toFixed(1)}</strong>
+                </span>
+              )}
+              {metrics.profitabilityRatios?.returnOnEquity != null && (
+                <span className="text-gray-300">
+                  Özkaynak kârlılığı: <strong className="text-white">%{Number(metrics.profitabilityRatios.returnOnEquity).toFixed(1)}</strong>
+                </span>
+              )}
+              {!metrics.liquidityRatios?.currentRatio && !metrics.profitabilityRatios?.netProfitMargin && !metrics.profitabilityRatios?.returnOnEquity && (
+                <span className="text-gray-500 text-sm">Metrik verisi yok</span>
+              )}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm">Dönem seçerek metrikleri görüntüleyebilirsiniz.</p>
+          )}
+        </div>
       </div>
 
       {/* Hızlı işlemler */}
@@ -224,6 +285,13 @@ export default function FinancePage() {
             title="Nakit Akışı"
             description="Nakit giriş ve çıkışları"
             color="text-teal-400"
+          />
+          <FinanceHubCard
+            href="/finance/metrics"
+            icon={Activity}
+            title="Finansal Metrikler"
+            description="Likidite, kârlılık, verimlilik oranları"
+            color="text-violet-400"
           />
         </div>
       </section>

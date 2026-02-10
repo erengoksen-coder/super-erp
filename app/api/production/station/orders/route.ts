@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/database/db'
 import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { generateBarcode, generateSerialNumber } from '@/lib/utils/barcodeGenerator'
+import { dispatchWebhook } from '@/lib/webhooks/dispatch'
 
 type ProductionOrderRow = {
   production_order_id: string
@@ -125,7 +126,6 @@ export const GET = withAuth(async (request: NextRequest) => {
       JOIN production_orders po ON psn.production_order_id = po.id
       JOIN products p ON po.product_id = p.id AND p.deleted_at IS NULL
       WHERE COALESCE(psn.current_station, po.current_station) = ?
-        AND po.status != 'completed'
         AND po.status != 'cancelled'
       ORDER BY po.created_at ASC, psn.created_at ASC
     `).all(station) as Array<ProductionOrderRow & { psn_id: string; barcode: string | null; serial_number: string | null }>
@@ -671,26 +671,40 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
           
           // Tamamlanma zamanını kaydet
           const completedAtColumn = `${currentStation}_completed_at`
+          const allCompleted = newCompleted >= order.quantity
           let timeUpdateResult
           if (nextStation === 'completed') {
-            try {
-              timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`).run(now, now, now, order_id)
-            } catch (updateError: any) {
-              // Eğer completed_at kolonu yoksa, sadece diğer alanları güncelle
-              if (updateError.message?.includes('no such column: completed_at')) {
-                timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, status = 'completed', updated_at = ? WHERE id = ?`).run(now, now, order_id)
-              } else {
-                throw updateError
+            // Sadece tüm kartlar tamamlandıysa production_order status = 'completed' yap (aksi halde diğer kartlar Usta Terminali'nde görünmez)
+            if (allCompleted) {
+              try {
+                timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`).run(now, now, now, order_id)
+              } catch (updateError: any) {
+                if (updateError.message?.includes('no such column: completed_at')) {
+                  timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, status = 'completed', updated_at = ? WHERE id = ?`).run(now, now, order_id)
+                } else {
+                  throw updateError
+                }
               }
+              dispatchWebhook('production.completed', {
+                production_order_id: order_id,
+                production_order_number: (order as { order_number?: string }).order_number,
+                product_id: (order as { product_id?: string }).product_id,
+                quantity: order.quantity,
+                completed_at: now,
+              }).catch(() => {})
+            } else {
+              timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
             }
           } else {
             timeUpdateResult = db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
           }
-          // Üretim panosu/takvim entegrasyonu: siparişin görüneceği sütun = kartın gittiği istasyon
-          db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
+          // Sadece tüm kartlar bu istasyonu tamamladıysa production_order'ın current_station'ını güncelle (tek barkoda Bitti = sadece o kart taşınsın)
+          if (allCompleted) {
+            db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
+          } else {
+            db.prepare('UPDATE production_orders SET updated_at = ? WHERE id = ?').run(now, order_id)
+          }
           console.log('[PATCH] Time update result:', timeUpdateResult.changes)
-          
-          const allCompleted = newCompleted >= order.quantity
           
           console.log('[PATCH] Update successful:', { newCompleted, total: order.quantity, allCompleted, nextStation })
           
@@ -831,6 +845,13 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
               throw updateError
             }
           }
+          dispatchWebhook('production.completed', {
+            production_order_id: order_id,
+            production_order_number: (order as { order_number?: string }).order_number,
+            product_id: (order as { product_id?: string }).product_id,
+            quantity: order.quantity,
+            completed_at: now,
+          }).catch(() => {})
         } else {
           db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
         }
@@ -953,8 +974,12 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
         
         // Sadece bu kartı tamamla
         db.prepare(`UPDATE production_orders SET ${completedCountColumn} = ? WHERE id = ?`).run(newCompleted, order_id)
-        // Üretim panosu entegrasyonu: siparişin panoda görüneceği sütun
-        db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
+        // Sadece tüm kartlar tamamlandıysa production_order current_station güncelle (tek kart Bitti = sadece o kart sonraki istasyona)
+        if (newCompleted >= order.quantity) {
+          db.prepare('UPDATE production_orders SET current_station = ?, updated_at = ? WHERE id = ?').run(nextStation, now, order_id)
+        } else {
+          db.prepare('UPDATE production_orders SET updated_at = ? WHERE id = ?').run(now, order_id)
+        }
         
         // Tüm kartlar tamamlandı mı kontrol et
         if (newCompleted >= order.quantity) {
@@ -963,6 +988,13 @@ export const PATCH = withAuth(async (request: NextRequest, user: any, context?: 
           const completedAtColumn = `${currentStation}_completed_at`
           if (nextStation === 'completed') {
             db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`).run(now, now, now, order_id)
+            dispatchWebhook('production.completed', {
+              production_order_id: order_id,
+              production_order_number: (order as { order_number?: string }).order_number,
+              product_id: (order as { product_id?: string }).product_id,
+              quantity: order.quantity,
+              completed_at: now,
+            }).catch(() => {})
           } else {
             db.prepare(`UPDATE production_orders SET ${completedAtColumn} = ?, updated_at = ? WHERE id = ?`).run(now, now, order_id)
           }

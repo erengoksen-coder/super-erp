@@ -21,15 +21,19 @@ const translations: Record<Language, Translations> = {
   en: {}
 }
 
-// Çeviri dosyalarını yükle
+// Çeviri dosyalarını public/locales üzerinden yükle (ChunkLoadError önlenir)
 async function loadTranslations(lang: Language): Promise<Translations> {
-  try {
-    const imported = await import(`@/locales/${lang}.json`)
-    return imported.default || imported
-  } catch (error) {
-    console.warn(`Çeviri dosyası yüklenemedi: locales/${lang}.json`, error)
-    return {}
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/locales/${lang}.json`, { cache: 'no-store' })
+      if (!res.ok) return {}
+      const data = await res.json()
+      return (data && typeof data === 'object') ? data : {}
+    } catch {
+      return {}
+    }
   }
+  return {}
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {

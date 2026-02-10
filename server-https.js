@@ -185,7 +185,7 @@ function isPublicPath(pathname) {
     pathname.startsWith('/icons/') ||
     pathname.startsWith('/images/') ||
     pathname === '/favicon.ico' ||
-    pathname === '/manifest.webmanifest' ||
+    pathname === '/manifest' ||
     pathname === '/sw.js'
   ) {
     return true

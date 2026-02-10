@@ -142,45 +142,42 @@ export default function ScanBarcodePage() {
     }
   }, [hardwareMode, scannedData, shipmentMatch, scanMode])
 
-  function formatStage(data: BarcodeDetails) {
-    const status = data.status || ''
-    switch (status) {
-      case 'in_production':
-        return 'Üretimde'
-      case 'in_stock':
-        return 'Mamül Depoda'
-      case 'available':
-        return 'Mamül Depoda'
-      case 'reserved':
-        return 'Rezerve'
-      case 'sold':
-        return 'Satıldı'
-      case 'shipped':
-        return 'Sevk Edildi'
-      case 'pending':
-        return 'Beklemede'
-      default:
-        return status || '-'
+  /** Tek kaynak: AŞAMA, DURUM MESAJI ve SEVK DURUMU hep aynı gerçek duruma gore gosterilir. */
+  function getUnifiedStatus(data: BarcodeDetails): { stage: string; message: string; shipmentLabel: string } {
+    const stationMap: Record<string, string> = {
+      iskelet: 'İskelet',
+      terzihane: 'Terzihane',
+      döşeme: 'Döşeme',
+      doseme: 'Döşeme',
+      montaj: 'Montaj',
+      berjer: 'Berjer',
+      sevkiyat: 'Sevkiyat',
     }
-  }
-
-  function getStageMessage(data: BarcodeDetails) {
-    if (data.ready_for_shipment) return 'Sevk edileceklerde'
-    if (data.shipment_date || data.status === 'shipped') return 'Sevk edildi'
-    if (data.production_order_status && data.production_order_status !== 'completed') {
-      const stationMap: Record<string, string> = {
-        iskelet: 'İskelet',
-        terzihane: 'Terzihane',
-        döşeme: 'Döşeme',
-        doseme: 'Döşeme',
-        montaj: 'Montaj',
-        sevkiyat: 'Sevkiyat',
-      }
+    // 1) Sevk edildiyse her yerde "Sevk edildi"
+    if (data.shipment_date || data.status === 'shipped') {
+      return { stage: 'Sevk Edildi', message: 'Sevk edildi', shipmentLabel: 'Sevk edildi' }
+    }
+    // 2) Sevke hazir
+    if (data.ready_for_shipment) {
+      return { stage: 'Sevke Hazır', message: 'Sevk edileceklerde', shipmentLabel: 'Sevke Hazır' }
+    }
+    // 3) Üretimde (emir tamamlanmamis veya status in_production)
+    if (data.status === 'in_production' || (data.production_order_status && data.production_order_status !== 'completed')) {
       const station = data.current_station ? (stationMap[data.current_station] || data.current_station) : 'Üretim'
-      return `${station} aşamasında`
+      return {
+        stage: 'Üretimde',
+        message: `${station} aşamasında`,
+        shipmentLabel: 'Sevke Hazır Değil',
+      }
     }
-    if (data.status === 'in_stock' || data.status === 'available') return 'Mamül depoda'
-    return formatStage(data)
+    // 4) Mamül depoda
+    if (data.status === 'in_stock' || data.status === 'available') {
+      return { stage: 'Mamül Depoda', message: 'Mamül depoda', shipmentLabel: 'Sevke Hazır Değil' }
+    }
+    // 5) Diger
+    const status = data.status || ''
+    const fallback = status === 'reserved' ? 'Rezerve' : status === 'sold' ? 'Satıldı' : status === 'pending' ? 'Beklemede' : status || '-'
+    return { stage: fallback, message: fallback, shipmentLabel: 'Sevke Hazır Değil' }
   }
 
   function normalizeDetails(data: BarcodeDetails) {
@@ -420,24 +417,30 @@ export default function ScanBarcodePage() {
                 <div className="text-xs text-gray-400 mb-1">SKU</div>
                     <div className="text-white text-sm">{data.sku}</div>
               </div>
-              {data.status && (
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">AŞAMA</div>
-                  <div className="text-white text-sm font-semibold">{formatStage(data)}</div>
-                </div>
-              )}
-              <div>
-                <div className="text-xs text-gray-400 mb-1">DURUM MESAJI</div>
-                <div className="text-white text-sm font-semibold">{getStageMessage(data)}</div>
-              </div>
-              {typeof data.ready_for_shipment === 'number' && (
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">SEVK DURUMU</div>
-                  <div className={`text-sm font-semibold ${data.ready_for_shipment ? 'text-green-400' : 'text-yellow-400'}`}>
-                    {data.ready_for_shipment ? 'Sevke Hazır' : 'Sevke Hazır Değil'}
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const u = getUnifiedStatus(data)
+                return (
+                  <>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">AŞAMA</div>
+                      <div className="text-white text-sm font-semibold">{u.stage}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">DURUM MESAJI</div>
+                      <div className="text-white text-sm font-semibold">{u.message}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">SEVK DURUMU</div>
+                      <div className={`text-sm font-semibold ${
+                        u.shipmentLabel === 'Sevk edildi' ? 'text-green-400' :
+                        u.shipmentLabel === 'Sevke Hazır' ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        {u.shipmentLabel}
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
                   {normalized.sip_trh && (
               <div>
                 <div className="text-xs text-gray-400 mb-1">ÜRETİM TARİHİ</div>

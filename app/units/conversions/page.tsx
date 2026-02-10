@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Plus, Trash2, Edit, Save, X } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
+import { toast } from '@/lib/notify'
 
 type Material = {
   id: string
@@ -73,7 +74,7 @@ export default function UnitConversionsPage() {
 
   async function handleCreate() {
     if (!fromUnit.trim() || !toUnit.trim() || !factor || Number(factor) <= 0) {
-      alert('Kaynak birim, hedef birim ve pozitif çarpan gerekli')
+      toast.warning('Kaynak birim, hedef birim ve pozitif çarpan gerekli')
       return
     }
     try {
@@ -97,7 +98,7 @@ export default function UnitConversionsPage() {
       setFactor('')
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -113,7 +114,7 @@ export default function UnitConversionsPage() {
       }
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -136,7 +137,7 @@ export default function UnitConversionsPage() {
   async function handleUpdate() {
     if (!editingId) return
     if (!editFromUnit.trim() || !editToUnit.trim() || !editFactor || Number(editFactor) <= 0) {
-      alert('Kaynak birim, hedef birim ve pozitif çarpan gerekli')
+      toast.warning('Kaynak birim, hedef birim ve pozitif çarpan gerekli')
       return
     }
     try {
@@ -158,7 +159,7 @@ export default function UnitConversionsPage() {
       cancelEdit()
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 

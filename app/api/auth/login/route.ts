@@ -23,8 +23,10 @@ type UserRow = {
   full_name: string | null
   role: string
   is_approved: number
+  is_locked?: number
   job_title: string | null
   password_hash: string
+  dealer_name?: string | null
 }
 
 const loginSchema = z.object({
@@ -62,11 +64,11 @@ export async function POST(request: NextRequest) {
 
     const db = getDatabase()
 
-    // Kullanıcıyı bul
+    // Kullanıcıyı bul (büyük/küçük harf duyarsız; farklı bilgisayar/klavye için)
     const user = db.prepare(`
-      SELECT id, username, email, full_name, role, is_approved, job_title, password_hash
+      SELECT id, username, email, full_name, role, is_approved, COALESCE(is_locked, 0) as is_locked, job_title, password_hash, dealer_name
       FROM users
-      WHERE username = ?
+      WHERE LOWER(TRIM(username)) = LOWER(TRIM(?)) AND deleted_at IS NULL
     `).get(username) as UserRow | undefined
 
     if (!user) {
@@ -75,6 +77,10 @@ export async function POST(request: NextRequest) {
 
     if (!verifyPassword(password, user.password_hash)) {
       return fail('Kullanıcı adı veya şifre hatalı', { status: 401 })
+    }
+
+    if (user.is_locked) {
+      return fail('Hesabınız kilitlendi. Yönetici ile iletişime geçin.', { status: 403 })
     }
 
     if (isLegacySha256Hash(user.password_hash)) {
@@ -91,19 +97,19 @@ export async function POST(request: NextRequest) {
       return fail('Hesabınız henüz onaylanmamış. Lütfen admin onayı bekleyin.', { status: 403 })
     }
 
-    // Son giriş zamanını güncelle
+    // Son giriş ve çevrimiçi aktiviteyi güncelle (mesajlaşmada "çevrimiçi" görünsün)
     db.prepare(`
       UPDATE users
-      SET last_login = CURRENT_TIMESTAMP
+      SET last_login = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(user.id)
 
     const permissions = loadUserPermissions(db, user.id)
+    // JWT'ye izin listesi eklenmez; cookie 4KB sınırını aşmasın diye (Ngrok/farklı bilgisayar). İzinler /api/auth/me ile alınır.
     const accessToken = await createToken({
       userId: user.id,
       role: user.role,
       username: user.username,
-      permissions,
     })
     const refreshToken = generateRefreshToken()
     const sessionId = randomUUID()
@@ -129,14 +135,18 @@ export async function POST(request: NextRequest) {
         role: user.role,
         job_title: user.job_title,
         permissions,
+        dealer_name: user.dealer_name ?? null,
       },
       accessToken,
     })
     setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)
     return response
-  } catch (error: any) {
-    console.error('Login hatası:', error?.message || error, error?.stack)
-    const errorMessage = error?.message || error?.toString() || 'Sunucu hatası oluştu. Lütfen tekrar deneyin.'
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : undefined
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Login hatası', { message, stack })
+    const errorMessage = message || 'Sunucu hatası oluştu. Lütfen tekrar deneyin.'
     return fail(errorMessage, { status: 500 })
   }
 }

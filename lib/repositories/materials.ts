@@ -27,17 +27,23 @@ export type MaterialInsert = {
 export const materialsRepo = {
   getAll(): MaterialRow[] {
     const db = getDatabase()
-    return db.prepare(`
+    const rows = db.prepare(`
       SELECT 
-        m.*,
+        m.id, m.code, m.name, m.category, m.unit, m.min_stock_level, m.unit_price,
         COALESCE(SUM(CASE WHEN sm.movement_type = 'in' THEN sm.quantity ELSE 0 END), 0) as total_in,
         COALESCE(SUM(CASE WHEN sm.movement_type = 'out' THEN sm.quantity ELSE 0 END), 0) as total_out
       FROM materials m
       LEFT JOIN stock_movements sm ON sm.material_id = m.id AND sm.material_id IS NOT NULL
       WHERE m.deleted_at IS NULL
-      GROUP BY m.id
+      GROUP BY m.id, m.code, m.name, m.category, m.unit, m.min_stock_level, m.unit_price
       ORDER BY m.name
-    `).all() as MaterialRow[]
+    `).all() as (MaterialRow & { total_in: number; total_out: number })[]
+    return rows.map((r) => ({
+      ...r,
+      stock_amount: Number(r.total_in || 0) - Number(r.total_out || 0),
+      total_in: r.total_in,
+      total_out: r.total_out,
+    }))
   },
 
   getById(id: string): MaterialRow | undefined {

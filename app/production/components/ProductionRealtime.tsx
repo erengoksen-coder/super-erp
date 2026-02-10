@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, Factory } from 'lucide-react'
 import { useRealtime } from '@/lib/hooks/useRealtime'
 import { fetchApi } from '@/lib/api/client'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
@@ -20,10 +20,10 @@ interface ProductionOrder {
 
 const statusConfig = {
   pending: { label: 'Beklemede', color: 'warning' as const, icon: Clock },
-  in_progress: { label: 'Üretimde', color: 'primary' as const, icon: AlertTriangle },
+  in_progress: { label: 'Üretimde', color: 'primary' as const, icon: Factory },
   completed: { label: 'Tamamlandı', color: 'success' as const, icon: CheckCircle },
   cancelled: { label: 'İptal', color: 'error' as const, icon: XCircle },
-  delayed: { label: 'Gecikmeli', color: 'warning' as const, icon: AlertTriangle },
+  delayed: { label: 'Gecikmeli', color: 'warning' as const, icon: Clock },
 }
 
 type ProductionRealtimeProps = {

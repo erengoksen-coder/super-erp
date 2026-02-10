@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 type Material = {
   id: string
@@ -97,7 +98,7 @@ export default function MaterialReservationsPage() {
 
   async function handleCreate() {
     if (!materialId || !quantity || Number(quantity) <= 0) {
-      alert('Malzeme ve pozitif miktar gerekli')
+      toast.warning('Malzeme ve pozitif miktar gerekli')
       return
     }
     try {
@@ -121,7 +122,7 @@ export default function MaterialReservationsPage() {
       setNotes('')
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -135,7 +136,7 @@ export default function MaterialReservationsPage() {
       }
       loadData()
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 

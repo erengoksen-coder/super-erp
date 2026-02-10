@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
+import { withAuth } from '@/lib/api/withAuth'
 import { advancedFinancialReportingService } from '@/lib/financial/advancedReporting'
 import { createSuccessResponse, withRouteHandler, createError } from '@/lib/utils/errors'
 
-// GET: Financial Metrics Dashboard
-export const GET = async (request: NextRequest) => {
+// GET: Financial Metrics Dashboard (dönem bazlı)
+export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const companyId = searchParams.get('companyId') || 'demo-company-001'
-    const startDate = searchParams.get('startDate') || '2026-01-01'
+    const startDate = searchParams.get('startDate') || new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0]
     const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0]
 
-    // For demo purposes, return mock metrics if no company service available
     const mockMetrics = {
       liquidityRatios: {
         currentRatio: 2.5,
@@ -51,31 +51,15 @@ export const GET = async (request: NextRequest) => {
     const metrics = companyId === 'demo-company-001' ? mockMetrics : 
       await advancedFinancialReportingService.calculateFinancialMetrics(companyId, startDate, endDate)
     
-    return new Response(
-      JSON.stringify({
-        success: true,
-        data: metrics,
-        message: 'Financial metrics retrieved successfully',
-        timestamp: new Date().toISOString()
-      }),
-      { 
-        status: 200, 
-        headers: { 'Content-Type': 'application/json' } 
-      }
-    )
+    return createSuccessResponse(metrics)
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error occurred'
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      }),
-      { 
-        status: 500, 
-        headers: { 'Content-Type': 'application/json' } 
-      }
+      JSON.stringify({ success: false, error: message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-}
+})
 
 // POST: Calculate Custom Financial Metrics
 export const POST = withRouteHandler(async (request: NextRequest) => {

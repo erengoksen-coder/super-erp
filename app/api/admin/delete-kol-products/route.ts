@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { logAudit } from '@/lib/audit'
 
-export const POST = withAuth(async (request: NextRequest) => {
+export const POST = withAuth(async (request: NextRequest, user: { userId: string }) => {
   try {
+    const body = await request.json().catch(() => ({})) as { confirm?: boolean }
+    if (body?.confirm !== true) {
+      return NextResponse.json(
+        { error: 'Bu işlem tehlikelidir. Onaylamak için body\'de { "confirm": true } gönderin.' },
+        { status: 400 }
+      )
+    }
+
     const db = getDatabase()
 
     // Önce ürünleri bul
@@ -43,6 +52,14 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     }
 
+    logAudit(db, {
+      tableName: 'admin_operation',
+      action: 'delete',
+      recordId: 'delete-kol-products',
+      userId: user.userId,
+      after: { deleted_products: productsDeleted, deleted_bom: bomDeleted },
+    })
+
     return NextResponse.json({
       success: true,
       message: `${productsDeleted} ürün ve ${bomDeleted} BOM kaydı silindi`,
@@ -54,5 +71,5 @@ export const POST = withAuth(async (request: NextRequest) => {
     console.error('KOL ürünleri silinirken hata:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-})
+}, ['admin'])
 

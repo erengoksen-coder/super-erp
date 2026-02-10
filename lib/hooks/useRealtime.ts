@@ -73,7 +73,7 @@ export function useRealtime<T>(table: string, filters?: Filters) {
           table,
           ...(realtimeFilter ? { filter: realtimeFilter } : {}),
         },
-        (payload) => {
+        (payload: { eventType: string; new?: unknown; old?: unknown }) => {
           setData((prev) => {
             const newData = [...prev]
 

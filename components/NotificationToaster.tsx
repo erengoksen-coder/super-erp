@@ -27,7 +27,7 @@ export default function NotificationToaster() {
           if (seenIdsRef.current.has(n.id)) continue
           seenIdsRef.current.add(n.id)
           if (initialLoadRef.current) continue
-          toast.info(n.title, { description: n.message })
+          toast.info(n.title, n.message)
           if (notificationSound) playNotificationSound()
         }
         initialLoadRef.current = false

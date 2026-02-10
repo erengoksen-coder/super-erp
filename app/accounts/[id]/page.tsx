@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
+import { toast } from '@/lib/notify'
 
 interface Account {
   id: string
@@ -87,6 +88,7 @@ export default function AccountDetailPage() {
   const [endPickerMonth, setEndPickerMonth] = useState(new Date().getMonth())
   const [endPickerYear, setEndPickerYear] = useState(new Date().getFullYear())
   const [clearingData, setClearingData] = useState(false)
+  const [applyingDiscount, setApplyingDiscount] = useState(false)
 
   useEffect(() => {
     const id = params?.id as string
@@ -103,7 +105,7 @@ export default function AccountDetailPage() {
       setAccount(data)
     } catch (error) {
       console.error('Error loading account:', error)
-      alert('Cari hesap yüklenirken hata oluştu')
+      toast.error('Cari hesap yüklenirken hata oluştu')
       router.push('/accounts')
     } finally {
       setLoading(false)
@@ -130,9 +132,9 @@ export default function AccountDetailPage() {
       await loadAccount(account.id)
       await loadShipments(account.id)
       await loadTransactions(account.id)
-      alert('Cari ve sevkiyat girdi verileri silindi. Ayarlar aynen kaldı.')
+      toast.success('Cari ve sevkiyat girdi verileri silindi. Ayarlar aynen kaldı.')
     } catch (e: any) {
-      alert('Hata: ' + (e?.message || 'İşlem başarısız'))
+      toast.error('Hata: ' + (e?.message || 'İşlem başarısız'))
     } finally {
       setClearingData(false)
     }
@@ -218,7 +220,7 @@ export default function AccountDetailPage() {
 
   async function saveTaxRate(shipmentId: string) {
     if (!taxRate || parseFloat(taxRate) < 0 || parseFloat(taxRate) > 100) {
-      alert('KDV oranı 0-100 arasında olmalıdır')
+      toast.warning('KDV oranı 0-100 arasında olmalıdır')
       return
     }
 
@@ -236,7 +238,7 @@ export default function AccountDetailPage() {
         throw new Error(error.error || 'KDV güncellenemedi')
       }
 
-      alert('✅ KDV başarıyla güncellendi!')
+      toast.success('KDV başarıyla güncellendi!')
       setEditingShipmentId(null)
       setTaxRate('')
       
@@ -246,7 +248,7 @@ export default function AccountDetailPage() {
         loadAccount(account.id) // Bakiye güncellenmiş olabilir
       }
     } catch (error: any) {
-      alert('Hata: ' + error.message)
+      toast.error('Hata: ' + error.message)
     }
   }
 
@@ -373,14 +375,47 @@ export default function AccountDetailPage() {
                 })} ₺
               </div>
             </div>
-            {account.discount_rate !== undefined && account.discount_rate !== null && (
-              <div>
-                <div className="text-gray-400 mb-1">İskonto Oranı:</div>
-                <div className={`text-lg font-bold ${account.discount_rate > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
-                  %{account.discount_rate.toFixed(2)}
-                </div>
+            <div>
+              <div className="text-gray-400 mb-1">İskonto Oranı:</div>
+              <div className={`text-lg font-bold ${(account.discount_rate ?? 0) > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                %{(Number(account.discount_rate) || 0).toFixed(2)}
               </div>
-            )}
+              {(account.discount_rate ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  disabled={applyingDiscount}
+                  onClick={async () => {
+                    if (!account?.id) return
+                    if (!confirm(`Bu carideki tüm sevkiyat fişlerine %${account.discount_rate!.toFixed(2)} iskonto bir seferlik uygulanacak. Devam?`)) return
+                    setApplyingDiscount(true)
+                    const ac = new AbortController()
+                    const timeoutId = setTimeout(() => ac.abort(), 30000)
+                    try {
+                      const data = await fetchApi<{ updated_count?: number; message?: string }>(
+                        `/api/accounts/${account.id}/apply-discount-to-shipments`,
+                        { method: 'POST', signal: ac.signal }
+                      )
+                      clearTimeout(timeoutId)
+                      const msg = (data && typeof data === 'object' && 'message' in data) ? (data as any).message : 'İskonto sevkiyat fişlerine uygulandı.'
+                      toast.success(msg)
+                      loadAccount(account.id)
+                      loadShipments(account.id)
+                      loadTransactions(account.id)
+                    } catch (e: any) {
+                      clearTimeout(timeoutId)
+                      const isTimeout = e?.name === 'AbortError' || /timeout|abort/i.test(String(e?.message))
+                      toast.error(isTimeout ? 'İşlem zaman aşımına uğradı. Tekrar deneyin.' : 'Hata: ' + (e?.message || 'İşlem yapılamadı'))
+                    } finally {
+                      setApplyingDiscount(false)
+                    }
+                  }}
+                  className="mt-3 inline-flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold shadow disabled:opacity-60 disabled:cursor-not-allowed border border-amber-500"
+                >
+                  <Percent className="w-4 h-4" />
+                  {applyingDiscount ? 'Uygulanıyor...' : 'Bir seferlik: Tüm fişlere iskonto uygula'}
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
 

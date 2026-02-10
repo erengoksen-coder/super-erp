@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { apiLogger } from '@/lib/api/logger'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -327,8 +328,10 @@ export const GET = withAuth(async (request: NextRequest) => {
 
       return NextResponse.json(Object.values(groupedByProduct))
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'BOM API GET failed'
+    apiLogger.error('BOM API GET failed', { message, path: request.nextUrl.pathname })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 })
 
@@ -414,8 +417,10 @@ export const POST = withAuth(async (request: NextRequest) => {
         id: bomId,
       })
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'BOM API POST failed'
+    apiLogger.error('BOM API POST failed', { message, path: request.nextUrl.pathname })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 })
 
@@ -453,8 +458,10 @@ export const DELETE = withAuth(async (request: NextRequest) => {
     }
 
     return NextResponse.json({ success: true, message: 'BOM kaydı silindi' })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'BOM API DELETE failed'
+    apiLogger.error('BOM API DELETE failed', { message, path: request.nextUrl.pathname })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 })
 

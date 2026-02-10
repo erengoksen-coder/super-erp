@@ -7,6 +7,7 @@ import { ok, fail } from '@/lib/api/response'
 type ReadyItemRow = {
   id: string
   product_id: string
+  production_order_id: string | null
   barcode: string
   serial_number: string
   status: string | null
@@ -23,14 +24,26 @@ type ReadyItemRow = {
 
 type ReadyItemsGrouped = {
   product_id: string
+  production_order_id: string | null
+  production_order_number?: string | null
   product_name?: string
   product_sku?: string
   total_count: number
+  /** Üretim emrindeki toplam barkod sayısı (mamül depo + üretimde); kısmi sevk için required_count bu olacak */
+  total_barcodes_in_po: number
   items: Array<{
     id: string
     barcode: string
     serial_number: string
     production_order_number?: string | null
+  }>
+  /** Aynı üretim emrinde daha önce sevk edilmiş kartlar (barkod, sevk tarihi, ürün adı, konfigürasyon) */
+  already_shipped?: Array<{
+    barcode: string
+    shipment_date: string
+    product_name: string
+    product_sku?: string | null
+    configuration?: string | null
   }>
 }
 
@@ -79,10 +92,11 @@ export const GET = withAuth(async (request: NextRequest) => {
     let readyItems: ReadyItemRow[]
     
     if (customerId) {
-      // Belirli bir müşteri için
+      // Belirli bir müşteri için (psn.production_order_id gruplama için gerekli)
       readyItems = db.prepare(`
         SELECT 
-          psn.*,
+          psn.id, psn.product_id, psn.production_order_id, psn.barcode, psn.serial_number,
+          psn.status, psn.ready_for_shipment, psn.shipment_id, psn.customer_id, psn.created_at,
           p.name as product_name,
           p.sku as product_sku,
           po.order_number as production_order_number,
@@ -102,7 +116,8 @@ export const GET = withAuth(async (request: NextRequest) => {
       // Tüm müşteriler için (müşteriye göre grupla)
       readyItems = db.prepare(`
         SELECT 
-          psn.*,
+          psn.id, psn.product_id, psn.production_order_id, psn.barcode, psn.serial_number,
+          psn.status, psn.ready_for_shipment, psn.shipment_id, psn.customer_id, psn.created_at,
           p.name as product_name,
           p.sku as product_sku,
           po.order_number as production_order_number,
@@ -120,15 +135,24 @@ export const GET = withAuth(async (request: NextRequest) => {
     }
 
     if (customerId) {
-      // Belirli müşteri için - ürün bazlı grupla
-      const groupedByProduct = readyItems.reduce<Record<string, ReadyItemsGrouped>>((acc, item) => {
-        const key = item.product_id
+      // Üretim emri bazında grupla: aynı (product_id, production_order_id) = bir kart; required_count = o emirdeki toplam barkod
+      const countInPoStmt = db.prepare(`
+        SELECT COUNT(*) as cnt FROM product_serial_numbers
+        WHERE product_id = ? AND (COALESCE(production_order_id, '') = COALESCE(?, ''))
+      `)
+      const groupedByProductAndPo = readyItems.reduce<Record<string, ReadyItemsGrouped>>((acc, item) => {
+        const poId = item.production_order_id ?? ''
+        const key = `${item.product_id}\n${poId}`
         if (!acc[key]) {
+          const totalInPo = (countInPoStmt.get(item.product_id, item.production_order_id) as { cnt: number }).cnt
           acc[key] = {
             product_id: item.product_id,
+            production_order_id: item.production_order_id,
+            production_order_number: item.production_order_number,
             product_name: item.product_name,
             product_sku: item.product_sku,
             total_count: 0,
+            total_barcodes_in_po: totalInPo,
             items: [],
           }
         }
@@ -142,8 +166,37 @@ export const GET = withAuth(async (request: NextRequest) => {
         return acc
       }, {})
 
+      // Aynı üretim emrinde daha önce sevk edilmiş kartları getir (sevk tarihi, barkod, ürün adı, konfigürasyon)
+      const alreadyShippedStmt = db.prepare(`
+        SELECT 
+          psn.barcode,
+          s.shipment_date,
+          p.name as product_name,
+          p.sku as product_sku,
+          o.configuration
+        FROM product_serial_numbers psn
+        JOIN shipments s ON psn.shipment_id = s.id AND s.deleted_at IS NULL
+        JOIN active_products p ON psn.product_id = p.id
+        LEFT JOIN production_orders po ON psn.production_order_id = po.id
+        LEFT JOIN active_orders o ON po.id = o.production_order_id
+        WHERE psn.product_id = ? AND (COALESCE(psn.production_order_id, '') = COALESCE(?, ''))
+          AND (psn.shipment_id IS NOT NULL AND psn.shipment_id != '')
+        ORDER BY s.shipment_date DESC
+      `)
+      const groups = Object.values(groupedByProductAndPo)
+      for (const g of groups) {
+        const rows = alreadyShippedStmt.all(g.product_id, g.production_order_id) as Array<{
+          barcode: string
+          shipment_date: string
+          product_name: string
+          product_sku?: string | null
+          configuration?: string | null
+        }>
+        g.already_shipped = rows.length > 0 ? rows : undefined
+      }
+
       return ok({
-        items: Object.values(groupedByProduct),
+        items: groups,
         total_items: readyItems.length,
       })
     } else {

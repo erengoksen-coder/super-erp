@@ -47,13 +47,13 @@ export const buttonSizes = {
   icon: 'p-2 aspect-square rounded-md',
 }
 
-// Card variants
+// Card variants (dark mode: koyu arka plan, beyaz yazı okunabilir)
 export const cardVariants = {
-  elevated: 'bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200',
-  flat: 'bg-white border border-gray-200 rounded-xl',
-  outlined: 'bg-white border-2 border-gray-300 rounded-xl',
+  elevated: 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200',
+  flat: 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl',
+  outlined: 'bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded-xl',
   ghost: 'bg-transparent rounded-xl',
-  glass: 'bg-white/80 backdrop-blur-sm border border-white/20 rounded-xl shadow-lg',
+  glass: 'bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm border border-white/20 dark:border-slate-600 rounded-xl shadow-lg',
 }
 
 export const cardPaddings = {

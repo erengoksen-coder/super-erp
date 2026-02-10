@@ -13,7 +13,7 @@ export interface ProductionOrder {
   sku?: string
   quantity: number
   priority?: 'low' | 'medium' | 'high' | 'urgent'
-  current_station?: string
+  current_station?: string | null
   /** Usta Terminali ile entegre: bu siparişin kartlarının bulunduğu istasyonlar (aynı sipariş birden fazla sütunda görünebilir) */
   stations?: string[]
   started_at?: string

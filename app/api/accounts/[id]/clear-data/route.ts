@@ -22,12 +22,17 @@ type ShipmentItemRow = {
 /**
  * POST: Bu carinin girdi verilerini siler (cari hareketler + sevkiyatlar).
  * Cari ayarları (ad, kod, iskonto, risk limiti vb.) değişmez.
+ * Bayi kullanıcıları cari işlemlerde sadece bilgi görüntüleyebilir, silme yapamaz.
  */
 export const POST = withAuth(async (
   _request: NextRequest,
-  _user,
+  user: { role?: string },
   context?: unknown
 ) => {
+  const role = (user?.role ?? '').toString().trim().toLowerCase()
+  if (role === 'bayi') {
+    return fail('Bayi kullanıcıları cari üzerinde silme yapamaz.', { status: 403 })
+  }
   try {
     const resolvedParams = await Promise.resolve(
       (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params

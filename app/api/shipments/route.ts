@@ -7,6 +7,7 @@ import { generateShipmentNumber } from '@/lib/utils/codeGenerator.server'
 import { resolveUnitFactor } from '@/lib/units'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
+import { apiLogger } from '@/lib/api/logger'
 
 type ShipmentRow = {
   id: string
@@ -57,6 +58,8 @@ type ShipmentCreateInput = {
   notes?: string
   total_amount?: number
   tax_rate?: number
+  /** Kısmi sevk (aynı üretim emrindeki tüm ürünler sevk edilmiyorsa) zorunlu açıklama */
+  partial_shipment_reason?: string | null
 }
 
 type CustomerRow = {
@@ -162,6 +165,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     return ok(shipmentsWithItems, { headers: CACHE_HEADERS_LIST })
   } catch (error: any) {
+    apiLogger.error('Shipments API GET failed', { error: error?.message })
     return fail(error.message, { status: 500 })
   }
 })
@@ -170,7 +174,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await parseJsonBody(request) as ShipmentCreateInput
-    const { customer_id, shipment_date, items, notes, total_amount, tax_rate } = body
+    const { customer_id, shipment_date, items, notes, total_amount, tax_rate, partial_shipment_reason } = body
 
     if (!customer_id || !shipment_date || !items || items.length === 0) {
       return fail('customer_id, shipment_date ve items (en az 1 kalem) gerekli', { status: 400 })
@@ -178,26 +182,65 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     const db = getDatabase()
 
-    // Müşteri kontrolü
-    // discount_rate kolonu yoksa 0 olarak kabul et
-    let customer: (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null }) | undefined
-    try {
-      customer = db.prepare('SELECT id, balance, risk_limit, discount_rate FROM accounts WHERE id = ? AND type = ? AND deleted_at IS NULL')
-        .get(customer_id, 'customer') as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null }) | undefined
-    } catch (e: any) {
-      // discount_rate kolonu yoksa, sadece diğer kolonları al
-      if (e.message?.includes('no such column: discount_rate')) {
-        customer = db.prepare('SELECT id, balance, risk_limit FROM accounts WHERE id = ? AND type = ? AND deleted_at IS NULL')
-          .get(customer_id, 'customer') as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null }) | undefined
-        if (customer) {
-          customer.discount_rate = 0
+    // Kısmi sevk kontrolü: Aynı üretim emrindeki tüm barkodlar sevk edilmiyorsa açıklama zorunlu
+    const allBarcodes = items.flatMap((i) => i.barcodes || i.serial_numbers || [])
+    if (allBarcodes.length > 0) {
+      const placeholders = allBarcodes.map(() => '?').join(',')
+      const rows = db.prepare(`
+        SELECT barcode, serial_number, production_order_id
+        FROM product_serial_numbers
+        WHERE barcode IN (${placeholders}) OR serial_number IN (${placeholders})
+      `).all(...allBarcodes, ...allBarcodes) as Array<{ barcode: string; serial_number: string | null; production_order_id: string | null }>
+      const valueToPoId = new Map<string, string | null>()
+      for (const r of rows) {
+        if (r.barcode) valueToPoId.set(r.barcode, r.production_order_id)
+        if (r.serial_number) valueToPoId.set(r.serial_number, r.production_order_id)
+      }
+      const poIdToShippingCount = new Map<string, number>()
+      for (const b of allBarcodes) {
+        const poId = valueToPoId.get(b) ?? null
+        if (poId) {
+          poIdToShippingCount.set(poId, (poIdToShippingCount.get(poId) ?? 0) + 1)
         }
+      }
+      for (const [poId, shippingCount] of poIdToShippingCount) {
+        const totalReady = db.prepare(`
+          SELECT COUNT(*) as c FROM product_serial_numbers
+          WHERE production_order_id = ?
+            AND ready_for_shipment = 1
+            AND (shipment_id IS NULL OR shipment_id = '')
+        `).get(poId) as { c: number }
+        if (totalReady.c > shippingCount) {
+          const reasonTrim = (partial_shipment_reason ?? '').trim()
+          if (!reasonTrim) {
+            return fail(
+              'Bu sevkiyatta aynı üretim emrindeki tüm ürünler yer almıyor. Diğer ürünlerin neden sevk edilmediğini açıklamanız zorunludur (açıklama alanını doldurun).',
+              { status: 400 }
+            )
+          }
+          break
+        }
+      }
+    }
+
+    // Cari (müşteri) kontrolü: Sevkiyatın yapıldığı carideki iskonto oranı uygulanır (id ile al, tip filtresi yok – seçilen cari ne ise onun discount_rate kullanılır)
+    let customer: (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+    try {
+      customer = db.prepare(`
+        SELECT id, name, balance, risk_limit, COALESCE(discount_rate, 0) as discount_rate
+        FROM accounts WHERE id = ? AND deleted_at IS NULL
+      `).get(customer_id) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+    } catch (e: any) {
+      if (e.message?.includes('no such column: discount_rate')) {
+        customer = db.prepare('SELECT id, name, balance, risk_limit FROM accounts WHERE id = ? AND deleted_at IS NULL')
+          .get(customer_id) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+        if (customer) (customer as any).discount_rate = 0
       } else {
         throw e
       }
     }
     if (!customer) {
-      return fail('Müşteri bulunamadı', { status: 404 })
+      return fail('Müşteri/Cari bulunamadı', { status: 404 })
     }
 
     const shipmentId = randomUUID()
@@ -341,6 +384,12 @@ export const POST = withAuth(async (request: NextRequest) => {
       approvalRequestedAt = new Date().toISOString()
     }
 
+    const shipmentNotes = (notes || '') + (
+      (partial_shipment_reason && partial_shipment_reason.trim())
+        ? (notes ? '\n\n' : '') + `Kısmi sevk açıklaması: ${partial_shipment_reason.trim()}`
+        : ''
+    )
+
     db.transaction(() => {
       // Sevkiyat kaydı oluştur
       const totalQuantity = items.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -361,7 +410,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         finalTaxRate,
         taxAmount,
         finalAmount,
-        notes || '',
+        shipmentNotes,
         exceedsRiskLimit ? 'pending_approval' : 'delivered', // Risk limiti aşıldıysa onay bekliyor
         approvalStatus || null,
         approvalRequestedAt || null
@@ -442,14 +491,15 @@ export const POST = withAuth(async (request: NextRequest) => {
 
         const serialNumbersJson = barcodes.length > 0 ? JSON.stringify(barcodes) : null
 
-        // Kalem fiyatını hesapla (BOM fiyatı â‚º/ adet)
+        // Kalem fiyatını hesapla (BOM fiyatı / adet)
         const unitPrice = itemPrices[item.product_id] || 0
-        const itemTotal = unitPrice * (item.quantity || 0)
+        const itemTotalBeforeDiscount = unitPrice * (item.quantity || 0)
 
-        // İskonto hesaplama (kalem bazında) - itemAmountAfterDiscount'u önce hesapla
-        const itemDiscountAmount = (itemTotal * discountRate) / 100
-        const itemAmountAfterDiscount = itemTotal - itemDiscountAmount
+        // Carideki iskonto oranına göre kalem iskontosu
+        const itemDiscountAmount = (itemTotalBeforeDiscount * discountRate) / 100
+        const itemAmountAfterDiscount = itemTotalBeforeDiscount - itemDiscountAmount
 
+        // Sevk edilen ürün kalemi: total_price = cari iskontosu uygulanmış tutar (iskonto sonrası, KDV öncesi)
         db.prepare(`
           INSERT INTO shipment_items 
           (id, shipment_id, product_id, quantity, unit_price, total_price, serial_numbers, notes)
@@ -460,7 +510,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           item.product_id,
           item.quantity,
           unitPrice,
-          itemTotal, // BOM fiyatı (iskonto öncesi) - Ara Toplam için
+          itemAmountAfterDiscount, // Carideki iskonto oranına göre güncellenmiş tutar
           serialNumbersJson,
           item.notes || ''
         )
@@ -504,7 +554,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           description
         )
 
-        // Barkodları sevkiyata başla ve durumunu güncelle
+        // Barkodları sevkiyata bağla: shipment_id + status = shipped (mamül depoda görünmesin)
         if (barcodes.length > 0) {
           const placeholders = barcodes.map(() => '?').join(',')
           try {
@@ -516,7 +566,6 @@ export const POST = withAuth(async (request: NextRequest) => {
                   updated_at = CURRENT_TIMESTAMP
               WHERE barcode IN (${placeholders})
                 AND product_id = ?
-                AND ready_for_shipment = 1
             `).run(shipmentId, ...barcodes, item.product_id)
             
             // Ürün stok miktarını düş (mamül depodan düşsün)
@@ -536,7 +585,6 @@ export const POST = withAuth(async (request: NextRequest) => {
                     ready_for_shipment = 0
                 WHERE barcode IN (${placeholders})
                   AND product_id = ?
-                  AND ready_for_shipment = 1
               `).run(shipmentId, ...barcodes, item.product_id)
               
               // Ürün stok miktarını düş (mamül depodan düşsün)
@@ -577,11 +625,19 @@ export const POST = withAuth(async (request: NextRequest) => {
       WHERE si.shipment_id = ?
     `).all(shipmentId) as ShipmentItemRow[]
 
-    return ok({
-      ...shipment,
-      items: shipmentItems,
-    }, { status: 201 })
+    const result = { ...shipment, items: shipmentItems }
+    const { dispatchWebhook } = await import('@/lib/webhooks/dispatch')
+    void dispatchWebhook('shipment.created', {
+      shipment_id: shipmentId,
+      shipment_number: shipment?.shipment_number,
+      customer_id: shipment?.customer_id,
+      status: shipment?.status,
+      item_count: shipmentItems.length,
+    })
+
+    return ok(result, { status: 201 })
   } catch (error: any) {
+    apiLogger.error('Shipments API POST failed', { error: error?.message })
     return fail(error.message, { status: 500 })
   }
 })

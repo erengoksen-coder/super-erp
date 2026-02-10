@@ -22,7 +22,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const userId = payload.userId
 
     const user = db.prepare(`
-      SELECT id, username, email, full_name, role, job_title, is_approved
+      SELECT id, username, email, full_name, role, position, job_title, is_approved, COALESCE(is_locked, 0) as is_locked, dealer_name
       FROM users
       WHERE id = ? AND is_approved = 1 AND deleted_at IS NULL
     `).get(userId) as any
@@ -31,6 +31,13 @@ export const GET = withAuth(async (request: NextRequest) => {
       return NextResponse.json(
         { error: 'Kullanıcı bulunamadı veya onaylanmamış' },
         { status: 401 }
+      )
+    }
+
+    if (user.is_locked) {
+      return NextResponse.json(
+        { error: 'Hesabınız kilitlendi. Yönetici ile iletişime geçin.' },
+        { status: 403 }
       )
     }
 

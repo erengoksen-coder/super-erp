@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import { EXPORT_MAX_LIMIT } from '@/lib/constants'
 import * as XLSX from 'xlsx'
 
 // GET: Siparişleri Excel formatında export et (filtreler: status, search)
@@ -30,6 +31,7 @@ export const GET = withAuth(async (request: NextRequest) => {
       params.push(likeTerm, likeTerm, likeTerm, likeTerm, likeTerm)
     }
 
+    const limit = Math.min(EXPORT_MAX_LIMIT, parseInt(searchParams.get('limit') || String(EXPORT_MAX_LIMIT), 10) || EXPORT_MAX_LIMIT)
     const orders = db.prepare(`
       SELECT 
         o.order_number as "TAKİP NO",
@@ -50,7 +52,8 @@ export const GET = withAuth(async (request: NextRequest) => {
       FROM active_orders o
       ${whereClause}
       ORDER BY o.created_at DESC
-    `).all(...params) as any[]
+      LIMIT ?
+    `).all(...params, limit) as any[]
     
     // Notlar alanından kumaş, kasa, ayak, birim bilgilerini çıkar
     const processedOrders = orders.map(order => {
