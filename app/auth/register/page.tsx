@@ -2,96 +2,69 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useForm, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { UserPlus, User, Lock, Mail, Briefcase, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/notify'
+import { userSchemas } from '@/lib/validation/schemas'
+
+const registerFormSchema = userSchemas.register.extend({
+  confirmPassword: z.string().min(1, 'Şifre tekrar gerekli'),
+}).refine((d) => d.password === d.confirmPassword, { message: 'Şifreler eşleşmiyor', path: ['confirmPassword'] })
+
+type RegisterFormData = z.infer<typeof registerFormSchema>
 
 export default function RegisterPage() {
   const router = useRouter()
-  const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    full_name: '',
-    role: 'user' as 'admin' | 'user' | 'manager' | 'viewer',
-    job_title: '',
-  })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    })
-  }
+  const {
+    register: registerField,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<RegisterFormData>({
+    resolver: zodResolver(registerFormSchema) as Resolver<RegisterFormData>,
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      full_name: '',
+      role: 'user',
+      job_title: '',
+    },
+  })
 
-  async function handleRegister(e: React.FormEvent) {
-    e.preventDefault()
+  async function onValid(data: RegisterFormData) {
     setError('')
-
-    const rawUsername = formData.username.trim()
-    if (rawUsername.length < 3) {
-      setError('Kullanıcı adı en az 3 karakter olmalıdır')
-      return
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Şifreler eşleşmiyor')
-      return
-    }
-
-    if (formData.password.length < 8) {
-      setError('Şifre en az 8 karakter olmalıdır')
-      return
-    }
-    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
-      setError('Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermeli')
-      return
-    }
-    const trimmedName = (formData.full_name || '').trim()
-    if (trimmedName.length < 2) {
-      setError('Ad soyad en az 2 karakter olmalıdır')
-      return
-    }
-
     setLoading(true)
-    setError('')
-
-    // Eski form "Görev/Ünvan"a yönetici yazabiliyor (role veya job_title); API hep admin|user|manager|viewer bekliyor
-    const roleInput = String(formData.role || formData.job_title || '').trim().toLowerCase()
-    const roleForApi =
-      roleInput === 'admin' || roleInput === 'manager' || roleInput === 'viewer' ? roleInput
-      : /y[oö]netici/.test(roleInput) ? 'manager'
-      : /g[oö]r[uü]nt[uü]leyici/.test(roleInput) ? 'viewer'
-      : /kullan[iı]c[iı]/.test(roleInput) ? 'user'
-      : 'user'
-
     const payload = {
-      username: rawUsername,
-      password: formData.password,
-      full_name: trimmedName,
-      role: roleForApi,
-      ...(formData.email?.trim() ? { email: formData.email.trim() } : {}),
-      ...(formData.job_title?.trim() ? { job_title: formData.job_title.trim() } : {}),
+      username: data.username,
+      password: data.password,
+      full_name: data.full_name ?? undefined,
+      role: data.role ?? 'user',
+      ...(data.email ? { email: data.email } : {}),
+      ...(data.job_title ? { job_title: data.job_title } : {}),
     }
-
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const data = await res.json().catch(() => ({}))
+      const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const msg = typeof data?.error === 'string' ? data.error : data?.message || `Hata (${res.status}). Lütfen bilgileri kontrol edin.`
+        const msg = typeof json?.error === 'string' ? json.error : json?.message || `Hata (${res.status}). Lütfen bilgileri kontrol edin.`
         setError(msg)
         setLoading(false)
         return
       }
       toast.success('Kayıt başarılı. Admin onayı bekleniyor; onaylandıktan sonra giriş yapabilirsiniz.')
       router.push('/auth/login')
-    } catch (err: any) {
-      setError(err?.message || 'Bağlantı hatası. İnternet bağlantınızı kontrol edip tekrar deneyin.')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Bağlantı hatası. İnternet bağlantınızı kontrol edip tekrar deneyin.')
     } finally {
       setLoading(false)
     }
@@ -117,70 +90,69 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleRegister} className="space-y-4">
+          <form onSubmit={handleSubmit(onValid)} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-username" className="block text-sm font-medium text-gray-300 mb-2">
                 Kullanıcı Adı *
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="reg-username"
                   type="text"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  {...registerField('username')}
+                  aria-invalid={!!errors.username}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.username ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="Kullanıcı adı"
-                  required
                 />
               </div>
+              {errors.username && <p className="mt-1 text-sm text-red-400">{errors.username.message}</p>}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-email" className="block text-sm font-medium text-gray-300 mb-2">
                 E-posta
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="reg-email"
                   type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  {...registerField('email')}
+                  aria-invalid={!!errors.email}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.email ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="E-posta adresi"
                 />
               </div>
+              {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-full_name" className="block text-sm font-medium text-gray-300 mb-2">
                 Ad Soyad
               </label>
               <input
+                id="reg-full_name"
                 type="text"
-                name="full_name"
-                value={formData.full_name}
-                onChange={handleChange}
-                className="w-full px-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                {...registerField('full_name')}
+                aria-invalid={!!errors.full_name}
+                className={`w-full px-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.full_name ? 'border-red-500' : 'border-gray-700'}`}
                 placeholder="Ad Soyad (en az 2 karakter)"
-                required
-                minLength={2}
               />
+              {errors.full_name && <p className="mt-1 text-sm text-red-400">{errors.full_name.message}</p>}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-role" className="block text-sm font-medium text-gray-300 mb-2">
                 Rol *
               </label>
               <div className="relative">
                 <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none z-10" />
                 <select
-                  name="role"
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'user' | 'manager' | 'viewer' })}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none cursor-pointer"
-                  required
+                  id="reg-role"
+                  {...registerField('role')}
+                  aria-invalid={!!errors.role}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none cursor-pointer ${errors.role ? 'border-red-500' : 'border-gray-700'}`}
                 >
                   <option value="user">Kullanıcı</option>
                   <option value="manager">Yönetici</option>
@@ -188,55 +160,55 @@ export default function RegisterPage() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+              {errors.role && <p className="mt-1 text-sm text-red-400">{errors.role.message}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-job_title" className="block text-sm font-medium text-gray-300 mb-2">
                 İş unvanı (isteğe bağlı)
               </label>
               <input
+                id="reg-job_title"
                 type="text"
-                name="job_title"
-                value={formData.job_title}
-                onChange={handleChange}
+                {...registerField('job_title')}
                 className="w-full px-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Örn: Usta, Depo Sorumlusu"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-password" className="block text-sm font-medium text-gray-300 mb-2">
                 Şifre *
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="reg-password"
                   type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  {...registerField('password')}
+                  aria-invalid={!!errors.password}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.password ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="En az 8 karakter, büyük/küçük harf ve rakam"
-                  required
                 />
               </div>
+              {errors.password && <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="reg-confirmPassword" className="block text-sm font-medium text-gray-300 mb-2">
                 Şifre Tekrar *
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="reg-confirmPassword"
                   type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  {...registerField('confirmPassword')}
+                  aria-invalid={!!errors.confirmPassword}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.confirmPassword ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="Şifreyi tekrar girin"
-                  required
                 />
               </div>
+              {errors.confirmPassword && <p className="mt-1 text-sm text-red-400">{errors.confirmPassword.message}</p>}
             </div>
 
             <button

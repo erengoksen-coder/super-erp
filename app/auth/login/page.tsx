@@ -3,17 +3,21 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { useForm, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { LogIn, User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
-import { useAuthStore } from '@/lib/store/authStore'
+import { useAuthStore, type AuthUser } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
+import { userSchemas } from '@/lib/validation/schemas'
+import type { z } from 'zod'
+
+type LoginFormData = z.infer<typeof userSchemas.login>
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnUrl = searchParams.get('returnUrl') || ''
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -22,9 +26,18 @@ function LoginForm() {
   const [isNgrok, setIsNgrok] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
 
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(userSchemas.login) as Resolver<LoginFormData>,
+    defaultValues: { username: '', password: '' },
+  })
+
   useEffect(() => {
     const h = typeof window !== 'undefined' ? window.location.hostname : ''
-    setIsNgrok(h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io'))
+    setIsNgrok(h.endsWith('ngrok-free.dev') || h.endsWith('ngrok.io') || h.endsWith('trycloudflare.com'))
   }, [])
 
   useEffect(() => {
@@ -32,20 +45,19 @@ function LoginForm() {
     return () => clearTimeout(t)
   }, [])
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
+  async function onValid(data: LoginFormData) {
     setError('')
     setLoading(true)
 
     try {
-      const data = await fetchApi('/api/auth/login', {
+      const res = await fetchApi<{ user?: unknown; accessToken?: string; data?: { user?: unknown; accessToken?: string } }>('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: data.username, password: data.password }),
       })
 
-      const user = (data as any)?.user ?? (data as any)?.data?.user
-      const accessToken = (data as any)?.accessToken ?? (data as any)?.data?.accessToken
+      const user = res?.user ?? res?.data?.user
+      const accessToken = res?.accessToken ?? res?.data?.accessToken
 
       if (!user) {
         throw new Error('Giriş başarısız: kullanıcı bilgisi alınamadı')
@@ -56,20 +68,25 @@ function LoginForm() {
           window.localStorage.setItem('auth-token', accessToken)
         } catch {}
       }
-      setAuth(user)
+      const u = user as Record<string, unknown>
+      setAuth({
+        id: (u.id as string) ?? '',
+        username: (u.username as string) ?? '',
+        role: (u.role as string) ?? 'user',
+        ...u,
+      } as AuthUser)
       setHydrated(true)
-      const name = (user as any)?.full_name || (user as any)?.username || ''
+      const name = (user as { full_name?: string; username?: string })?.full_name || (user as { username?: string })?.username || ''
       toast.success(name ? `Hoş geldiniz, ${name}` : 'Giriş başarılı')
 
-      const role = (user as any)?.role ?? ''
-        const isBayi = (typeof role === 'string' && role.trim().toLowerCase() === 'bayi')
-        const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : (isBayi ? '/bayi' : '/')
+      const role = (user as { role?: string })?.role ?? ''
+      const isBayi = (typeof role === 'string' && role.trim().toLowerCase() === 'bayi')
+      const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : (isBayi ? '/bayi' : '/')
       router.push(target)
-    } catch (error: any) {
-      // API'den gelen hata mesajını al
-      const errorMessage = error?.message || error?.error || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : (err as { error?: string })?.error || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
       setError(errorMessage)
-      console.error('Login error:', error)
+      console.error('Login error:', err)
     } finally {
       setLoading(false)
     }
@@ -125,38 +142,44 @@ function LoginForm() {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleSubmit(onValid)} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="login-username" className="block text-sm font-medium text-gray-300 mb-2">
                 Kullanıcı Adı
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="login-username"
                   type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoComplete="username"
+                  {...register('username')}
+                  aria-invalid={!!errors.username}
+                  aria-describedby={errors.username ? 'username-error' : undefined}
+                  className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.username ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="Kullanıcı adınızı girin"
-                  required
                 />
               </div>
+              {errors.username && (
+                <p id="username-error" className="mt-1 text-sm text-red-400">{errors.username.message}</p>
+              )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="login-password" className="block text-sm font-medium text-gray-300 mb-2">
                 Şifre
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-10 py-2 bg-gray-900 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Şifrenizi girin"
                   autoComplete="current-password"
-                  required
+                  {...register('password')}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? 'password-error' : undefined}
+                  className={`w-full pl-10 pr-10 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.password ? 'border-red-500' : 'border-gray-700'}`}
+                  placeholder="Şifrenizi girin"
                 />
                 <button
                   type="button"
@@ -167,6 +190,9 @@ function LoginForm() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              {errors.password && (
+                <p id="password-error" className="mt-1 text-sm text-red-400">{errors.password.message}</p>
+              )}
             </div>
 
             <button

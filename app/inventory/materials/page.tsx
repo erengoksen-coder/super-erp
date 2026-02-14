@@ -8,6 +8,7 @@ import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { getAuthHeaders, fetchApi } from '@/lib/api/fetch'
 import { toast } from '@/lib/notify'
+import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
 
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
@@ -1136,11 +1137,7 @@ export default function MaterialsInventoryPage() {
                             {movement.shipment_number || '-'}
                           </TableCell>
                           <TableCell className="text-gray-400 text-xs">
-                            {movement.reference_type === 'adjustment' ? 'Düzeltme' :
-                             movement.reference_type === 'production' ? 'Üretim' :
-                             movement.reference_type === 'manual' ? 'Manuel' :
-                             movement.reference_type === 'initial' ? 'İlk Stok' :
-                             movement.reference_type || '-'}
+                            {getReferenceTypeLabel(movement.reference_type)}
                           </TableCell>
                           <TableCell className="text-gray-400 text-xs max-w-xs truncate" title={movement.notes}>
                             {movement.notes || '-'}

@@ -12,7 +12,9 @@
 const { assertDbExists, openDatabase } = require('./db-utils')
 
 const dbPath = assertDbExists()
-const db = openDatabase()
+console.log('DB PATH:', dbPath)
+
+const db = openDatabase(dbPath)
 
 const ORDER_NUMBER = 'URE-002'
 

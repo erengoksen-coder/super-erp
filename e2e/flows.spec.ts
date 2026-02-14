@@ -76,6 +76,28 @@ test.describe('Kullanıcı akışları (auth gerekli)', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 
+  test('faturalar sayfası açılır ve liste veya başlık görünür', async ({ page }, testInfo) => {
+    await page.goto('/invoices', { waitUntil: 'networkidle' })
+    if (page.url().includes('/auth/login')) {
+      testInfo.skip(true, 'Oturum yok')
+      return
+    }
+    await expect(page).toHaveURL(/\/invoices/, { timeout: 10_000 })
+    await expect(
+      page.getByRole('heading', { name: 'Faturalar' }).or(page.getByText(/fatura|invoice/i).first())
+    ).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('cari hesaplar sayfası açılır', async ({ page }, testInfo) => {
+    await page.goto('/accounts', { waitUntil: 'networkidle' })
+    if (page.url().includes('/auth/login')) {
+      testInfo.skip(true, 'Oturum yok')
+      return
+    }
+    await expect(page).toHaveURL(/\/accounts/, { timeout: 10_000 })
+    await expect(page.getByRole('heading', { name: 'Cari Hesaplar' })).toBeVisible({ timeout: 10_000 })
+  })
+
   test('çıkış yapıldığında login sayfasına gidilir', async ({ page }, testInfo) => {
     await page.goto('/', { waitUntil: 'networkidle' })
     if (page.url().includes('/auth/login')) {

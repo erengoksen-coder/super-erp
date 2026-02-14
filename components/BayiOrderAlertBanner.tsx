@@ -35,11 +35,11 @@ export default function BayiOrderAlertBanner() {
   }, [user?.id])
 
   useEffect(() => {
-    if (!user || !shouldShowBanner(user.role, (user as any).position)) return
+    if (!user || !shouldShowBanner(user.role ?? undefined, user.position ?? undefined)) return
     fetchUnread()
     const t = setInterval(fetchUnread, POLL_MS)
     return () => clearInterval(t)
-  }, [user?.id, user?.role, (user as any)?.position, fetchUnread])
+  }, [user?.id, user?.role, user?.position, fetchUnread])
 
   const handleTamam = async (id: string) => {
     try {
@@ -51,7 +51,7 @@ export default function BayiOrderAlertBanner() {
   }
 
   const visible = alerts
-  if (!user || !shouldShowBanner(user.role, (user as any).position) || visible.length === 0) return null
+  if (!user || !shouldShowBanner(user.role ?? undefined, user.position ?? undefined) || visible.length === 0) return null
 
   return (
     <div className="space-y-2 mb-4">

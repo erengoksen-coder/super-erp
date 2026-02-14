@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs'
 import { createHash } from 'crypto'
 
 const BCRYPT_ROUNDS = 10
+/** bcrypt maksimum giriş uzunluğu (OWASP Password Storage Cheat Sheet). */
+const BCRYPT_MAX_BYTES = 72
 
 function sha256(password: string) {
   return createHash('sha256').update(password).digest('hex')
@@ -12,6 +14,9 @@ export function isLegacySha256Hash(value: string) {
 }
 
 export function hashPassword(password: string) {
+  if (typeof password !== 'string') throw new Error('Parola metin olmalı')
+  const len = Buffer.byteLength(password, 'utf8')
+  if (len > BCRYPT_MAX_BYTES) throw new Error(`Parola en fazla ${BCRYPT_MAX_BYTES} bayt olabilir (bcrypt sınırı)`)
   return bcrypt.hashSync(password, BCRYPT_ROUNDS)
 }
 

@@ -5,6 +5,7 @@ import { getDatabase } from '@/lib/database/db'
 import { z } from 'zod'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { hashPassword, verifyPassword } from '@/lib/auth/password'
+import { commonSchemas } from '@/lib/validation/schemas'
 
 type UserRow = {
   id: string
@@ -13,7 +14,7 @@ type UserRow = {
 
 const changePasswordSchema = z.object({
   old_password: z.string().optional(),
-  new_password: z.string().min(6, 'Şifre en az 6 karakter olmalıdır'),
+  new_password: commonSchemas.password,
   force_change: z.boolean().optional(),
 })
 
@@ -81,7 +82,7 @@ export const PATCH = withAuth(async (
       }
     }
 
-    // Yeni şifreyi hashle ve güncelle
+    // Yeni şifreyi hashle ve güncelle (validasyon geçti, commonSchemas.password ile uyumlu)
     const newPasswordHash = hashPassword(new_password)
     db.prepare(`
       UPDATE users 

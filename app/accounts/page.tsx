@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown } from 'lucide-react'
+import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
-import { useApi, getAuthHeaders } from '@/lib/api/client'
+import { usePaginatedApi, getAuthHeaders } from '@/lib/api/client'
+import { useDebounce } from '@/lib/hooks/useDebounce'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
@@ -59,18 +60,29 @@ export default function AccountsPage() {
     authorized_person_phone: ''
   })
   const [applyDiscountToShipments, setApplyDiscountToShipments] = useState(false)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 20
 
-  const accountsUrl = useMemo(() => (
-    filterType === 'all'
-      ? '/api/accounts'
-      : `/api/accounts?type=${filterType}`
-  ), [filterType])
+  const accountsUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('limit', String(PAGE_SIZE))
+    params.set('offset', String(page * PAGE_SIZE))
+    if (filterType !== 'all') params.set('type', filterType)
+    return `/api/accounts?${params.toString()}`
+  }, [filterType, page])
 
-  const { data: accountsData, isLoading, mutate } = useApi<Account[]>(accountsUrl)
+  const { data: accountsData, meta, isLoading, mutate } = usePaginatedApi<Account>(accountsUrl)
+  const { total, limit, offset } = meta
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const currentPage = Math.floor(offset / limit) + 1
+  const from = total === 0 ? 0 : offset + 1
+  const to = Math.min(offset + limit, total)
+
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   const accounts = useMemo(() => {
     const list = accountsData ?? []
-    return [...list].sort((a, b) => {
+    return [...list].sort((a: Account, b: Account) => {
       const codeA = a.code || ''
       const codeB = b.code || ''
       return codeA.localeCompare(codeB, 'tr', { numeric: true })
@@ -78,7 +90,7 @@ export default function AccountsPage() {
   }, [accountsData])
 
   const filteredAccounts = accounts.filter((account) => {
-    const searchLower = searchTerm.toLowerCase()
+    const searchLower = debouncedSearchTerm.toLowerCase()
     return (
       account.name.toLowerCase().includes(searchLower) ||
       account.code.toLowerCase().includes(searchLower) ||
@@ -162,9 +174,8 @@ export default function AccountsPage() {
       setEditingAccount(null)
       setApplyDiscountToShipments(false)
       await mutate()
-    } catch (error: any) {
-      let errorMessage = error.message || 'Bilinmeyen hata'
-      // Hata mesajını Türkçe'ye çevir
+    } catch (error: unknown) {
+      let errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
       if (errorMessage.includes('no such column')) {
         errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
       } else if (errorMessage.includes('UNIQUE constraint')) {
@@ -212,7 +223,7 @@ export default function AccountsPage() {
       
       // State'ten hemen kaldır (optimistic update)
       mutate(
-        (current) => current?.filter(acc => acc.id !== account.id),
+        (prev) => prev ? { ...prev, list: prev.list.filter(acc => acc.id !== account.id) } : prev,
         { revalidate: false }
       )
       
@@ -220,9 +231,8 @@ export default function AccountsPage() {
       
       // Veritabanından tekrar yükle (senkronizasyon için)
       await mutate()
-    } catch (error: any) {
-      let errorMessage = error.message || 'Bilinmeyen hata'
-      // Hata mesajını Türkçe'ye çevir
+    } catch (error: unknown) {
+      let errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
       if (errorMessage.includes('no such column')) {
         errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
       } else if (errorMessage.includes('kullanılıyor')) {
@@ -326,7 +336,7 @@ export default function AccountsPage() {
             </label>
             <select
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
+              onChange={(e) => { setFilterType(e.target.value); setPage(0) }}
               className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="all">Tümü</option>
@@ -450,6 +460,37 @@ export default function AccountsPage() {
               }
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {!isLoading && total > 0 && totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+          <span className="text-sm text-gray-400">
+            {from}-{to} / {total} kayıt
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              <ChevronLeft className="w-4 h-4 mr-1" />
+              Önceki
+            </Button>
+            <span className="text-sm text-gray-300 px-2">
+              Sayfa {currentPage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >
+              Sonraki
+              <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
         </div>
       )}
 

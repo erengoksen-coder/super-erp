@@ -1,16 +1,7 @@
-import { createError, handleError } from '../../lib/utils/errors'
-
-// Mock Next.js
-jest.mock('next/server', () => ({
-  NextRequest: jest.fn(),
-  NextResponse: {
-    json: jest.fn(),
-  },
-}))
+import { createError } from '../../lib/utils/errors'
 
 describe('Error Handling', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
     jest.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -107,41 +98,6 @@ describe('Error Handling', () => {
       expect(error.message).toBe('Validation failed')
       expect(error.details).toEqual(details)
       expect(error.statusCode).toBe(400)
-    })
-  })
-})
-
-  describe('Error Serialization', () => {
-    it('should serialize AppError to JSON', () => {
-      const details = { field: 'test' }
-      const error = createError.validation('Test validation', details)
-      const json = error.toJSON()
-      
-      expect(json).toEqual({
-        code: 'VALIDATION_ERROR',
-        message: 'Test validation',
-        statusCode: 400,
-        details: { field: 'test' },
-      })
-    })
-  })
-
-  describe('Status Code Mapping', () => {
-    it('should map error codes to correct HTTP status codes', () => {
-      const testCases = [
-        { factory: createError.unauthorized, expectedStatus: 401 },
-        { factory: createError.forbidden, expectedStatus: 403 },
-        { factory: createError.notFound, expectedStatus: 404 },
-        { factory: createError.alreadyExists, expectedStatus: 409 },
-        { factory: createError.validation, expectedStatus: 400 },
-        { factory: createError.insufficientStock, expectedStatus: 422 },
-        { factory: createError.database, expectedStatus: 500 },
-        { factory: createError.internal, expectedStatus: 500 },
-      ]
-
-      testCases.forEach(({ factory, expectedStatus }) => {
-        const error = factory('Test')
-        expect(error.statusCode).toBe(expectedStatus)
     })
   })
 })

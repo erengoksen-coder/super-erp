@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { parseJsonBody } from '@/lib/api/validate'
+import { ok } from '@/lib/api/response'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 
@@ -53,7 +54,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     query += ' ORDER BY a.date DESC, e.full_name'
 
     const rows = db.prepare(query).all(...params)
-    return NextResponse.json(rows)
+    return ok(rows)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -95,8 +96,10 @@ export const POST = withAuth(async (request: NextRequest) => {
         checkInVal = (existing as { check_in: string | null } | undefined)?.check_in ?? null
       }
     } else {
-      checkInVal = check_in != null ? String(check_in).trim() : null
-      checkOutVal = check_out != null ? String(check_out).trim() : null
+      // Boş string gönderilirse mevcut değeri koru; sadece dolu değerle güncelle
+      const trim = (v: unknown) => (v != null && String(v).trim() !== '' ? String(v).trim() : null)
+      checkInVal = trim(check_in)
+      checkOutVal = trim(check_out)
     }
 
     const existing = db.prepare('SELECT id, check_in, check_out FROM hr_attendance WHERE employee_id = ? AND date = ? AND deleted_at IS NULL').get(employee_id, today) as { id: string; check_in: string | null; check_out: string | null } | undefined

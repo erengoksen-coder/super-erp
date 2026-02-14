@@ -271,7 +271,7 @@ function setSecurityHeaders(res) {
     }
   }
 
-  const connectSrc = ["'self'", "https://*.ngrok-free.dev", "https://*.ngrok.io", "https://*.ngrok-free.app", ...supabaseOrigins].join(' ')
+  const connectSrc = ["'self'", "https://*.ngrok-free.dev", "https://*.ngrok.io", "https://*.ngrok-free.app", "https://*.trycloudflare.com", ...supabaseOrigins].join(' ')
   const imgSrc = ["'self'", "data:", "blob:", "https://ngrok.com", "https://*.ngrok.io", "https://*.ngrok-free.dev"].join(' ')
   const fontSrc = ["'self'", "https://cdn.ngrok.com", "https://assets.ngrok.com"].join(' ')
 

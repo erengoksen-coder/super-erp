@@ -24,7 +24,6 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'LIVASOFA - Süper ERP',
   description: 'Koltuk Üretim Yönetim Sistemi',
-  manifest: '/manifest',
 }
 
 export default function RootLayout({
@@ -36,6 +35,7 @@ export default function RootLayout({
     <html lang="tr" className="dark" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+        <link rel="manifest" href="/manifest.json" />
       </head>
       <body className={`${inter.className} bg-gray-950 text-gray-100`} suppressHydrationWarning style={{ margin: 0, padding: 0, overflow: 'hidden', width: '100vw', height: '100vh', position: 'fixed', inset: 0 }}>
         <SuppressHydrationWarnings />

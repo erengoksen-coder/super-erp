@@ -5,9 +5,10 @@ import { Bell, BellOff, Send, AlertTriangle, Volume2, VolumeX } from 'lucide-rea
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { usePreferencesStore } from '@/lib/store/preferencesStore'
-import { fetchApi } from '@/lib/api/client'
+import { fetchApi, useApi } from '@/lib/api/client'
 import { subscribeToTable } from '@/lib/supabase/realtime'
 import { toast } from '@/lib/notify'
+import { cn } from '@/lib/cn'
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -29,6 +30,18 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(false)
   const [alerts, setAlerts] = useState<any[]>([])
   const [alertsLoading, setAlertsLoading] = useState(false)
+
+  type NotificationItem = { id: string; title: string; message: string; type?: string; read?: number; created_at: string }
+  const { data: notificationsList = [], mutate: mutateNotifications } = useApi<NotificationItem[]>('/api/notifications')
+
+  async function markNotificationRead(id: string) {
+    try {
+      await fetchApi(`/api/notifications/${id}/read`, { method: 'PATCH' })
+      await mutateNotifications()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız')
+    }
+  }
 
   useEffect(() => {
     const isSupported = typeof window !== 'undefined' &&
@@ -242,6 +255,40 @@ export default function NotificationsPage() {
         <p className="text-xs text-gray-500">
           Not: Bildirimler için VAPID anahtarlarının ortam değişkenlerinde tanımlı olması gerekir.
         </p>
+      </div>
+
+      <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mt-6">
+        <h2 className="text-lg font-semibold text-white mb-4">Bildirim geçmişi</h2>
+        {notificationsList.length === 0 ? (
+          <p className="text-gray-400 text-sm">Henüz bildirim yok.</p>
+        ) : (
+          <ul className="space-y-2">
+            {notificationsList.map((n) => (
+              <li
+                key={n.id}
+                className={cn(
+                  'flex items-start justify-between gap-3 rounded-lg px-4 py-3 border',
+                  n.read ? 'bg-gray-800/50 border-gray-800 text-gray-400' : 'bg-gray-800 border-gray-700 text-white'
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{n.title || 'Bildirim'}</div>
+                  {n.message && <div className="text-sm mt-0.5 opacity-90">{n.message}</div>}
+                  <div className="text-xs mt-1 opacity-60">{new Date(n.created_at).toLocaleString('tr-TR')}</div>
+                </div>
+                {!n.read && (
+                  <button
+                    type="button"
+                    onClick={() => markNotificationRead(n.id)}
+                    className="shrink-0 px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition"
+                  >
+                    Okundu işaretle
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mt-6">

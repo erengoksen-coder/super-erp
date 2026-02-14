@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Search, Factory, Trash2 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
@@ -60,27 +60,38 @@ export default function ProductionPage() {
   }, [searchTerm])
 
   const loadPendingOrders = useCallback(async () => {
-    try {
-      const data = await fetchApi('/api/orders?status=pending')
-      setPendingOrders(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Error loading pending orders:', error)
+    const tryLoad = async (attempt: number): Promise<void> => {
+      try {
+        const data = await fetchApi('/api/orders?status=pending')
+        setPendingOrders(Array.isArray(data) ? data : [])
+      } catch (error) {
+        if (attempt < 2 && (error instanceof TypeError || (error instanceof Error && error.message?.includes('fetch')))) {
+          await new Promise((r) => setTimeout(r, 2000))
+          return tryLoad(attempt + 1)
+        }
+        console.error('Error loading pending orders:', error)
+        setPendingOrders([])
+      }
     }
+    return tryLoad(1)
   }, [])
 
   // Devam Eden / Tamamlanan / Sevk Edilen sayıları liste ile aynı kaynaktan al (entegrasyon)
   const loadOrdersCountsByStatus = useCallback(async () => {
     try {
       const [inProgress, completed, shipped] = await Promise.all([
-        fetchApi('/api/orders?status=in_production').then((d) => (Array.isArray(d) ? d.length : 0)),
-        fetchApi('/api/orders?status=completed').then((d) => (Array.isArray(d) ? d.length : 0)),
-        fetchApi('/api/orders?status=shipped').then((d) => (Array.isArray(d) ? d.length : 0)),
+        fetchApi('/api/orders?status=in_production').then((d) => (Array.isArray(d) ? d.length : 0)).catch(() => 0),
+        fetchApi('/api/orders?status=completed').then((d) => (Array.isArray(d) ? d.length : 0)).catch(() => 0),
+        fetchApi('/api/orders?status=shipped').then((d) => (Array.isArray(d) ? d.length : 0)).catch(() => 0),
       ])
       setInProgressOrdersCount(inProgress)
       setCompletedOrdersCount(completed)
       setShippedOrdersCount(shipped)
     } catch (error) {
       console.error('Error loading order counts by status:', error)
+      setInProgressOrdersCount(0)
+      setCompletedOrdersCount(0)
+      setShippedOrdersCount(0)
     }
   }, [])
 
@@ -161,9 +172,71 @@ export default function ProductionPage() {
 
   const [filteredOrdersByStatus, setFilteredOrdersByStatus] = useState<any[]>([])
 
+  const RECENTLY_REMOVED_KEY = 'production_recently_removed'
+  const RECENTLY_REMOVED_TTL_MS = 45_000
+
+  function getRecentlyRemovedOrderIds(): Set<string> {
+    const set = new Set<string>()
+    try {
+      const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(RECENTLY_REMOVED_KEY) : null
+      if (!raw) return set
+      const arr = JSON.parse(raw) as { id: string; ts: number }[]
+      const now = Date.now()
+      const valid = (arr || []).filter((x) => x?.id && now - (x.ts || 0) < RECENTLY_REMOVED_TTL_MS)
+      valid.forEach((x) => set.add(x.id))
+      if (valid.length !== (arr?.length ?? 0)) {
+        sessionStorage.setItem(RECENTLY_REMOVED_KEY, JSON.stringify(valid))
+      }
+    } catch {
+      // ignore
+    }
+    return set
+  }
+
+  function addRecentlyRemovedOrderId(orderId: string) {
+    try {
+      const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(RECENTLY_REMOVED_KEY) : null
+      const arr: { id: string; ts: number }[] = raw ? JSON.parse(raw) : []
+      const now = Date.now()
+      const filtered = arr.filter((x) => x?.id && now - (x.ts || 0) < RECENTLY_REMOVED_TTL_MS && x.id !== orderId)
+      filtered.push({ id: orderId, ts: now })
+      sessionStorage.setItem(RECENTLY_REMOVED_KEY, JSON.stringify(filtered))
+    } catch {
+      // ignore
+    }
+  }
+
+  function removeRecentlyRemovedOrderId(orderId: string) {
+    try {
+      const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(RECENTLY_REMOVED_KEY) : null
+      const arr: { id: string; ts: number }[] = raw ? JSON.parse(raw) : []
+      const now = Date.now()
+      const filtered = arr.filter((x) => x?.id && now - (x.ts || 0) < RECENTLY_REMOVED_TTL_MS && x.id !== orderId)
+      sessionStorage.setItem(RECENTLY_REMOVED_KEY, JSON.stringify(filtered))
+    } catch {
+      // ignore
+    }
+  }
+
+  // Üretimden çıkarılan siparişler yenilemede/remount'ta tekrar görünmesin
+  const recentlyRemovedOrderIdsRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     if (statusFilter === 'in_progress' || statusFilter === 'completed' || statusFilter === 'shipped' || statusFilter === 'all') {
-      loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
+      loadOrdersByStatus(statusFilter).then((list) => {
+        const orders = Array.isArray(list) ? list : []
+        // Sadece "Devam Eden" sekmesinde üretimden çıkarılanları gizle; Beklemede'de görünsün
+        const filtered =
+          statusFilter === 'in_progress'
+            ? (() => {
+                const fromRef = recentlyRemovedOrderIdsRef.current
+                const fromStorage = getRecentlyRemovedOrderIds()
+                const removed = new Set([...fromRef, ...fromStorage])
+                return orders.filter((o: any) => !removed.has(o.id))
+              })()
+            : orders
+        setFilteredOrdersByStatus(filtered)
+      })
     } else {
       setFilteredOrdersByStatus([])
     }
@@ -204,25 +277,77 @@ export default function ProductionPage() {
     [loadPendingOrders]
   )
 
+  const REMOVE_FROM_PRODUCTION_TIMEOUT_MS = 30_000
+
   const removeFromProduction = useCallback(
-    async (orderId: string) => {
-      if (!confirm('Bu siparişi üretimden çıkarıp tekrar bekleyen siparişlere almak istediğinize emin misiniz?')) return
+    (orderId: string) => {
+      if (!confirm('Bu siparişi üretimden çıkarıp tekrar bekleyen siparişlere almak istediğinize emin misiniz? BOM malzemeleri depoya iade edilecek ve üretim emri (URE) iptal sayılacaktır.')) return
       setRemovingOrderId(orderId)
-      try {
-        await fetchApi('/api/orders/remove-from-production', {
+      setFilteredOrdersByStatus((prev) => prev.filter((o: any) => o.id !== orderId))
+      setInProgressOrdersCount((n) => Math.max(0, n - 1))
+      recentlyRemovedOrderIdsRef.current.add(orderId)
+      addRecentlyRemovedOrderId(orderId)
+      setTimeout(() => recentlyRemovedOrderIdsRef.current.delete(orderId), RECENTLY_REMOVED_TTL_MS)
+      const currentFilter = statusFilter
+      const run = () => {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), REMOVE_FROM_PRODUCTION_TIMEOUT_MS)
+        fetchApi<{ message?: string; production_order_number?: string }>('/api/orders/remove-from-production', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ orderId }),
+          signal: controller.signal,
         })
-        await loadOrders()
-        await loadPendingOrders()
-        await loadOrdersCountsByStatus()
-        loadOrdersByStatus(statusFilter).then(setFilteredOrdersByStatus)
-      } catch (error) {
-        console.error('Üretimden çıkarılırken hata:', error)
-      } finally {
+          .then((data) => {
+            clearTimeout(timeoutId)
+        const ure = (data as { production_order_number?: string })?.production_order_number
+        const msg = (data as { message?: string })?.message ?? (ure ? `İptal olan URE: ${ure}` : 'Sipariş üretimden çıkarıldı.')
+        toast.success(`${msg} Sipariş Beklemede sekmesinde görünecektir.`)
         setRemovingOrderId(null)
+        // Yenilemeyi sırayla yap (aynı anda 4 istek ngrok’ta Failed to fetch’e yol açabiliyor)
+        const doRefresh = async () => {
+          try {
+            await Promise.all([loadOrders(), loadOrdersCountsByStatus()])
+            await new Promise((r) => setTimeout(r, 400))
+            await loadPendingOrders()
+            await new Promise((r) => setTimeout(r, 300))
+            let url = '/api/orders'
+            if (currentFilter === 'in_progress') url = '/api/orders?status=in_production'
+            else if (currentFilter === 'completed') url = '/api/orders?status=completed'
+            else if (currentFilter === 'shipped') url = '/api/orders?status=shipped'
+            else if (currentFilter === 'pending') url = '/api/orders?status=pending'
+            const list = await fetchApi(url)
+            const ordersList = Array.isArray(list) ? list : []
+            const removedSet = new Set([orderId, ...recentlyRemovedOrderIdsRef.current, ...getRecentlyRemovedOrderIds()])
+            const filtered =
+              currentFilter === 'in_progress'
+                ? ordersList.filter((o: any) => !removedSet.has(o.id))
+                : ordersList
+            startTransition(() => setFilteredOrdersByStatus(filtered))
+          } catch {
+            // Arka plan yenilemesi hata verdi; iyimser güncelleme korunuyor
+          }
+        }
+        setTimeout(doRefresh, 300)
+          })
+          .catch((error) => {
+            clearTimeout(timeoutId)
+            recentlyRemovedOrderIdsRef.current.delete(orderId)
+            removeRecentlyRemovedOrderId(orderId)
+            loadOrdersByStatus(currentFilter).then((list) => {
+              const arr = Array.isArray(list) ? list : []
+              setFilteredOrdersByStatus(currentFilter === 'in_progress' ? arr.filter((o: any) => !recentlyRemovedOrderIdsRef.current.has(o.id) && !getRecentlyRemovedOrderIds().has(o.id)) : arr)
+            }).catch(() => {})
+            const isAbort = error instanceof Error && error.name === 'AbortError'
+            const message = isAbort
+              ? 'İstek zaman aşımına uğradı. Sunucu yanıt vermedi; sayfayı yenileyip tekrar deneyin.'
+              : (error instanceof Error ? error.message : 'Üretimden çıkarılamadı')
+            toast.error(message)
+          })
+          .finally(() => setRemovingOrderId(null))
       }
+      // 250ms gecikme: click handler hemen biter; POST ayrı task’te, violation "click took 1.3s" kaybolur
+      setTimeout(run, 250)
     },
     [loadOrders, loadPendingOrders, loadOrdersCountsByStatus, loadOrdersByStatus, statusFilter]
   )
@@ -255,10 +380,13 @@ export default function ProductionPage() {
     loadOrdersCountsByStatus()
   }, [loadOrders, loadPendingOrders, loadOrdersCountsByStatus])
 
+  const searchTermInitialMount = useRef(true)
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      loadOrders()
-    }, 300)
+    if (searchTermInitialMount.current) {
+      searchTermInitialMount.current = false
+      return
+    }
+    const timeout = setTimeout(() => loadOrders(), 300)
     return () => clearTimeout(timeout)
   }, [searchTerm, loadOrders])
 

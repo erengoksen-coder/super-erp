@@ -56,6 +56,20 @@ describe('Validation Schemas', () => {
         }
       })
 
+      it('should reject password over 72 bytes', () => {
+        const longPassword = 'A1' + 'a'.repeat(71)
+        const userData = {
+          username: 'testuser',
+          password: longPassword,
+          full_name: 'Test User',
+          role: 'user',
+          job_title: 'Test Developer',
+        }
+        const result = validateRequest(userSchemas.create, userData)
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/72 bayt/)
+      })
+
       it('should reject invalid email', () => {
         const userData = {
           username: 'testuser',
@@ -197,6 +211,101 @@ describe('Validation Schemas', () => {
     const validCustomerId = '550e8400-e29b-41d4-a716-446655440000'
     const validProductId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
     const validOrderDate = '2025-01-15T10:00:00.000Z'
+
+    describe('manualCreate', () => {
+      it('should validate correct manual order data', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: 'Bayi A',
+          customer_name: 'Müşteri X',
+          product_name: 'Koltuk Model Y',
+          configuration: 'Klasik',
+          fabric_code: 'KUM-001',
+          quantity: 2,
+          unit_price: 1500,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.data.dealer_name).toBe('Bayi A')
+          expect(result.data.quantity).toBe(2)
+        }
+      })
+
+      it('should reject empty dealer_name', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: '',
+          customer_name: 'Müşteri',
+          product_name: 'Ürün',
+          configuration: 'Klasik',
+          fabric_code: 'KUM-001',
+          quantity: 1,
+          unit_price: 0,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/Cari|Bayi/)
+      })
+
+      it('should reject quantity zero', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: 'Bayi',
+          customer_name: 'Müşteri',
+          product_name: 'Ürün',
+          configuration: 'Klasik',
+          fabric_code: 'KUM-001',
+          quantity: 0,
+          unit_price: 0,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/Miktar|1/)
+      })
+
+      it('should reject negative unit_price', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: 'Bayi',
+          customer_name: 'Müşteri',
+          product_name: 'Ürün',
+          configuration: 'Klasik',
+          fabric_code: 'KUM-001',
+          quantity: 1,
+          unit_price: -10,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/Fiyat|negatif/)
+      })
+
+      it('should reject empty configuration', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: 'Bayi',
+          customer_name: 'Müşteri',
+          product_name: 'Ürün',
+          configuration: '',
+          fabric_code: 'KUM-001',
+          quantity: 1,
+          unit_price: 0,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/Konfigürasyon/)
+      })
+
+      it('should reject empty fabric_code', () => {
+        const result = validateRequest(orderSchemas.manualCreate, {
+          dealer_name: 'Bayi',
+          customer_name: 'Müşteri',
+          product_name: 'Ürün',
+          configuration: 'Klasik',
+          fabric_code: '',
+          quantity: 1,
+          unit_price: 0,
+          order_date: '2025-02-11T10:00',
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error).toMatch(/Kumaş/)
+      })
+    })
 
     describe('create', () => {
       it('should validate correct order data', () => {

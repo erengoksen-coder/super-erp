@@ -2,7 +2,13 @@ const Database = require('better-sqlite3')
 const { existsSync } = require('fs')
 const { join } = require('path')
 
+// Uygulama (lib/database/db.ts) ile aynı path mantığı: DATABASE_PATH / DATABASE_URL env, yoksa data/erp.db
 function getDbPath() {
+  const envPath = process.env.DATABASE_PATH || process.env.DATABASE_URL
+  if (envPath) {
+    const p = String(envPath).replace(/^file:/i, '').trim()
+    if (p && p !== ':memory:') return p
+  }
   return join(process.cwd(), 'data', 'erp.db')
 }
 
@@ -23,8 +29,9 @@ function ensureDangerousAllowed(scriptName) {
   process.exit(1)
 }
 
-function openDatabase() {
-  const dbPath = assertDbExists()
+// path verilirse onu aç, verilmezse assertDbExists() ile bulunan path kullan (uygulama ile aynı DB)
+function openDatabase(pathOrUndefined) {
+  const dbPath = pathOrUndefined != null ? pathOrUndefined : assertDbExists()
   const db = new Database(dbPath)
   db.pragma('foreign_keys = OFF')
   return db

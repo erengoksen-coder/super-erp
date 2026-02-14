@@ -27,13 +27,15 @@ import {
   PanelLeft,
   Store,
 } from 'lucide-react'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { LogoWithBackground } from './Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { useTheme } from '@/lib/theme'
 import { logout } from '@/lib/auth'
 import { useSidebar } from './SidebarContext'
 import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
+import { useApi } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/cn'
@@ -47,6 +49,8 @@ type MenuItem = {
   group?: string
   submenu?: SubItem[]
 }
+/** Command palette'de gösterilen düzleştirilmiş menü öğesi */
+type CommandPaletteItem = { name: string; href: string; icon?: React.ComponentType<{ className?: string }>; parent: string | null }
 
 const menuItems: MenuItem[] = [
   { name: 'Kontrol Paneli', href: ROUTES.HOME, icon: LayoutDashboard, group: '' },
@@ -242,6 +246,8 @@ export default function Sidebar() {
   })
   const user = useAuthStore((s) => s.user)
   const { mode, toggleMode } = useTheme()
+  const { data: notificationsList } = useApi<Array<{ read?: number }>>('/api/notifications')
+  const unreadNotificationsCount = (notificationsList ?? []).filter((n) => !n.read).length
 
   const isAdmin = isAdminRole(user?.role)
   const isBayiUser = (user?.role || '').toString().trim().toLowerCase() === 'bayi'
@@ -262,7 +268,7 @@ export default function Sidebar() {
   const isItemActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href)
 
-  const filteredSearchResults = useMemo(() => {
+  const filteredSearchResults = useMemo((): CommandPaletteItem[] => {
     if (!searchTerm.trim()) return []
     const term = searchTerm.toLowerCase()
     const source = isAdmin
@@ -282,10 +288,19 @@ export default function Sidebar() {
       .slice(0, 8)
   }, [searchTerm, isAdmin, visibleMenuGroups])
 
-  const openSearch = () => {
+  const openSearch = useCallback(() => {
     setIsSearchOpen(true)
     setTimeout(() => document.querySelector<HTMLInputElement>('[data-search-input]')?.focus(), 50)
-  }
+  }, [])
+
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false)
+    setSearchTerm('')
+  }, [])
+
+  useKeyboardShortcut('k', openSearch, { ctrlKey: true })
+  useKeyboardShortcut('k', openSearch, { metaKey: true })
+  useKeyboardShortcut('Escape', closeSearch, { enabled: isSearchOpen })
 
   if (pathname === ROUTES.LOGIN || pathname === ROUTES.REGISTER) return null
 
@@ -381,6 +396,11 @@ export default function Sidebar() {
                           >
                             <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
                             {sub.name}
+                            {sub.href === '/notifications' && unreadNotificationsCount > 0 && (
+                              <span className="ml-auto min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center rounded-full bg-amber-500/90 text-black text-xs font-medium">
+                                {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                              </span>
+                            )}
                           </Link>
                         ))}
                       </div>
@@ -544,13 +564,10 @@ export default function Sidebar() {
 
       {/* Command palette */}
       {isSearchOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]" role="dialog" aria-label="Sayfa ara">
           <div
             className="fixed inset-0 bg-black/70"
-            onClick={() => {
-              setIsSearchOpen(false)
-              setSearchTerm('')
-            }}
+            onClick={closeSearch}
           />
           <div className="relative w-full max-w-xl mx-4">
             <div className="bg-slate-800 rounded-xl shadow-2xl border border-slate-600 overflow-hidden">
@@ -566,15 +583,12 @@ export default function Sidebar() {
               </div>
               <div className="max-h-[60vh] overflow-y-auto">
                 {filteredSearchResults.length > 0 ? (
-                  filteredSearchResults.map((item: any, i) => (
+                  filteredSearchResults.map((item, i) => (
                     <Link
                       key={`${item.href}-${i}`}
                       href={item.href}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700/50 transition-colors border-b border-slate-700/50 last:border-0"
-                      onClick={() => {
-                        setIsSearchOpen(false)
-                        setSearchTerm('')
-                      }}
+                      onClick={closeSearch}
                     >
                       {item.icon && (
                         <item.icon className="w-4 h-4 text-gray-400 shrink-0" />
@@ -603,11 +617,6 @@ export default function Sidebar() {
         </div>
       )}
 
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.querySelector('[data-command-palette-trigger]')?.click();}});`,
-        }}
-      />
     </>
   )
 }

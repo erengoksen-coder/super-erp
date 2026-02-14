@@ -88,3 +88,36 @@ Bu dokümanda **henüz uygulanmamış** veya **tamamlanmamış** geliştirme fik
 - **Altyapı:** 17 (log dosyası), 19 (Docker production), 20 (yedek rotasyonu).
 
 İstediğiniz madde(ler)in numarasını söylerseniz, o maddeler için uygulama adımları yazılabilir veya doğrudan kod değişikliği yapılabilir.
+
+---
+
+## İleriye taşımak için öncelikli adımlar
+
+Projeyi bir sonraki seviyeye taşımak için aşağıdaki adımlar **uygulama sırasına** göre önerilir.
+
+### 1. Hemen yapılabilecekler (1–2 gün)
+- **API hata loglama:** Kritik route’larda (sipariş, ödeme, üretimden çıkarma vb.) `catch` içinde `apiLogger.error` ile hata + context loglamak.
+- **Kalan `alert()` → toast:** Tüm projede `alert(` araması yapıp kalan varsa `toast.success` / `toast.error` ile değiştirmek.
+- **Üretim / sipariş formları:** Sipariş oluşturma ve üretim sayfası formlarında react-hook-form + Zod ile alan bazlı validasyon (inline hata + `aria-invalid`).
+
+### 2. Kullanıcı deneyimi (1 hafta)
+- **Boş liste / filtre:** Tüm liste sayfalarında ortak `EmptyState` (“Kayıt yok” / “Filtreye uygun sonuç yok” + aksiyon butonu).
+- **Sayfalama:** Fatura, cari, stok hareketleri gibi büyük listelerde `limit`/`offset` + “Sonraki / Önceki” veya sayfa numaraları (API’de `meta.total` zaten var).
+- **Bildirim merkezi:** `/notifications` sayfasını gerçek veriyle beslemek (iptal URE, düşük stok, sipariş onayı vb.) ve sidebar’da badge ile göstermek.
+
+### 3. İş değeri (2–4 hafta)
+- **PDKS/İK:** Giriş/çıkış raporları (tarih, lokasyon, çalışan), izin talebi onay akışı, bordro özet ekranı (docs/PDKS_*.md, docs/IK_*.md).
+- **Finans:** Dönem kapanışı, gelir/gider özeti widget’ı, raporlara tarih aralığı filtresi (docs/FINANS_BOLUMU_DUZENLEME_PLANI.md).
+- **Raporlar:** Stok yaşlandırma, üretim verimliliği, satış özeti sayfalarına Excel/PDF indirme butonu.
+
+### 4. Teknik sağlamlık (sürekli)
+- **Tip güvenliği:** API response tipleri (`types/api.ts` veya modül bazlı), `any` → `unknown` + type guard.
+- **Test:** Kritik API’ler (sipariş, üretimden çıkarma, convert-to-production) için Vitest/Jest; E2E’de “sipariş oluştur → üretime al → üretimden çıkar” akışı.
+- **Rate limiting:** Login ve hassas API’lere istek başına limit (örn. `lib/api/rateLimit.ts`).
+
+### 5. Altyapı ve operasyon
+- **Log dosyası:** `apiLogger` çıktısını `logs/api.log` / `logs/api-error.log`’a yazma (env ile açılıp kapatılabilir).
+- **Yedek rotasyonu:** `backup-database.js` sonrası “son N yedek sakla” script’i.
+- **Durum sayfası:** `/durum` sayfasında DB, disk, bellek özeti (health API zaten var; UI’da gösterim).
+
+Hangi maddeyle başlamak istediğinizi söylerseniz, o madde için somut uygulama adımları veya kod değişikliği yapılabilir.

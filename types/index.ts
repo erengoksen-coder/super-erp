@@ -80,11 +80,31 @@ export type DatabaseProduction = {
 }
 
 // API Response Types
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean
   data?: T
   error?: string
   message?: string
+}
+
+/** /api/auth/me ve /api/auth/login yanıtında dönen kullanıcı payload */
+export interface AuthUserPayload {
+  id: string
+  username: string
+  email?: string | null
+  full_name?: string | null
+  role?: string
+  job_title?: string | null
+  position?: string | null
+  is_approved?: boolean
+  permissions?: Permission[]
+  dealer_name?: string | null
+}
+
+/** /api/auth/me yanıtı */
+export interface AuthMeResponse {
+  user?: AuthUserPayload
+  data?: { user?: AuthUserPayload }
 }
 
 export interface PaginatedResponse<T> {

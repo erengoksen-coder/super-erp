@@ -37,7 +37,10 @@ export default function ProductionRealtime({ onUpdate, pollIntervalMs = REALTIME
         onUpdateRef.current()
       }
     }
-    const onVisible = () => { onUpdateRef.current() }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      setTimeout(() => onUpdateRef.current(), 0)
+    }
     const interval = setInterval(tick, pollIntervalMs)
     document.addEventListener('visibilitychange', onVisible)
     return () => {

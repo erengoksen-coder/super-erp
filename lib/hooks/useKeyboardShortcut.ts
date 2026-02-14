@@ -16,7 +16,8 @@ export function useKeyboardShortcut(
   const enabled = options?.enabled !== false
   const callback = useCallback(
     (e: KeyboardEvent) => {
-      const keyMatch = e.key === key || e.key.toLowerCase() === key.toLowerCase()
+      const eventKey = (e.key ?? '') as string
+      const keyMatch = eventKey === key || (eventKey && key && eventKey.toLowerCase() === key.toLowerCase())
       if (!keyMatch) return
       if (options?.ctrlKey && !e.ctrlKey) return
       if (options?.metaKey && !e.metaKey) return

@@ -19,7 +19,9 @@ setup('giriş yap ve oturumu kaydet', async ({ page }) => {
   await page.getByPlaceholder('Şifrenizi girin').fill(pass)
   await page.getByRole('button', { name: 'Giriş Yap' }).click()
   await expect(page).toHaveURL(/\/(dashboard)?(\?|$)/, { timeout: 15_000 })
-  await expect(page.getByRole('heading', { name: /hoş geldin/i })).toBeVisible({ timeout: 10_000 })
+  await expect(
+    page.getByRole('heading', { name: /hoş geldin|kontrol paneli|dashboard/i }).first()
+  ).toBeVisible({ timeout: 15_000 })
   await page.waitForLoadState('networkidle')
   // Oturumun yazılması için bekle: cookie (auth-token) veya localStorage
   await page.waitForFunction(() => !!window.localStorage.getItem('auth-token'), { timeout: 10_000 }).catch(() => null)

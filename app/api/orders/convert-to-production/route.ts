@@ -6,6 +6,7 @@ import { resolveUnitFactor } from '@/lib/units'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { randomUUID } from 'crypto'
 import { generateProductionOrderNumber } from '@/lib/utils/codeGenerator'
+import { apiLogger } from '@/lib/api/logger'
 import { logger } from '@/lib/utils/logger'
 import { dispatchWebhook } from '@/lib/webhooks/dispatch'
 
@@ -1319,6 +1320,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       errors: errors.length > 0 ? errors : undefined
     })
   } catch (error: any) {
+    apiLogger.error('convert-to-production failed', { error: error?.message, stack: error?.stack })
     logger.error('[KRİTİK HATA] Sipariş dönüştürme genel hatası', {
       error_message: error.message,
       error_stack: error.stack

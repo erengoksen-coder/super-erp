@@ -13,8 +13,12 @@ const requiredEnv = [
 
 const missing = requiredEnv.filter((key) => !process.env[key])
 const describeIf = missing.length === 0 ? describe : describe.skip
+const suiteTitle =
+  missing.length === 0
+    ? 'RLS Policies - Production Orders'
+    : `RLS Policies - Production Orders (skipped: missing env ${missing.join(', ')})`
 
-describeIf('RLS Policies - Production Orders', () => {
+describeIf(suiteTitle, () => {
   let supabaseAdmin: SupabaseClient
   let user1Client: SupabaseClient
   let user2Client: SupabaseClient

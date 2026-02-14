@@ -10,6 +10,8 @@ import { fetchApi, useApi } from '@/lib/api/client'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
 import { toast } from '@/lib/notify'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Button } from '@/components/ui/Button'
 
 interface Shipment {
   id: string
@@ -676,17 +678,19 @@ export default function ShipmentsPage() {
           )}
         </div>
       ) : shipments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center min-h-[50vh]">
-          <LogoWithBackground size="lg" className="mb-6" />
-          <h3 className="text-lg md:text-xl font-semibold text-white mb-2">Henüz Sevkiyat Yok</h3>
-          <p className="text-sm text-gray-400 mb-4">İlk sevkiyatınızı oluşturun</p>
-          <Link
-            href="/shipments/new"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-          >
-            Yeni Sevkiyat Oluştur
-          </Link>
-        </div>
+        <EmptyState
+          title="Henüz sevkiyat yok"
+          description="İlk sevkiyatınızı oluşturarak başlayabilirsiniz."
+          icon={Package}
+          action={
+            <Link href="/shipments/new">
+              <Button variant="solid" color="primary" size="sm">
+                Yeni Sevkiyat Oluştur
+              </Button>
+            </Link>
+          }
+          className="min-h-[50vh]"
+        />
       ) : showDetailedView && filterStatus === 'all' && filterCompleted === 'all' ? (
         // Detaylı görünüm: Müşteri bazlı gruplama
         <div className="space-y-6">

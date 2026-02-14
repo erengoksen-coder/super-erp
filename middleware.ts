@@ -15,6 +15,7 @@ const PUBLIC_API_PATHS = [
   '/api/auth/ping',
   '/api/health',
   '/api/icon',
+  '/api/manifest',
   '/api/notifications/vapid-public-key',
 ]
 

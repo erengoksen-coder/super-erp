@@ -11,6 +11,8 @@ export type AuthUser = {
   full_name?: string | null
   role: string
   job_title?: string | null
+  position?: string | null
+  dealer_name?: string | null
   permissions?: Array<{
     page_path: string
     can_view: number

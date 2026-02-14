@@ -8,9 +8,11 @@ import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { fetchApi, useApi, getAuthHeaders } from '@/lib/api/client'
+import { useDebounce } from '@/lib/hooks/useDebounce'
 import { toast } from '@/lib/notify'
 import { formatDate, formatOrderDateDisplay } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
+import { orderSchemas } from '@/lib/validation/schemas'
 
 interface Order {
   id: string
@@ -58,6 +60,7 @@ export default function OrdersPage() {
   const dealerInputRef = useRef<HTMLInputElement>(null)
   const [orderProducts, setOrderProducts] = useState<Array<{ id: string; name: string; sku: string }>>([])
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   // Ürün adına göre BOM’daki ürün kodunu (SKU) bul
   function findSkuByProductName(productName: string): string | null {
@@ -117,6 +120,7 @@ export default function OrdersPage() {
   }, [filterStatus])
 
   const { data: ordersData, isLoading, mutate } = useApi<Order[]>(ordersKey)
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   usePolling(() => { void mutate() })
 
@@ -260,9 +264,32 @@ export default function OrdersPage() {
   }
 
   async function handleCreateOrder() {
-    if (!newOrder.dealer_name || !newOrder.customer_name) {
-      toast.warning('Lütfen bayi adı ve müşteri adını girin')
-      return
+    if (editingOrder) {
+      setFormErrors({})
+    } else {
+      const payload = {
+        dealer_name: (newOrder.dealer_name || '').trim(),
+        customer_name: (newOrder.customer_name || '').trim(),
+        product_name: (newOrder.product_name || '').trim(),
+        configuration: (newOrder.configuration || '').trim(),
+        fabric_code: (newOrder.fabric_code || '').trim(),
+        quantity: parseInt(String(newOrder.quantity), 10) || 0,
+        unit_price: parseFloat(String(newOrder.unit_price)) || 0,
+        order_date: (newOrder.order_date || '').trim(),
+      }
+      const result = orderSchemas.manualCreate.safeParse(payload)
+      if (!result.success) {
+        const errors: Record<string, string> = {}
+        result.error.issues.forEach((issue) => {
+          const path = issue.path[0] as string
+          if (path && !errors[path]) errors[path] = issue.message
+        })
+        setFormErrors(errors)
+        const first = result.error.issues[0]
+        if (first?.message) toast.warning(first.message)
+        return
+      }
+      setFormErrors({})
     }
 
     // Bayi adı cari hesaplarda var mı kontrol et
@@ -363,6 +390,7 @@ export default function OrdersPage() {
         toast.success('Sipariş güncellendi')
         setEditingOrder(null)
         setShowCreateModal(false)
+        setFormErrors({})
         setNewOrder({
           order_number: '', dealer_name: '', customer_name: '', customer_code: '',
           product_name: '', product_sku: '', quantity: 1, unit_price: 0,
@@ -399,38 +427,12 @@ export default function OrdersPage() {
       }
 
       const result = await response.json()
-      const createdOrders = result?.data?.orders ?? result?.orders ?? []
-      const createdIds = Array.isArray(createdOrders) ? createdOrders.map((o: { id: string }) => o.id).filter(Boolean) : []
-
-      if (createdIds.length > 0) {
-        try {
-          const dueDate = newOrder.order_date
-            ? new Date(newOrder.order_date).toISOString().slice(0, 10)
-            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-          const convertRes = await fetch('/api/orders/convert-to-production', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            body: JSON.stringify({ order_ids: createdIds, due_date: dueDate }),
-            credentials: 'include',
-          })
-          if (convertRes.ok) {
-            const convertData = await convertRes.json()
-            const count = convertData?.converted_orders?.length ?? createdIds.length
-            toast.success(`Sipariş oluşturuldu ve ${count} sipariş üretim emrine aktarıldı`)
-          } else {
-            const errData = await convertRes.json().catch(() => ({}))
-            toast.success('Sipariş oluşturuldu')
-            toast.warning(errData?.error || 'Üretim emrine aktarılamadı. Siparişler sayfasından "Üretim Emrine Dönüştür" ile aktarabilirsiniz.')
-          }
-        } catch (_e) {
-          toast.success('Sipariş oluşturuldu')
-          toast.warning('Üretim emrine otomatik aktarılamadı. Siparişlerden "Üretim Emrine Dönüştür" ile aktarabilirsiniz.')
-        }
-      } else {
-        toast.success('Sipariş başarıyla oluşturuldu')
-      }
+      const data = result?.data ?? result
+      const createdOrders = data?.orders ?? result?.orders ?? []
+      toast.success(createdOrders.length > 0 ? `${createdOrders.length} sipariş oluşturuldu. Üretime almak için "Üretime Al" veya Üretim sayfasını kullanın.` : 'Sipariş oluşturuldu.')
 
       setShowCreateModal(false)
+      setFormErrors({})
       setNewOrder({
         order_number: '',
         dealer_name: '',
@@ -690,8 +692,8 @@ export default function OrdersPage() {
   const normalizeNotes = (value: unknown) => String(value ?? '')
 
   const filteredOrders = orders.filter(order => {
-    if (searchTerm) {
-      const search = normalize(searchTerm)
+    if (debouncedSearchTerm) {
+      const search = normalize(debouncedSearchTerm)
       return (
         normalize(order.order_number).includes(search) ||
         normalize(order.dealer_name).includes(search) ||
@@ -730,6 +732,7 @@ export default function OrdersPage() {
             size="sm"
             onClick={() => {
               setEditingOrder(null)
+              setFormErrors({})
               setShowCreateModal(true)
             }}
           >
@@ -877,10 +880,10 @@ export default function OrdersPage() {
       ) : filteredOrders.length === 0 ? (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <EmptyState
-            title={searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş yok'}
-            description={searchTerm ? 'Farklı bir arama deneyin' : 'Yeni sipariş butonuna tıklayarak sipariş ekleyebilirsiniz.'}
+            title={debouncedSearchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş yok'}
+            description={debouncedSearchTerm ? 'Farklı bir arama deneyin' : 'Yeni sipariş butonuna tıklayarak sipariş ekleyebilirsiniz.'}
             icon={FileSpreadsheet}
-            action={!searchTerm ? (
+            action={!debouncedSearchTerm ? (
               <Button onClick={() => setShowCreateModal(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Yeni Sipariş
@@ -1130,9 +1133,12 @@ export default function OrdersPage() {
                     type="datetime-local"
                     value={newOrder.order_date}
                     onChange={(e) => setNewOrder({ ...newOrder, order_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.order_date ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.order_date}
+                    aria-describedby={formErrors.order_date ? 'order_date-error' : undefined}
                     required
                   />
+                  {formErrors.order_date && <p id="order_date-error" className="text-red-400 text-xs mt-1">{formErrors.order_date}</p>}
                 </div>
               </div>
 
@@ -1147,10 +1153,13 @@ export default function OrdersPage() {
                     onChange={(e) => handleDealerNameChange(e.target.value)}
                     onFocus={() => setShowDealerSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowDealerSuggestions(false), 200)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.dealer_name ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.dealer_name}
+                    aria-describedby={formErrors.dealer_name ? 'dealer_name-error' : undefined}
                     required
                     placeholder="Bayi adı yazın..."
                   />
+                  {formErrors.dealer_name && <p id="dealer_name-error" className="text-red-400 text-xs mt-1">{formErrors.dealer_name}</p>}
                   {showDealerSuggestions && filteredAccounts.length > 0 && (
                     <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {filteredAccounts.map((account) => (
@@ -1177,6 +1186,9 @@ export default function OrdersPage() {
                   <input
                     type="text"
                     value={newOrder.customer_name}
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.customer_name ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.customer_name}
+                    aria-describedby={formErrors.customer_name ? 'customer_name-error' : undefined}
                     onChange={(e) => {
                       const customerName = e.target.value
                       // Müşteri adı girildiğinde ve müşteri kodu boşsa otomatik oluştur - sıralamada boş olan ilk numarayı bul
@@ -1203,9 +1215,9 @@ export default function OrdersPage() {
                       }
                       setNewOrder({ ...newOrder, customer_name: customerName, customer_code: newCustomerCode })
                     }}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     required
                   />
+                  {formErrors.customer_name && <p id="customer_name-error" className="text-red-400 text-xs mt-1">{formErrors.customer_name}</p>}
                 </div>
               </div>
 
@@ -1238,9 +1250,12 @@ export default function OrdersPage() {
                       const sku = findSkuByProductName(name)
                       if (sku) setNewOrder((prev) => ({ ...prev, product_sku: sku }))
                     }}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.product_name ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.product_name}
+                    aria-describedby={formErrors.product_name ? 'product_name-error' : undefined}
                     required
                   />
+                  {formErrors.product_name && <p id="product_name-error" className="text-red-400 text-xs mt-1">{formErrors.product_name}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">SKU / Ürün Kodu <span className="text-gray-400 text-xs">(Ürün adına göre BOM ile aynı)</span></label>
@@ -1273,30 +1288,41 @@ export default function OrdersPage() {
                       setNewOrder((prev) => ({ ...prev, quantity: num }))
                     }
                   }}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.quantity ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                  aria-invalid={!!formErrors.quantity}
+                  aria-describedby={formErrors.quantity ? 'quantity-error' : undefined}
                   required
                 />
+                {formErrors.quantity && <p id="quantity-error" className="text-red-400 text-xs mt-1">{formErrors.quantity}</p>}
               </div>
 
               {/* Altıncı Satır: KONFİGÜRASYON ve KUMAŞ KODU */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">KONFİGÜRASYON</label>
+                  <label htmlFor="order-configuration" className="block text-sm font-medium text-gray-300 mb-1">KONFİGÜRASYON *</label>
                   <input
+                    id="order-configuration"
                     type="text"
                     value={newOrder.configuration}
                     onChange={(e) => setNewOrder({ ...newOrder, configuration: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.configuration ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.configuration}
+                    aria-describedby={formErrors.configuration ? 'configuration-error' : undefined}
                   />
+                  {formErrors.configuration && <p id="configuration-error" className="text-red-400 text-xs mt-1">{formErrors.configuration}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">KUMAŞ KODU</label>
+                  <label htmlFor="order-fabric-code" className="block text-sm font-medium text-gray-300 mb-1">KUMAŞ KODU *</label>
                   <input
+                    id="order-fabric-code"
                     type="text"
                     value={newOrder.fabric_code}
                     onChange={(e) => setNewOrder({ ...newOrder, fabric_code: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full px-3 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none focus:ring-2 ${formErrors.fabric_code ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' : 'border-gray-700 focus:border-blue-500'}`}
+                    aria-invalid={!!formErrors.fabric_code}
+                    aria-describedby={formErrors.fabric_code ? 'fabric_code-error' : undefined}
                   />
+                  {formErrors.fabric_code && <p id="fabric_code-error" className="text-red-400 text-xs mt-1">{formErrors.fabric_code}</p>}
                 </div>
               </div>
 

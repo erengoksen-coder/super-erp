@@ -3,6 +3,7 @@ import { parseJsonBody } from '@/lib/api/validate'
 import { getDatabase } from '@/lib/database/db'
 import { hashPassword } from '@/lib/auth/password'
 import { ok, fail } from '@/lib/api/response'
+import { commonSchemas } from '@/lib/validation/schemas'
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,8 +13,10 @@ export async function POST(request: NextRequest) {
     if (!token) {
       return fail('Token gerekli', { status: 400 })
     }
-    if (!newPassword || newPassword.length < 8) {
-      return fail('Yeni şifre en az 8 karakter olmalıdır', { status: 400 })
+    const parsed = commonSchemas.password.safeParse(newPassword)
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message ?? 'Geçersiz şifre'
+      return fail(msg, { status: 400 })
     }
 
     const db = getDatabase()
@@ -28,7 +31,7 @@ export async function POST(request: NextRequest) {
       return fail('Linkin süresi dolmuş. Lütfen yeni talep oluşturun.', { status: 400 })
     }
 
-    const hashed = hashPassword(newPassword)
+    const hashed = hashPassword(parsed.data)
     db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(hashed, row.user_id)
     db.prepare('DELETE FROM password_reset_tokens WHERE token = ?').run(token)
     return ok({ message: 'Şifreniz güncellendi. Giriş yapabilirsiniz.' })

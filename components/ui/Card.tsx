@@ -57,7 +57,7 @@ export const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(({
           </h3>
         )}
         {subtitle && (
-          <p className="text-base font-medium text-gray-600 dark:text-white mt-1">
+          <p className="text-sm text-gray-600 dark:text-slate-400 mt-0.5">
             {subtitle}
           </p>
         )}

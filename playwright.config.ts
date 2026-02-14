@@ -29,6 +29,9 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: useAuth ? authFile : undefined,
+        launchOptions: process.env.PLAYWRIGHT_SLOW_MO
+          ? { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO) || 800 }
+          : undefined,
       },
       dependencies: ['setup'],
       testIgnore: [/auth\.setup\.ts/, /smoke-unauth\.spec\.ts/, /smoke\.spec\.ts/],

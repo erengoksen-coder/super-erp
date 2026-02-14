@@ -232,6 +232,31 @@ export default function HrClient() {
         </div>
       )}
 
+      {/* PDKS / Puantaj hızlı erişim (docs: PDKS_QR_GIRIS_CIKIS_AKIS.md) */}
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/hr/clock"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors font-medium"
+        >
+          <QrCode className="w-5 h-5" />
+          Giriş/Çıkış (Puantaj)
+        </Link>
+        <Link
+          href="/hr/attendance"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700 transition-colors font-medium"
+        >
+          <Clock className="w-5 h-5" />
+          Devam / Puantaj listesi
+        </Link>
+        <Link
+          href="/hr/leave"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700 transition-colors font-medium"
+        >
+          <Calendar className="w-5 h-5" />
+          İzinler
+        </Link>
+      </div>
+
       {dashboard && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <Link href="/hr#employees" className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-blue-500/50 transition">

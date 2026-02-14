@@ -49,8 +49,15 @@ Projede mevcut testler ve tek seferde çalıştırma komutları.
 - **Sadece kod kalitesi:** `npm run lint` veya `npm run lint:fix`
 - **Sadece testler:** `npm run test` veya `npm run test:coverage`
 
+## RLS testleri (Supabase)
+
+- **Dosya:** `tests/rls/production-orders.test.ts` — üretim emirleri RLS politikalarını test eder.
+- **Gerekli env:** `.env.example` içindeki "RLS testleri" bölümünde listelenen 7 değişken (Supabase URL/anon/service key + iki test kullanıcısı için ID ve JWT token).
+- **Tanımlı değilse:** Vitest çalıştırıldığında bu suite atlanır ve çıktıda hangi env’lerin eksik olduğu gösterilir: `RLS Policies - Production Orders (skipped: missing env ...)`.
+- **Çalıştırmak için:** Supabase projesi + iki test kullanıcısı oluşturup JWT alın; env’leri `.env.local` veya ortama ekleyin.
+
 ## Notlar
 
 - `test:rls` ve `test:rls:setup` veritabanı bağlantısı ve Supabase/RLS ortamı gerektirir.
-- Jest konfigürasyonu: `jest.config.json` (setup: `tests/setup.ts`).
+- Birim testleri: Vitest — `npx vitest run` (setup: `tests/setup-vitest.ts`).
 - E2E (Playwright): `e2e/` — `npm run test:e2e`. TestSprite: `testsprite_tests/` (ayrı Python ortamı).

@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: false },
   reactStrictMode: false,
+  // Geliştirme modunda sol alttaki "Compiling..." göstergesini kapat (sürekli dönme sorunu)
+  devIndicators: false,
   // Turbopack için boş config (uyarıyı bastırmak için)
   turbopack: {},
   // Development'ta hydration hatalarını loglamayı azalt

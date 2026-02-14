@@ -18,6 +18,11 @@ describe('Password Hashing', () => {
       
       expect(hash1).not.toBe(hash2)
     })
+
+    it('should throw when password exceeds 72 bytes (bcrypt limit)', () => {
+      const longPassword = 'a'.repeat(73)
+      expect(() => hashPassword(longPassword)).toThrow(/72 bayt/)
+    })
   })
 
   describe('verifyPassword', () => {

@@ -7,6 +7,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@
 import { toast } from '@/lib/notify'
 import { PageLoader } from '@/components/ui/PageLoader'
 import { getReferenceLink } from '@/lib/utils/journal-reference'
+import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
 import { formatDate } from '@/lib/utils/dateFormat'
 
 interface JournalEntry {
@@ -51,16 +52,6 @@ export default function JournalEntriesPage() {
     }
   }
 
-  function getReferenceTypeLabel(type: string): string {
-    const labels: Record<string, string> = {
-      sale: 'Satış',
-      purchase: 'Satın Alma',
-      production: 'Üretim',
-      stock: 'Stok',
-      manual: 'Manuel',
-    }
-    return labels[type] || type
-  }
 
   return (
     <div>

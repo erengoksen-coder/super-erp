@@ -8,6 +8,7 @@ import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardBody } from '@/components/ui/Card'
+import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
 
 type MaterialDetail = {
   id: string
@@ -249,7 +250,7 @@ export default function InventoryMaterialDetailPage() {
                       </td>
                       <td className="py-2 text-xs text-gray-400">
                         {movement.reference_type && (
-                          <span>{movement.reference_type}: {movement.reference_id}</span>
+                          <span>{getReferenceTypeLabel(movement.reference_type)}{movement.reference_id ? `: ${movement.reference_id}` : ''}</span>
                         )}
                         {movement.notes && <span className="block">{movement.notes}</span>}
                       </td>

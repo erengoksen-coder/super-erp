@@ -6,6 +6,7 @@ import { Package, RefreshCw, ArrowLeft } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
 
 type MovementRow = {
   id: string
@@ -125,7 +126,7 @@ export default function StockMovementsReportPage() {
                     </td>
                     <td className="py-2 px-4">{row.material_name || row.product_name || row.material_code || row.product_sku || '–'}</td>
                     <td className="py-2 px-4 text-right">{row.quantity}</td>
-                    <td className="py-2 px-4">{row.reference_type ?? '–'}</td>
+                    <td className="py-2 px-4">{getReferenceTypeLabel(row.reference_type)}</td>
                     <td className="py-2 px-4">{row.invoice_number || row.shipment_number || '–'}</td>
                   </tr>
                 ))}

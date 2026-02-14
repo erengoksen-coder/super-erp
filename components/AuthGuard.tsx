@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePathname } from 'next/navigation'
-import { useAuthStore } from '@/lib/store/authStore'
+import { useAuthStore, type AuthUser } from '@/lib/store/authStore'
 import { fetchApi, clearStoredAuthToken } from '@/lib/api/client'
+import type { AuthMeResponse } from '@/types'
 import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
 import { ROUTES } from '@/lib/constants'
 
@@ -45,12 +46,17 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const verifySession = async () => {
       try {
-        const data = await fetchApi('/api/auth/me')
-        const fetchedUser = (data as any)?.user ?? (data as any)?.data?.user
+        const data = await fetchApi<AuthMeResponse>('/api/auth/me')
+        const fetchedUser = data?.user ?? data?.data?.user
         if (!fetchedUser) {
           throw new Error('Oturum bulunamadı')
         }
-        setAuth(fetchedUser)
+        setAuth({
+          ...fetchedUser,
+          id: fetchedUser.id,
+          username: fetchedUser.username,
+          role: fetchedUser.role ?? '',
+        } as AuthUser)
       } catch (err: unknown) {
         const msg = String((err as Error)?.message ?? '')
         if (msg.includes('429') || msg.includes('Too Many Requests')) {
@@ -59,12 +65,17 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         }
         try {
           await fetchApi('/api/auth/refresh', { method: 'POST' })
-          const refreshed = await fetchApi('/api/auth/me')
-          const refreshedUser = (refreshed as any)?.user ?? (refreshed as any)?.data?.user
+          const refreshed = await fetchApi<AuthMeResponse>('/api/auth/me')
+          const refreshedUser = refreshed?.user ?? refreshed?.data?.user
           if (!refreshedUser) {
             throw new Error('Oturum bulunamadı')
           }
-          setAuth(refreshedUser)
+          setAuth({
+            ...refreshedUser,
+            id: refreshedUser.id,
+            username: refreshedUser.username,
+            role: refreshedUser.role ?? '',
+          } as AuthUser)
           return
         } catch {
           clearAuth()

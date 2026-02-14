@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+/** UTF-8 bayt uzunluğu (bcrypt 72 bayt sınırı için; OWASP). */
+function byteLength(str: string): number {
+  if (typeof Buffer !== 'undefined') return Buffer.byteLength(str, 'utf8')
+  return new TextEncoder().encode(str).length
+}
+
+const PASSWORD_MAX_BYTES = 72
+
 // Common validation schemas
 export const commonSchemas = {
   id: z.string().uuid('Geçersiz ID formatı'),
@@ -10,6 +18,7 @@ export const commonSchemas = {
     .regex(/^[a-zA-Z0-9_-]+$/, 'Kullanıcı adı sadece harf, rakam, - ve _ içerebilir'),
   password: z.string()
     .min(8, 'Şifre en az 8 karakter olmalı')
+    .refine((s) => byteLength(s) <= PASSWORD_MAX_BYTES, `Şifre en fazla ${PASSWORD_MAX_BYTES} bayt olabilir (güvenlik sınırı)`)
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Şifre en az bir küçük harf, bir büyük harf ve bir rakam içermeli'),
   phone: z.string()
     .regex(/^[+]?[\d\s()-]+$/, 'Geçersiz telefon numarası formatı')
@@ -219,6 +228,17 @@ export const accountSchemas = {
 
 // Order validation schemas
 export const orderSchemas = {
+  /** Manuel sipariş oluşturma formu (Siparişler sayfası modal) */
+  manualCreate: z.object({
+    dealer_name: z.string().min(1, 'Cari / Bayi adı gerekli').max(200, 'En fazla 200 karakter'),
+    customer_name: z.string().min(1, 'Müşteri adı gerekli').max(200, 'En fazla 200 karakter'),
+    product_name: z.string().min(1, 'Ürün adı gerekli').max(500, 'En fazla 500 karakter'),
+    configuration: z.string().min(1, 'Konfigürasyon gerekli').max(200, 'En fazla 200 karakter'),
+    fabric_code: z.string().min(1, 'Kumaş kodu gerekli').max(200, 'En fazla 200 karakter'),
+    quantity: z.number().min(1, 'Miktar en az 1 olmalı').max(999999, 'Miktar çok büyük'),
+    unit_price: z.number().min(0, 'Birim fiyat negatif olamaz').max(999999999.99, 'Fiyat çok büyük'),
+    order_date: z.string().min(1, 'Sipariş tarihi gerekli'),
+  }),
   create: z.object({
     customer_id: commonSchemas.id,
     order_date: commonSchemas.date,

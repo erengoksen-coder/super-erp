@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, FileDown } from 'lucide-react'
-import { useApi, getAuthHeaders } from '@/lib/api/client'
+import { FileText, FileDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { usePaginatedApi, getAuthHeaders } from '@/lib/api/client'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
-import { LogoWithBackground } from '@/components/Logo'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { Button } from '@/components/ui/Button'
+import { PageLoader } from '@/components/ui/PageLoader'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
 
@@ -21,69 +24,72 @@ type Invoice = {
   shipment_number?: string | null
 }
 
+const PAGE_SIZE = 20
+
 export default function InvoicesPage() {
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [page, setPage] = useState(0)
 
   const invoicesKey = useMemo(() => {
-    let url = '/api/invoices'
     const params = new URLSearchParams()
+    params.set('limit', String(PAGE_SIZE))
+    params.set('offset', String(page * PAGE_SIZE))
     if (filterType !== 'all') params.append('type', filterType)
     if (filterStatus !== 'all') params.append('status', filterStatus)
-    if (params.toString()) url += `?${params.toString()}`
-    return url
-  }, [filterType, filterStatus])
+    return `/api/invoices?${params.toString()}`
+  }, [filterType, filterStatus, page])
 
-  const { data: invoices = [], isLoading } = useApi<Invoice[]>(invoicesKey)
+  const { data: invoices = [], meta, isLoading } = usePaginatedApi<Invoice>(invoicesKey)
+  const { total, limit, offset } = meta
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const currentPage = Math.floor(offset / limit) + 1
+  const from = total === 0 ? 0 : offset + 1
+  const to = Math.min(offset + limit, total)
+
+  async function handleExport() {
+    try {
+      const params = new URLSearchParams()
+      if (filterType !== 'all') params.set('type', filterType)
+      if (filterStatus !== 'all') params.set('status', filterStatus)
+      const res = await fetch(`/api/invoices/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
+      if (!res.ok) throw new Error('İndirme başarısız')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `faturalar_${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Excel dosyası indirildi')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
+    }
+  }
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 lg:p-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <div className="flex items-center space-x-4 mb-4 md:mb-0">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white flex items-center space-x-2">
-            <FileText className="w-6 h-6 md:w-8 md:h-8" />
-            <span>Faturalar</span>
-          </h1>
-          <LogoWithBackground size="sm" />
+    <AppDashboardLayout
+      title="Faturalar"
+      subtitle={total > 0 ? `${from}-${to} / ${total} fatura` : 'Fatura listesi'}
+      icon={FileText}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" color="secondary" size="sm" onClick={handleExport}>
+            <FileDown className="w-4 h-4 mr-2" />
+            Excel İndir
+          </Button>
+          <Link href="/shipments">
+            <Button variant="solid" color="primary" size="sm">
+              Sevkiyatlardan Fatura Oluştur
+            </Button>
+          </Link>
         </div>
-        <button
-          type="button"
-          onClick={async () => {
-            try {
-              const params = new URLSearchParams()
-              if (filterType !== 'all') params.set('type', filterType)
-              if (filterStatus !== 'all') params.set('status', filterStatus)
-              const res = await fetch(`/api/invoices/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
-              if (!res.ok) throw new Error('İndirme başarısız')
-              const blob = await res.blob()
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = `faturalar_${new Date().toISOString().split('T')[0]}.xlsx`
-              a.click()
-              URL.revokeObjectURL(url)
-              toast.success('Excel dosyası indirildi')
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
-            }
-          }}
-          className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition inline-flex items-center gap-2"
-        >
-          <FileDown className="w-4 h-4" />
-          Excel İndir
-        </button>
-        <Link
-          href="/shipments"
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-        >
-          Sevkiyatlardan Fatura Oluştur
-        </Link>
-      </div>
-
+      }
+    >
       <div className="flex flex-wrap gap-2 mb-4">
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
+          onChange={(e) => { setFilterType(e.target.value); setPage(0) }}
           className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
         >
           <option value="all">Tüm Tipler</option>
@@ -92,7 +98,7 @@ export default function InvoicesPage() {
         </select>
         <select
           value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
+          onChange={(e) => { setFilterStatus(e.target.value); setPage(0) }}
           className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
         >
           <option value="all">Tüm Durumlar</option>
@@ -102,14 +108,20 @@ export default function InvoicesPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
-        </div>
+        <PageLoader label="Faturalar yükleniyor..." />
       ) : invoices.length === 0 ? (
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 text-gray-400">
-          Kayıtlı fatura bulunamadı.
-        </div>
+        <EmptyState
+          title="Kayıtlı fatura bulunamadı"
+          description="Sevkiyatlardan fatura oluşturarak başlayabilirsiniz."
+          icon={FileText}
+          action={
+            <Link href="/shipments">
+              <Button variant="solid" color="primary" size="sm">
+                Sevkiyatlar
+              </Button>
+            </Link>
+          }
+        />
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
@@ -167,7 +179,38 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
-    </div>
+
+      {!isLoading && total > 0 && totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+          <span className="text-sm text-gray-400">
+            {from}-{to} / {total} kayıt
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              <ChevronLeft className="w-4 h-4 mr-1" />
+              Önceki
+            </Button>
+            <span className="text-sm text-gray-300 px-2">
+              Sayfa {currentPage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >
+              Sonraki
+              <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </AppDashboardLayout>
   )
 }
 

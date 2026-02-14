@@ -381,6 +381,16 @@ export const POST = withAuth(async (request, user) => {
       })
     }
 
+    for (let i = 0; i < manualOrders.length; i++) {
+      const o = manualOrders[i]
+      const productName = (o.product_name ?? '').toString().trim()
+      const configuration = (o.configuration ?? '').toString().trim()
+      const fabricCode = (o.fabric_code ?? '').toString().trim()
+      if (!productName || !configuration || !fabricCode) {
+        return fail('Her siparişte ürün adı, konfigürasyon ve kumaş kodu zorunludur.', { status: 400 })
+      }
+    }
+
     const db = getDatabase()
     const insertedOrders: InsertedOrder[] = []
     const actorId = user.userId
@@ -615,7 +625,7 @@ export const PUT = withAuth(async (request: NextRequest, user) => {
 
     return ok({ id: orderId }, { message: 'Sipariş güncellendi' })
   } catch (error: any) {
-    logger.error('[Orders API - PUT] Hata', { error: error?.message })
+    apiLogger.error('Orders API PUT failed', { error: error?.message, stack: error?.stack })
     return fail(error.message || 'Sipariş güncellenemedi', { status: 500 })
   }
 })
@@ -686,7 +696,7 @@ export const PATCH = withAuth(async (request: NextRequest, user) => {
       { message: 'Sipariş iptal edildi' }
     )
   } catch (error: any) {
-    logger.error('[Orders API - PATCH] Hata', { error: error?.message })
+    apiLogger.error('Orders API PATCH failed', { error: error?.message, stack: error?.stack })
     return fail(error.message || 'Sipariş güncellenemedi', { status: 500 })
   }
 })
@@ -744,8 +754,7 @@ export const DELETE = withAuth(async (request: NextRequest, user) => {
       { message: 'Sipariş başarıyla silindi' }
     )
   } catch (error: any) {
-    console.error('Siparişler silinirken hata:', error)
-    logger.error(`[Orders API - DELETE] Hata: ${error.message}`, { error })
+    apiLogger.error('Orders API DELETE failed', { error: error?.message, stack: error?.stack })
     return fail('Siparişler silinemedi', { status: 500, details: error.message })
   }
 }, ['admin'])

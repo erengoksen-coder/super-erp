@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { fetchApi, useApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
@@ -249,6 +250,15 @@ export default function PaymentsPage() {
         <div className="px-6 py-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white">Ödeme Kayıtları</h2>
         </div>
+        {isLoading ? (
+          <div className="p-8 text-center text-gray-400">Yükleniyor...</div>
+        ) : payments.length === 0 ? (
+          <EmptyState
+            title="Henüz ödeme kaydı yok"
+            description="Yukarıdaki form ile tahsilat veya ödeme girebilirsiniz."
+            icon={Plus}
+          />
+        ) : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -261,19 +271,7 @@ export default function PaymentsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-400">
-                  Yükleniyor...
-                </TableCell>
-              </TableRow>
-            ) : payments.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-400">
-                  Henüz ödeme kaydı yok.
-                </TableCell>
-              </TableRow>
-            ) : (
+            {
               payments.map((payment) => (
                 <TableRow key={payment.id}>
                   <TableCell className="text-gray-200">
@@ -296,9 +294,10 @@ export default function PaymentsPage() {
                   </TableCell>
                 </TableRow>
               ))
-            )}
+            }
           </TableBody>
         </Table>
+        )}
       </div>
     </div>
   )

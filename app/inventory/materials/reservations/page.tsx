@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
 import { toast } from '@/lib/notify'
 
 type Material = {
@@ -288,7 +289,7 @@ export default function MaterialReservationsPage() {
                         {Number(reservation.quantity).toLocaleString('tr-TR')}
                       </TableCell>
                       <TableCell className="text-gray-300 text-xs px-4 py-2">
-                        {reservation.reference_type ? `${reservation.reference_type}${reservation.reference_id ? `:${reservation.reference_id}` : ''}` : '-'}
+                        {reservation.reference_type ? `${getReferenceTypeLabel(reservation.reference_type)}${reservation.reference_id ? `: ${reservation.reference_id}` : ''}` : '-'}
                       </TableCell>
                       <TableCell className="text-gray-300 text-xs px-4 py-2">
                         {reservation.notes || '-'}
