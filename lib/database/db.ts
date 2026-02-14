@@ -2777,6 +2777,31 @@ function initializeDatabase() {
     console.warn('Varsayılan etiket ayarları eklenirken hata:', e.message)
   }
 
+  // Doküman yönetimi (evrak): metadata; dosya diskte uploads/documents altında
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      company_id TEXT,
+      branch_id TEXT,
+      title TEXT NOT NULL,
+      category TEXT,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_size INTEGER,
+      mime_type TEXT,
+      related_type TEXT,
+      related_id TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(category)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_related ON documents(related_type, related_id)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)`)
+  } catch (_) {}
+
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
   try {

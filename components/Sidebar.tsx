@@ -27,6 +27,7 @@ import {
   PanelLeft,
   Store,
   Calendar,
+  FileText,
 } from 'lucide-react'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
@@ -152,6 +153,7 @@ const menuItems: MenuItem[] = [
     ],
   },
   { name: 'CRM', href: '/crm', icon: Handshake, group: 'Diğer' },
+  { name: 'Doküman Yönetimi', href: ROUTES.DOCUMENTS, icon: FileText, group: 'Diğer' },
   { name: 'Sabit Kıymet', href: '/fixed-assets', icon: Landmark, group: 'Diğer' },
   {
     name: 'Takvim',

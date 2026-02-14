@@ -21,6 +21,7 @@ export const ROUTES = {
   USERS: '/users',
   SETTINGS: '/settings',
   REPORTS: '/reports',
+  DOCUMENTS: '/documents',
 } as const
 
 /** API path önekleri */
