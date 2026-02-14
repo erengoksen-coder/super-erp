@@ -2802,6 +2802,28 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)`)
   } catch (_) {}
 
+  // Sözleşme yönetimi: cari ile ilişkili, bitiş tarihi, uyarı
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id TEXT PRIMARY KEY,
+      company_id TEXT,
+      branch_id TEXT,
+      account_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      start_date TEXT,
+      end_date TEXT NOT NULL,
+      status TEXT DEFAULT 'active',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_account ON contracts(account_id)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_end_date ON contracts(end_date)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status)`)
+  } catch (_) {}
+
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
   try {

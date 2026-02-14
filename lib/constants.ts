@@ -22,6 +22,7 @@ export const ROUTES = {
   SETTINGS: '/settings',
   REPORTS: '/reports',
   DOCUMENTS: '/documents',
+  CONTRACTS: '/contracts',
 } as const
 
 /** API path önekleri */
