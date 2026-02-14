@@ -16,6 +16,8 @@ const REPORT_LINKS = [
   { href: '/reports/stock-movements', label: 'Stok Hareketleri', icon: Package, desc: 'Giriş/çıkış hareketleri' },
   { href: '/reports/aging', label: 'Cari Yaşlandırma', icon: Receipt, desc: 'Alacak yaşlandırma raporu' },
   { href: '/reports/production', label: 'Üretim Verimliliği', icon: Factory, desc: 'Üretim emirleri özeti' },
+  { href: '/reports/costs', label: 'Maliyet', icon: Receipt, desc: 'Maliyet raporları' },
+  { href: '/reports/fire', label: 'Fire', icon: Package, desc: 'Fire analizi' },
 ]
 
 type StockSummary = {
@@ -142,7 +144,7 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold text-white">Raporlar</h1>
             <LogoWithBackground size="sm" />
           </div>
-          <p className="text-gray-400 mt-1">Rapor türünü seçin</p>
+          <p className="text-gray-400 mt-1">Rapor türünü seçin. Tarih aralığı kullanan raporlarda ilgili sayfadaki filtreyi kullanın; Excel/PDF indir seçenekleri rapor sayfalarında sunulur.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -240,7 +242,7 @@ export default function ReportsPage() {
           </div>
 
           <section className="mt-8">
-            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Diğer raporlar</h2>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Tüm raporlar (merkez)</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {REPORT_LINKS.filter((l) => l.href !== '/reports#stok').map((link) => {
                 const Icon = link.icon

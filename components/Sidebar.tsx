@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Store,
+  Calendar,
 } from 'lucide-react'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
@@ -153,6 +154,16 @@ const menuItems: MenuItem[] = [
   { name: 'CRM', href: '/crm', icon: Handshake, group: 'Diğer' },
   { name: 'Sabit Kıymet', href: '/fixed-assets', icon: Landmark, group: 'Diğer' },
   {
+    name: 'Takvim',
+    href: '/production/calendar',
+    icon: Calendar,
+    group: 'Diğer',
+    submenu: [
+      { name: 'Üretim Takvimi', href: '/production/calendar' },
+      { name: 'İzinler', href: '/hr/leave' },
+    ],
+  },
+  {
     name: 'Raporlar',
     href: ROUTES.REPORTS,
     icon: BarChart3,
@@ -170,6 +181,7 @@ const menuItems: MenuItem[] = [
     group: 'Sistem',
     submenu: [
       { name: 'Genel', href: ROUTES.SETTINGS },
+      { name: 'Entegrasyonlar', href: '/settings/integrations' },
       { name: 'Yönetici Paneli', href: '/admin' },
       { name: 'Kullanıcılar', href: ROUTES.USERS },
       { name: 'Mesajlaşma (Admin)', href: '/admin/messaging' },
