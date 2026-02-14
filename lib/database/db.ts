@@ -2824,6 +2824,32 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status)`)
   } catch (_) {}
 
+  // Bütçe: dönem ve kategori bazlı bütçe tutarları (budget-variance API için)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      category TEXT NOT NULL,
+      budgeted_amount REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS actual_expenses (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      category TEXT NOT NULL,
+      actual_amount REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_budgets_company_period ON budgets(company_id, period)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_actual_expenses_company_period ON actual_expenses(company_id, period)`)
+  } catch (_) {}
+
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
   try {

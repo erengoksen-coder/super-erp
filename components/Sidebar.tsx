@@ -134,6 +134,7 @@ const menuItems: MenuItem[] = [
       { name: 'Nakit Akışı', href: `${ROUTES.FINANCE}/cash-flow` },
       { name: 'Finansal Metrikler', href: `${ROUTES.FINANCE}/metrics` },
       { name: 'Fire / Maliyet', href: `${ROUTES.FINANCE}/fire-analysis` },
+      { name: 'Bütçe', href: `${ROUTES.FINANCE}/budgets` },
     ],
   },
   { name: 'Muhasebe', href: '/accounting', icon: BookOpen, group: 'Finans' },
