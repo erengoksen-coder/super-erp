@@ -2850,6 +2850,26 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_actual_expenses_company_period ON actual_expenses(company_id, period)`)
   } catch (_) {}
 
+  // CRM Fırsatlar: cari ile ilişkili, aşama, tahmini tutar, kapanış tarihi
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS crm_opportunities (
+      id TEXT PRIMARY KEY,
+      company_id TEXT,
+      account_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      stage TEXT DEFAULT 'lead',
+      amount REAL DEFAULT 0,
+      expected_close_date TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunities_account ON crm_opportunities(account_id)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunities_stage ON crm_opportunities(stage)`)
+  } catch (_) {}
+
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
   try {

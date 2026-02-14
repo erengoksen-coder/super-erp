@@ -1,11 +1,35 @@
 'use client'
 
-import { useMemo, useEffect, useRef, useState } from 'react'
+import { useMemo, useEffect, useRef, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { fetchApi } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/modal'
+
+const OPPORTUNITY_STAGES = [
+  { key: 'lead', label: 'Aday' },
+  { key: 'qualified', label: 'Nitelikli' },
+  { key: 'proposal', label: 'Teklif' },
+  { key: 'negotiation', label: 'Müzakere' },
+  { key: 'won', label: 'Kazanıldı' },
+  { key: 'lost', label: 'Kaybedildi' },
+] as const
+
+type Opportunity = {
+  id: string
+  account_id: string
+  title: string
+  stage: string
+  amount: number
+  expected_close_date: string | null
+  notes: string | null
+  created_at: string
+  updated_at?: string
+  account_name: string | null
+  account_code: string | null
+}
 
 type Account = {
   id: string
@@ -144,6 +168,107 @@ export default function CrmClient() {
       setSelectedAccount(null)
     }
     await loadAccounts()
+  }
+
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [opportunitiesLoading, setOpportunitiesLoading] = useState(false)
+  const [showOpportunityModal, setShowOpportunityModal] = useState(false)
+  const [opportunityForm, setOpportunityForm] = useState({
+    account_id: '',
+    title: '',
+    stage: 'lead',
+    amount: '',
+    expected_close_date: '',
+    notes: '',
+  })
+  const [editingOpportunityId, setEditingOpportunityId] = useState<string | null>(null)
+  const [pipelineView, setPipelineView] = useState<'pipeline' | 'list'>('pipeline')
+
+  const loadOpportunities = useCallback(async () => {
+    setOpportunitiesLoading(true)
+    try {
+      const data = await fetchApi<Opportunity[]>('/api/crm/opportunities')
+      setOpportunities(Array.isArray(data) ? data : [])
+    } catch {
+      setOpportunities([])
+    } finally {
+      setOpportunitiesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadOpportunities()
+  }, [loadOpportunities])
+
+  const pipelineByStage = useMemo(() => {
+    const map: Record<string, Opportunity[]> = {}
+    OPPORTUNITY_STAGES.forEach((s) => { map[s.key] = [] })
+    opportunities.forEach((o) => {
+      if (map[o.stage]) map[o.stage].push(o)
+      else map[o.stage] = [o]
+    })
+    return map
+  }, [opportunities])
+
+  async function saveOpportunity(e: React.FormEvent) {
+    e.preventDefault()
+    if (!opportunityForm.account_id || !opportunityForm.title.trim()) return
+    const amount = Number(opportunityForm.amount) || 0
+    try {
+      if (editingOpportunityId) {
+        await fetchApi(`/api/crm/opportunities/${editingOpportunityId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: opportunityForm.title.trim(),
+            stage: opportunityForm.stage,
+            amount,
+            expected_close_date: opportunityForm.expected_close_date || null,
+            notes: opportunityForm.notes.trim() || null,
+          }),
+        })
+        setEditingOpportunityId(null)
+      } else {
+        await fetchApi('/api/crm/opportunities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_id: opportunityForm.account_id,
+            title: opportunityForm.title.trim(),
+            stage: opportunityForm.stage,
+            amount,
+            expected_close_date: opportunityForm.expected_close_date || null,
+            notes: opportunityForm.notes.trim() || null,
+          }),
+        })
+      }
+      setShowOpportunityModal(false)
+      setOpportunityForm({ account_id: '', title: '', stage: 'lead', amount: '', expected_close_date: '', notes: '' })
+      loadOpportunities()
+    } catch (err: unknown) {
+      console.error(err)
+    }
+  }
+
+  function openEditOpportunity(o: Opportunity) {
+    setEditingOpportunityId(o.id)
+    setOpportunityForm({
+      account_id: o.account_id,
+      title: o.title,
+      stage: o.stage,
+      amount: o.amount ? String(o.amount) : '',
+      expected_close_date: o.expected_close_date || '',
+      notes: o.notes || '',
+    })
+    setShowOpportunityModal(true)
+  }
+
+  async function deleteOpportunity(id: string) {
+    if (!confirm('Fırsat silinsin mi?')) return
+    try {
+      await fetchApi(`/api/crm/opportunities/${id}`, { method: 'DELETE' })
+      loadOpportunities()
+    } catch {}
   }
 
   const filteredAccounts = useMemo(() => {
@@ -507,6 +632,239 @@ export default function CrmClient() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Fırsatlar ve Pipeline */}
+      <Card className="bg-gray-900 border border-gray-800">
+        <CardHeader
+          title="Fırsatlar ve satış pipeline"
+          subtitle="Müşteri fırsatları, aşamalar ve tahmini tutar"
+        />
+        <CardBody className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={pipelineView === 'pipeline' ? 'solid' : 'outline'}
+              size="sm"
+              onClick={() => setPipelineView('pipeline')}
+            >
+              Pipeline
+            </Button>
+            <Button
+              variant={pipelineView === 'list' ? 'solid' : 'outline'}
+              size="sm"
+              onClick={() => setPipelineView('list')}
+            >
+              Liste
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditingOpportunityId(null)
+                setOpportunityForm({
+                  account_id: selectedAccount?.id || '',
+                  title: '',
+                  stage: 'lead',
+                  amount: '',
+                  expected_close_date: '',
+                  notes: '',
+                })
+                setShowOpportunityModal(true)
+              }}
+            >
+              Yeni fırsat
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadOpportunities} disabled={opportunitiesLoading}>
+              Yenile
+            </Button>
+          </div>
+
+          {opportunitiesLoading ? (
+            <p className="text-gray-400">Yükleniyor…</p>
+          ) : pipelineView === 'pipeline' ? (
+            <div className="overflow-x-auto">
+              <div className="flex gap-3 min-w-max pb-2">
+                {OPPORTUNITY_STAGES.map((s) => (
+                  <div
+                    key={s.key}
+                    className="w-52 shrink-0 rounded-lg border border-gray-700 bg-gray-800/50 p-2"
+                  >
+                    <div className="mb-2 text-xs font-semibold uppercase text-gray-400">
+                      {s.label}
+                      <span className="ml-1 text-gray-500">({(pipelineByStage[s.key] || []).length})</span>
+                    </div>
+                    <div className="space-y-2">
+                      {(pipelineByStage[s.key] || []).map((o) => (
+                        <div
+                          key={o.id}
+                          className="rounded border border-gray-700 bg-gray-900 p-2 text-sm"
+                        >
+                          <div className="font-medium text-white">{o.title}</div>
+                          <div className="text-xs text-gray-400">
+                            {o.account_code} – {o.account_name || '–'}
+                          </div>
+                          <div className="mt-1 text-xs text-green-400">
+                            {o.amount ? `${Number(o.amount).toLocaleString('tr-TR')} ₺` : '–'}
+                          </div>
+                          <div className="mt-1 flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs"
+                              onClick={() => openEditOpportunity(o)}
+                            >
+                              Düzenle
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              color="error"
+                              className="h-6 text-xs"
+                              onClick={() => deleteOpportunity(o.id)}
+                            >
+                              Sil
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-400">
+                    <th className="py-2">Fırsat</th>
+                    <th className="py-2">Cari</th>
+                    <th className="py-2">Aşama</th>
+                    <th className="py-2">Tutar</th>
+                    <th className="py-2">Kapanış tarihi</th>
+                    <th className="py-2 text-right">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {opportunities.map((o) => (
+                    <tr key={o.id} className="border-t border-gray-800 text-gray-200">
+                      <td className="py-2 font-medium text-white">{o.title}</td>
+                      <td className="py-2">
+                        <Link href={`/accounts/${o.account_id}`} className="text-blue-400 hover:underline">
+                          {o.account_code} – {o.account_name || '–'}
+                        </Link>
+                      </td>
+                      <td className="py-2">{OPPORTUNITY_STAGES.find((s) => s.key === o.stage)?.label || o.stage}</td>
+                      <td className="py-2 text-green-400">{o.amount ? `${Number(o.amount).toLocaleString('tr-TR')} ₺` : '–'}</td>
+                      <td className="py-2 text-gray-300">{o.expected_close_date ? formatDate(o.expected_close_date) : '–'}</td>
+                      <td className="py-2 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => openEditOpportunity(o)}>Düzenle</Button>
+                        <Button variant="ghost" size="sm" color="error" onClick={() => deleteOpportunity(o.id)}>Sil</Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!opportunities.length && (
+                    <tr>
+                      <td colSpan={6} className="py-4 text-center text-gray-500">
+                        Fırsat yok. Yeni fırsat ekleyebilirsiniz.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+
+      <Modal
+        isOpen={showOpportunityModal}
+        onClose={() => {
+          setShowOpportunityModal(false)
+          setEditingOpportunityId(null)
+          setOpportunityForm({ account_id: '', title: '', stage: 'lead', amount: '', expected_close_date: '', notes: '' })
+        }}
+        title={editingOpportunityId ? 'Fırsatı düzenle' : 'Yeni fırsat'}
+        size="md"
+      >
+        <form onSubmit={saveOpportunity} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm text-gray-400">Cari hesap</label>
+            <select
+              value={opportunityForm.account_id}
+              onChange={(e) => setOpportunityForm((f) => ({ ...f, account_id: e.target.value }))}
+              required
+              disabled={!!editingOpportunityId}
+              className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+            >
+              <option value="">Seçin</option>
+              {filteredAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.code || ''} – {a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-gray-400">Fırsat başlığı</label>
+            <input
+              type="text"
+              value={opportunityForm.title}
+              onChange={(e) => setOpportunityForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="Örn. 2024 yılı toplu sipariş"
+              required
+              className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm text-gray-400">Aşama</label>
+              <select
+                value={opportunityForm.stage}
+                onChange={(e) => setOpportunityForm((f) => ({ ...f, stage: e.target.value }))}
+                className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              >
+                {OPPORTUNITY_STAGES.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-gray-400">Tahmini tutar (₺)</label>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={opportunityForm.amount}
+                onChange={(e) => setOpportunityForm((f) => ({ ...f, amount: e.target.value }))}
+                className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-gray-400">Beklenen kapanış tarihi</label>
+            <input
+              type="date"
+              value={opportunityForm.expected_close_date}
+              onChange={(e) => setOpportunityForm((f) => ({ ...f, expected_close_date: e.target.value }))}
+              className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-gray-400">Notlar</label>
+            <textarea
+              value={opportunityForm.notes}
+              onChange={(e) => setOpportunityForm((f) => ({ ...f, notes: e.target.value }))}
+              rows={2}
+              className="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setShowOpportunityModal(false)}>
+              İptal
+            </Button>
+            <Button type="submit" disabled={!opportunityForm.title.trim()}>
+              {editingOpportunityId ? 'Güncelle' : 'Ekle'}
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   )
