@@ -2870,6 +2870,21 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunities_stage ON crm_opportunities(stage)`)
   } catch (_) {}
 
+  // Kur tablosu: çoklu para birimi için (from_currency -> to_currency, rate, tarih)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS currency_rates (
+      id TEXT PRIMARY KEY,
+      from_currency TEXT NOT NULL DEFAULT 'USD',
+      to_currency TEXT NOT NULL DEFAULT 'TRY',
+      rate REAL NOT NULL,
+      rate_date TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_currency_rates_pair_date ON currency_rates(from_currency, to_currency, rate_date)`)
+  } catch (_) {}
+
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
   try {
