@@ -39,14 +39,22 @@ export const GET = withAuth(async (_request) => {
 
   const wb = XLSX.utils.book_new()
 
+  const statusLabel: Record<string, string> = {
+    pending: 'Beklemede',
+    in_production: 'Üretimde',
+    completed: 'Tamamlandı',
+    cancelled: 'İptal',
+  }
   const summaryData = [
     { Metrik: 'Toplam Stok Değeri (₺)', Değer: totalStockValue.toLocaleString('tr-TR') },
     { Metrik: 'Bekleyen Üretim Emri', Değer: pendingProduction?.count ?? 0 },
     { Metrik: 'Kritik Stok Uyarısı', Değer: criticalStock?.count ?? 0 },
     { Metrik: 'Son 7 Gün Toplam Üretim', Değer: productionTrend.reduce((s, r) => s + (r.total_quantity || 0), 0) },
-    ...ordersCount.map((o) => ({ Metrik: `Sipariş (${o.status})`, Değer: o.count })),
+    ...ordersCount.map((o) => ({ Metrik: `Sipariş - ${statusLabel[o.status] ?? o.status}`, Değer: o.count })),
   ]
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), 'Özet')
+  const summarySheet = XLSX.utils.json_to_sheet(summaryData)
+  summarySheet['!cols'] = [{ wch: 28 }, { wch: 16 }]
+  XLSX.utils.book_append_sheet(wb, summarySheet, 'Özet')
 
   const trendData = productionTrend.map((r) => ({
     Tarih: r.date,
@@ -54,7 +62,9 @@ export const GET = withAuth(async (_request) => {
     'Toplam Miktar': r.total_quantity ?? 0,
   }))
   if (trendData.length) {
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trendData), 'Üretim Trendi')
+    const trendSheet = XLSX.utils.json_to_sheet(trendData)
+    trendSheet['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 14 }]
+    XLSX.utils.book_append_sheet(wb, trendSheet, 'Üretim Trendi')
   }
 
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })

@@ -72,7 +72,7 @@ const existingCodes = new Set(existingMaterials.map(m => m.code.toLowerCase().tr
 console.log('Mevcut malzemeler kontrol ediliyor...')
 console.log(`Mevcut malzeme sayısı: ${existingMaterials.length}\n`)
 
-// Depo stok kodu için sayaç (KUMAŞ-001, KUMAŞ-002 formatında)
+// Depo stok kodu için sayaç (KMS-001, KMS-002 formatında)
 let fabricCounter = 1
 
 // Yeni malzemeleri ekle
@@ -87,13 +87,13 @@ let skipped = 0
 fabricMap.forEach((fabric, key) => {
   const fabricCode = fabric.fabricCode // Tam kumaş kodu (örn: "ALASKA 10")
   
-  // Depo stok kodu oluştur (KUMAŞ-001, KUMAŞ-002, ...)
-  let materialCode = `KUMAŞ-${String(fabricCounter).padStart(3, '0')}`
+  // Depo stok kodu oluştur (KMS-001, KMS-002, ...)
+  let materialCode = `KMS-${String(fabricCounter).padStart(3, '0')}`
   
   // Eğer bu kod zaten varsa, farklı bir kod dene
-  while (existingCodes.has(materialCode)) {
+  while (existingCodes.has(materialCode.toLowerCase())) {
     fabricCounter++
-    materialCode = `KUMAŞ-${String(fabricCounter).padStart(3, '0')}`
+    materialCode = `KMS-${String(fabricCounter).padStart(3, '0')}`
   }
   
   // Tam kumaş kodunu da kontrol et (eğer kod olarak kullanılmışsa)
@@ -107,7 +107,7 @@ fabricMap.forEach((fabric, key) => {
     const id = randomUUID()
     insertMaterial.run(
       id,
-      materialCode, // Depo stok kodu (KUMAŞ-001, KUMAŞ-002, ...)
+      materialCode, // Depo stok kodu (KMS-001, KMS-002, ...)
       fabricCode, // Hammadde adı (ALASKA 10, DARK 438, ...)
       'Kumaş', // Kategori
       'm²', // Birim

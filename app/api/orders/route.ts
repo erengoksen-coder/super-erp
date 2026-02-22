@@ -9,6 +9,7 @@ import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
 import { logAudit as logAuditEntry } from '@/lib/audit/logger'
 import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+import { getOrderNumberPrefix } from '@/lib/numberFormat'
 
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 500
@@ -199,6 +200,8 @@ export const GET = withAuthAndPermission(async (request) => {
     const wantCompletedNotShipped = status === 'completed'
     const limitParam = searchParams.get('limit')
     const offsetParam = searchParams.get('offset')
+    const deliveryWeek = searchParams.get('delivery_week') === '1'
+    const overdue = searchParams.get('overdue') === '1'
     const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE) : null
     const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0
     if (status === 'shipped') {
@@ -328,6 +331,28 @@ export const GET = withAuthAndPermission(async (request) => {
       params.push(searchPattern, searchPattern)
     }
 
+    // Bu hafta teslim (delivery_date bu hafta içinde)
+    if (deliveryWeek) {
+      const now = new Date()
+      const dayOfWeek = now.getDay()
+      const toMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+      const weekStart = new Date(now)
+      weekStart.setDate(now.getDate() + toMonday)
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      const weekStartStr = weekStart.toISOString().split('T')[0]
+      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      query += ' AND o.delivery_date IS NOT NULL AND o.delivery_date != \'\' AND date(o.delivery_date) >= ? AND date(o.delivery_date) <= ?'
+      params.push(weekStartStr, weekEndStr)
+    }
+
+    // Gecikmiş (teslim tarihi geçmiş, tamamlanmamış)
+    if (overdue) {
+      const today = new Date().toISOString().split('T')[0]
+      query += ' AND o.delivery_date IS NOT NULL AND o.delivery_date != \'\' AND date(o.delivery_date) < ? AND o.status NOT IN (\'completed\', \'cancelled\')'
+      params.push(today)
+    }
+
     query += ' ORDER BY COALESCE(o.order_date, o.created_at) ASC'
 
     type OrderRowWithDisplay = OrderRow & { display_status?: string }
@@ -399,7 +424,7 @@ export const POST = withAuth(async (request, user) => {
       // Manuel sipariş oluşturma
       for (const order of manualOrders) {
         const orderId = randomUUID()
-        const orderNumber = order.order_number || `SIP-${Date.now()}-${randomUUID().substring(0, 8)}`
+        const orderNumber = order.order_number || `${getOrderNumberPrefix()}-${Date.now()}-${randomUUID().substring(0, 8)}`
 
         // Excel formatındaki ekstra alanları notlar alanına birleştir
         let combinedNotes = order.notes || ''

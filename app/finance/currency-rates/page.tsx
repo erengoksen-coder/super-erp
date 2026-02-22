@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Wallet, Plus } from 'lucide-react'
+import { Wallet, Plus, RefreshCw } from 'lucide-react'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type RateRow = {
   id: string
@@ -28,6 +29,7 @@ export default function CurrencyRatesPage() {
     rate: '',
     rate_date: new Date().toISOString().slice(0, 10),
   })
+  const [loadingLive, setLoadingLive] = useState(false)
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -45,6 +47,34 @@ export default function CurrencyRatesPage() {
   useEffect(() => {
     loadList()
   }, [loadList])
+
+  async function fetchLiveRate() {
+    if (form.from_currency === form.to_currency) {
+      setForm((f) => ({ ...f, rate: '1' }))
+      return
+    }
+    setLoadingLive(true)
+    try {
+      const res = await fetch(
+        `/api/currency-rates/live?from=${encodeURIComponent(form.from_currency)}&to=${encodeURIComponent(form.to_currency)}`
+      )
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data?.error || 'Anlık kur alınamadı')
+        return
+      }
+      setForm((f) => ({
+        ...f,
+        rate: String(data.rate),
+        rate_date: data.date || f.rate_date,
+      }))
+      toast.success(`Anlık kur: 1 ${form.from_currency} = ${Number(data.rate).toLocaleString('tr-TR')} ${form.to_currency}`)
+    } catch {
+      toast.error('Anlık kur alınamadı')
+    } finally {
+      setLoadingLive(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -139,6 +169,15 @@ export default function CurrencyRatesPage() {
                 <Plus className="mr-2 h-4 w-4" />
                 Ekle
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={fetchLiveRate}
+                disabled={loadingLive || form.from_currency === form.to_currency}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${loadingLive ? 'animate-spin' : ''}`} />
+                {loadingLive ? 'Getiriliyor…' : 'Anlık kur getir'}
+              </Button>
             </form>
           </CardBody>
         </Card>
@@ -171,7 +210,11 @@ export default function CurrencyRatesPage() {
             {loading ? (
               <p className="text-gray-400">Yükleniyor…</p>
             ) : list.length === 0 ? (
-              <p className="text-gray-400">Kayıt yok.</p>
+              <EmptyState
+                title="Kayıt yok"
+                description="Kur geçmişi burada listelenir."
+                icon={Wallet}
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">

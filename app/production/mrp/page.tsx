@@ -59,7 +59,7 @@ export default function MrpPage() {
         setProductId(data[0].id)
       }
     } catch (error) {
-      console.error('Products load error:', error)
+      console.error('Ürünler yüklenirken hata:', error)
     }
   }
 
@@ -84,7 +84,7 @@ export default function MrpPage() {
       const data = await fetchApi<MrpResult>(`/api/mrp?product_id=${productId}&quantity=${qty}`)
       setResult(data)
     } catch (error: any) {
-      console.error('MRP error:', error)
+      console.error('MRP hatası:', error)
       toast.error(error?.message || 'MRP hesaplama hatası')
     } finally {
       setLoading(false)
@@ -110,7 +110,7 @@ export default function MrpPage() {
       })
       toast.success(`Satın alma talepleri oluşturuldu: ${response.created_count}`)
     } catch (error: any) {
-      console.error('Create request error:', error)
+      console.error('Talep oluşturma hatası:', error)
       toast.error(error?.message || 'Satın alma talebi oluşturulamadı')
     } finally {
       setCreating(false)

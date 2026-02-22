@@ -1,25 +1,45 @@
 # Süper ERP - Production (tek komutla ayağa kalkma)
+# Docker Hub: https://hub.docker.com/u/erengoksen
 # Kullanım:
 #   1. .env dosyasında JWT_SECRET ve isteğe bağlı DATABASE_PATH tanımlayın (bkz. .env.example)
 #   2. docker-compose up -d --build
-# Veritabanı ./data dizininde kalıcı olarak saklanır.
+# Push: npm run docker:push  veya  scripts/docker-push.sh
+# Veritabanı: named volume (erp-data) kullanılır; Windows mount izin sorununu önler.
+# İsterseniz ./data bind mount: volumes: - ./data:/app/data (ve alttaki volumes: erp-data kaldırın).
 
 version: '3.8'
 
 services:
   app:
+    image: erengoksen/super-erp:latest
     build:
       context: .
       dockerfile: docker/app/Dockerfile
+    container_name: super-erp
     ports:
       - "${PORT:-3000}:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - JWT_SECRET=${JWT_SECRET}
-      - DATABASE_PATH=${DATABASE_PATH:-/app/data/erp.db}
+      - DATABASE_PATH=/app/data/erp.db
       - PORT=3000
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
+      - erp-data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - super-erp-network
+
+networks:
+  super-erp-network:
+    driver: bridge
+
+volumes:
+  erp-data:

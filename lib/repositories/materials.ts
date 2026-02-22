@@ -24,9 +24,53 @@ export type MaterialInsert = {
   unit_price: number
 }
 
+/** Mevcut KMS-XXX kodlarından sonraki sıra numarasını döner (örn. KMS-001, KMS-002 varsa 3). */
+export function getNextKmsNumber(db: ReturnType<typeof getDatabase>): number {
+  const rows = db.prepare(`
+    SELECT code FROM materials WHERE code IS NOT NULL AND code GLOB 'KMS-[0-9]*'
+  `).all() as { code: string }[]
+  let max = 0
+  for (const r of rows) {
+    const m = r.code.match(/KMS-(\d+)/)
+    if (m) {
+      const n = parseInt(m[1], 10)
+      if (!Number.isNaN(n) && n > max) max = n
+    }
+  }
+  return max + 1
+}
+
+/** Yeni malzeme için sıradaki KMS kodunu üretir (KMS-001, KMS-002, ...). */
+export function generateNextKmsCode(db: ReturnType<typeof getDatabase>): string {
+  const next = getNextKmsNumber(db)
+  return `KMS-${String(next).padStart(3, '0')}`
+}
+
+/** Tüm malzemelere isim sırasına göre sıralı KMS-001, KMS-002, ... atar. Zaten sıralıysa dokunmaz. */
+function ensureMaterialCodes(db: ReturnType<typeof getDatabase>) {
+  const rows = db.prepare(`
+    SELECT id, code FROM materials WHERE deleted_at IS NULL ORDER BY name ASC, id ASC
+  `).all() as { id: string; code: string | null }[]
+  if (rows.length === 0) return
+  const expected = rows.map((_, i) => `KMS-${String(i + 1).padStart(3, '0')}`)
+  const current = rows.map(r => (r.code && r.code.trim()) || '')
+  const needsRenumber = current.some((c, i) => c !== expected[i])
+  if (!needsRenumber) return
+  db.transaction(() => {
+    const update = db.prepare('UPDATE materials SET code = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    for (const row of rows) {
+      update.run('KMS-TMP-' + row.id, row.id)
+    }
+    for (let i = 0; i < rows.length; i++) {
+      update.run(expected[i], rows[i].id)
+    }
+  })()
+}
+
 export const materialsRepo = {
   getAll(): MaterialRow[] {
     const db = getDatabase()
+    ensureMaterialCodes(db)
     const rows = db.prepare(`
       SELECT 
         m.id, m.code, m.name, m.category, m.unit, m.min_stock_level, m.unit_price,
@@ -36,7 +80,7 @@ export const materialsRepo = {
       LEFT JOIN stock_movements sm ON sm.material_id = m.id AND sm.material_id IS NOT NULL
       WHERE m.deleted_at IS NULL
       GROUP BY m.id, m.code, m.name, m.category, m.unit, m.min_stock_level, m.unit_price
-      ORDER BY m.name
+      ORDER BY m.code IS NULL, m.code ASC, m.name ASC
     `).all() as (MaterialRow & { total_in: number; total_out: number })[]
     return rows.map((r) => ({
       ...r,

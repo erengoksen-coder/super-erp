@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { MessageCircle, X, Send, User } from 'lucide-react'
+import { Send, X, User } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/utils/dateFormat'
 import { useAuthStore } from '@/lib/store/authStore'
@@ -9,7 +9,30 @@ import { usePathname } from 'next/navigation'
 import { toast } from '@/lib/notify'
 import { playNotificationSound } from '@/lib/notify-sound'
 
+const MESSENGER_POSITION_KEY = 'super-erp-messenger-position'
+const DEFAULT_BOTTOM = 24
+const DEFAULT_RIGHT = 24
+
+function loadMessengerPosition(): { bottom: number; right: number } {
+  if (typeof window === 'undefined') return { bottom: DEFAULT_BOTTOM, right: DEFAULT_RIGHT }
+  try {
+    const s = localStorage.getItem(MESSENGER_POSITION_KEY)
+    if (s) {
+      const p = JSON.parse(s) as { bottom?: number; right?: number }
+      if (typeof p.bottom === 'number' && typeof p.right === 'number') return { bottom: p.bottom, right: p.right }
+    }
+  } catch {}
+  return { bottom: DEFAULT_BOTTOM, right: DEFAULT_RIGHT }
+}
+
+function saveMessengerPosition(bottom: number, right: number) {
+  try {
+    localStorage.setItem(MESSENGER_POSITION_KEY, JSON.stringify({ bottom, right }))
+  } catch {}
+}
+
 type OnlineUser = { id: string; username: string; full_name: string | null }
+type RecentUser = { id: string; username: string; full_name: string | null; last_message_at: string }
 type Message = {
   id: string
   from_user_id: string
@@ -24,17 +47,33 @@ const POLL_ONLINE_MS = 15000
 const POLL_MESSAGES_MS = 5000
 const POLL_LATEST_INCOMING_MS = 5000
 
-function getDisplayName(u: OnlineUser): string {
+function getDisplayName(u: OnlineUser | RecentUser): string {
   return u.full_name || u.username || u.id
 }
+
+function getInitials(u: { full_name: string | null; username: string }): string {
+  if (u.full_name && u.full_name.trim()) {
+    const parts = u.full_name.trim().split(/\s+/)
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+  return (u.username || '?').slice(0, 2).toUpperCase()
+}
+
+const AVATAR_COLORS = ['from-indigo-500 to-indigo-600', 'from-emerald-500 to-emerald-600', 'from-amber-500 to-amber-600']
 
 export default function MessengerBox() {
   const pathname = usePathname()
   const user = useAuthStore((s) => s.user)
+  const [pos, setPos] = useState(loadMessengerPosition)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartRef = useRef({ x: 0, y: 0, bottom: 0, right: 0 })
+  const didDragRef = useRef(false)
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'list' | 'chat'>('list')
   const [online, setOnline] = useState<OnlineUser[]>([])
-  const [selectedUser, setSelectedUser] = useState<OnlineUser | null>(null)
+  const [recent, setRecent] = useState<RecentUser[]>([])
+  const [selectedUser, setSelectedUser] = useState<OnlineUser | RecentUser | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -42,6 +81,53 @@ export default function MessengerBox() {
   const prevIncomingCountRef = useRef<number>(-1)
   const lastSeenLatestIncomingIdRef = useRef<string | null>(null)
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+  const startDrag = useCallback((clientX: number, clientY: number) => {
+    dragStartRef.current = { x: clientX, y: clientY, bottom: pos.bottom, right: pos.right }
+    didDragRef.current = false
+    setIsDragging(true)
+  }, [pos.bottom, pos.right])
+
+  const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    startDrag(clientX, clientY)
+  }, [startDrag])
+
+  useEffect(() => {
+    if (!isDragging) return
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if ('touches' in e) e.preventDefault()
+      const clientX = 'touches' in e ? e.touches[0]?.clientX : e.clientX
+      const clientY = 'touches' in e ? e.touches[0]?.clientY : e.clientY
+      if (clientX == null || clientY == null) return
+      const dx = clientX - dragStartRef.current.x
+      const dy = clientY - dragStartRef.current.y
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDragRef.current = true
+      const start = dragStartRef.current
+      const bottom = Math.max(0, Math.min(start.bottom - (clientY - start.y), typeof window !== 'undefined' ? window.innerHeight - 60 : start.bottom))
+      const right = Math.max(0, Math.min(start.right - (clientX - start.x), typeof window !== 'undefined' ? window.innerWidth - 60 : start.right))
+      setPos({ bottom, right })
+    }
+    const onUp = () => {
+      setIsDragging(false)
+      setPos((current) => {
+        saveMessengerPosition(current.bottom, current.right)
+        return current
+      })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onUp)
+    }
+  }, [isDragging])
 
   // Arka planda gelen son mesajı kontrol et; yeni mesajda ses + masaüstü bildirimi (mesajlaşma kutusu kapalı veya liste görünümünde de çalışır)
   useEffect(() => {
@@ -95,6 +181,15 @@ export default function MessengerBox() {
     }
   }, [])
 
+  const loadRecent = useCallback(async () => {
+    try {
+      const list = await fetchApi<RecentUser[]>('/api/messaging/recent')
+      setRecent(Array.isArray(list) ? list : [])
+    } catch {
+      setRecent([])
+    }
+  }, [])
+
   const loadMessages = useCallback(async () => {
     if (!selectedUser) return
     try {
@@ -118,11 +213,19 @@ export default function MessengerBox() {
   }, [selectedUser?.id])
 
   useEffect(() => {
+    loadRecent()
+  }, [loadRecent])
+
+  useEffect(() => {
     if (!open) return
     loadOnline()
-    const t = setInterval(loadOnline, POLL_ONLINE_MS)
+    loadRecent()
+    const t = setInterval(() => {
+      loadOnline()
+      loadRecent()
+    }, POLL_ONLINE_MS)
     return () => clearInterval(t)
-  }, [open, loadOnline])
+  }, [open, loadOnline, loadRecent])
 
   useEffect(() => {
     if (!open || view !== 'chat' || !selectedUser) return
@@ -138,7 +241,7 @@ export default function MessengerBox() {
   const isAuthPage = pathname === '/auth/login' || pathname === '/auth/register'
   if (!user || isAuthPage) return null
 
-  const openChat = (u: OnlineUser) => {
+  const openChat = (u: OnlineUser | RecentUser) => {
     prevIncomingCountRef.current = -1
     setSelectedUser(u)
     setView('chat')
@@ -172,27 +275,25 @@ export default function MessengerBox() {
     }
   }
 
+  const handleButtonClick = () => {
+    if (didDragRef.current) return
+    setOpen((o) => !o)
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }
+
   return (
     <>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((o) => !o)
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission().catch(() => {})
-          }
-        }}
-        className="fixed bottom-6 right-6 z-[9998] flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-xl shadow-indigo-500/30 ring-2 ring-white/20 transition hover:scale-105 hover:shadow-2xl hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900"
-        aria-label="Mesajlaşma"
+      <div
+        className="fixed z-[9998] flex flex-col items-end select-none"
+        style={{ bottom: pos.bottom, right: pos.right }}
       >
-        <MessageCircle className="h-6 w-6" strokeWidth={2.2} />
-      </button>
-
-      {open && (
-        <div
-          className="fixed bottom-24 right-6 z-[9999] flex w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-slate-600/80 bg-slate-800/95 shadow-2xl backdrop-blur-sm"
-          style={{ height: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)' }}
-        >
+        {open && (
+          <div
+            className="absolute bottom-full right-0 mb-2 z-[9999] flex w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-slate-600/80 bg-slate-800/95 shadow-2xl backdrop-blur-sm"
+            style={{ height: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)' }}
+          >
           <div className="flex items-center justify-between border-b border-slate-600/80 bg-gradient-to-r from-slate-700/90 to-slate-800/90 px-4 py-3.5">
             {view === 'chat' && selectedUser ? (
               <>
@@ -225,38 +326,56 @@ export default function MessengerBox() {
           <div className="flex flex-1 flex-col overflow-hidden bg-slate-800/50">
             {view === 'list' && (
               <div className="flex-1 overflow-y-auto p-3">
-                {online.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700/80">
-                      <User className="h-7 w-7 text-slate-500" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-400">Çevrimiçi kullanıcı yok</p>
-                    <p className="mt-1 text-xs text-slate-500">Biri giriş yaptığında burada görünecek</p>
-                  </div>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {online.map((u) => (
-                      <li key={u.id}>
-                        <button
-                          type="button"
-                          onClick={() => openChat(u)}
-                          className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition hover:bg-slate-700/80 active:scale-[0.99]"
-                        >
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/25 ring-2 ring-indigo-400/30">
-                            <User className="h-6 w-6" strokeWidth={2} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold text-slate-100">{getDisplayName(u)}</p>
-                            <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-emerald-400">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              Çevrimiçi
-                            </p>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                {(() => {
+                  const list: Array<OnlineUser | RecentUser> = [...recent, ...online.filter((o) => !recent.some((r) => r.id === o.id))]
+                  if (list.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700/80">
+                          <User className="h-7 w-7 text-slate-500" />
+                        </div>
+                        <p className="text-sm font-medium text-slate-400">Henüz konuşma yok</p>
+                        <p className="mt-1 text-xs text-slate-500">Mesajlaşmaya başladığınızda veya biri giriş yaptığında burada görünecek</p>
+                      </div>
+                    )
+                  }
+                  return (
+                    <ul className="space-y-1.5">
+                      {list.map((u, idx) => {
+                        const isOnline = online.some((o) => o.id === u.id)
+                        const isRecent = recent.some((r) => r.id === u.id)
+                        return (
+                          <li key={u.id}>
+                            <button
+                              type="button"
+                              onClick={() => openChat(u)}
+                              className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition hover:bg-slate-700/80 active:scale-[0.99]"
+                            >
+                              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-white shadow-lg ring-2 font-bold text-sm ${AVATAR_COLORS[idx % AVATAR_COLORS.length]} ring-indigo-400/30`}>
+                                {getInitials(u)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-semibold text-slate-100">{getDisplayName(u)}</p>
+                                <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                                  {isOnline ? (
+                                    <>
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                      Çevrimiçi
+                                    </>
+                                  ) : isRecent ? (
+                                    'Son konuşma'
+                                  ) : (
+                                    'Kullanıcı'
+                                  )}
+                                </p>
+                              </div>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )
+                })()}
               </div>
             )}
 
@@ -316,7 +435,39 @@ export default function MessengerBox() {
             )}
           </div>
         </div>
-      )}
+        )}
+
+        <button
+          type="button"
+          onClick={handleButtonClick}
+          onMouseDown={handlePointerDown}
+          onTouchStart={handlePointerDown}
+          className="flex cursor-grab active:cursor-grabbing items-center gap-2 rounded-full bg-white px-4 py-2.5 shadow-lg shadow-slate-300/50 ring-1 ring-slate-200 transition hover:shadow-xl hover:ring-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-white touch-none"
+          aria-label="Mesajlar"
+          title="Mesajlar — Sürükleyerek taşıyın"
+        >
+          <Send className="h-5 w-5 text-slate-600" strokeWidth={2} />
+          <span className="text-sm font-semibold text-slate-800">Mesajlar</span>
+          {(() => {
+            const activeOnly = online.filter((o) => o.id !== user?.id).slice(0, 3)
+            if (activeOnly.length === 0) return null
+            return (
+              <div className="flex -space-x-2 ml-0.5">
+                {activeOnly.map((u, i) => (
+                  <div
+                    key={u.id}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-bold text-white ring-2 ring-white ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}
+                    style={{ zIndex: 3 - i }}
+                    title={getDisplayName(u)}
+                  >
+                    {getInitials(u)}
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        </button>
+      </div>
     </>
   )
 }

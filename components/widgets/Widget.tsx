@@ -49,20 +49,20 @@ export const StatWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
+    <Card className={cn('group hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
       <CardBody className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1 flex-1">
-            <p className="text-sm font-medium text-gray-600">{title}</p>
-            <p className="text-2xl lg:text-3xl font-bold text-gray-900">{value}</p>
+            <p className="text-sm font-medium text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">{title}</p>
+            <p className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">{value}</p>
             {change && (
               <div className="flex items-center space-x-1">
                 <span
                   className={cn(
-                    'text-xs font-medium',
-                    change.type === 'increase' && 'text-emerald-600',
-                    change.type === 'decrease' && 'text-red-600',
-                    change.type === 'neutral' && 'text-gray-500'
+                    'text-xs font-medium group-hover:text-white dark:group-hover:text-white transition-colors',
+                    change.type === 'increase' && 'text-emerald-600 dark:text-emerald-400',
+                    change.type === 'decrease' && 'text-red-600 dark:text-red-400',
+                    change.type === 'neutral' && 'text-gray-500 dark:text-slate-400'
                   )}
                 >
                   {change.type === 'increase' && '↑'}
@@ -70,7 +70,7 @@ export const StatWidget = ({
                   {change.type === 'neutral' && '→'}
                   {change.value}
                 </span>
-                <span className="text-xs text-gray-500">dün</span>
+                <span className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">dün</span>
               </div>
             )}
           </div>
@@ -183,7 +183,7 @@ export const ListWidget = ({
       <CardHeader title={`${title} (${items.length})`} />
       <CardBody>
         {items.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-gray-500 dark:text-slate-400 hover:text-white dark:hover:text-white transition-colors">
             {empty}
           </div>
         ) : (
@@ -194,8 +194,8 @@ export const ListWidget = ({
                 role={onItemClick || item.href ? 'button' : undefined}
                 onClick={onItemClick ? () => onItemClick(item) : item.href ? undefined : undefined}
                 className={cn(
-                  'flex items-center space-x-3 p-3 rounded-lg transition-colors duration-150',
-                  (onItemClick || item.href) && 'cursor-pointer hover:bg-gray-50'
+                  'group/item flex items-center space-x-3 p-3 rounded-lg transition-colors duration-150',
+                  (onItemClick || item.href) && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/60'
                 )}
               >
                 {item.avatar && (
@@ -204,11 +204,11 @@ export const ListWidget = ({
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-sm font-medium text-gray-900 dark:text-slate-200 group-hover/item:text-white dark:group-hover/item:text-white truncate transition-colors">
                     {item.title}
                   </p>
                   {item.subtitle && (
-                    <p className="text-sm text-gray-500 truncate">
+                    <p className="text-sm text-gray-500 dark:text-slate-400 group-hover/item:text-white dark:group-hover/item:text-white truncate transition-colors">
                       {item.subtitle}
                     </p>
                   )}

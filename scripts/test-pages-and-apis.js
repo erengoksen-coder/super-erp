@@ -25,7 +25,6 @@ const pages = [
   '/bom',
   '/barcodes',
   '/finance',
-  '/hr',
   '/users',
   '/settings',
   '/notifications',

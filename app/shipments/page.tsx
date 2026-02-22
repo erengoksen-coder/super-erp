@@ -3,7 +3,8 @@
 import { useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle, Trash2 } from 'lucide-react'
+import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
+import { Package, Truck, Printer, Filter, Calendar, User, CheckCircle, Clock, XCircle, Trash2, QrCode, RefreshCw, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
@@ -11,7 +12,10 @@ import { formatDate } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
 import { toast } from '@/lib/notify'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { TableSkeleton } from '@/components/ui/TableSkeleton'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { Button } from '@/components/ui/Button'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface Shipment {
   id: string
@@ -46,9 +50,17 @@ interface ReadyItem {
   }>
 }
 
+const APP_TITLE = 'LIVASOFA ERP'
+
 export default function ShipmentsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const user = useAuthStore((s) => s.user)
+  useEffect(() => { document.title = `Sevkiyat - ${APP_TITLE}`; return () => { document.title = APP_TITLE } }, [])
+  const role = (user?.role ?? '').toString().trim().toLowerCase()
+  const position = (user?.position ?? (user as any)?.job_title ?? '').toString().trim().toLowerCase()
+  const canScanBarcode = role === 'admin' || role === 'yönetici' || role === 'yonetici' || role === 'manager' || position === 'sevkiyat'
+  const canExport = user?.can_export !== 0
   const [shipments, setShipments] = useState<Shipment[]>([])
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([])
   const [readyProducts, setReadyProducts] = useState<any[]>([])
@@ -57,6 +69,10 @@ export default function ShipmentsPage() {
   const [filterCustomer, setFilterCustomer] = useState<string>('all')
   const [filterPeriod, setFilterPeriod] = useState<string>('all') // all, daily, weekly, monthly
   const [filterCompleted, setFilterCompleted] = useState<string>('all') // all, pending, in_transit, delivered, cancelled
+  type SortKeyShip = 'shipment_date' | 'shipment_number' | 'customer_name' | 'status' | 'total_quantity'
+  const [sortKey, setSortKey] = useState<SortKeyShip>('shipment_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null)
   const [showDetailedView, setShowDetailedView] = useState<boolean>(false) // Detaylı görünüm (müşteri ve ürün bazlı)
   const [customers, setCustomers] = useState<any[]>([])
   const [exporting, setExporting] = useState(false)
@@ -66,6 +82,11 @@ export default function ShipmentsPage() {
   useEffect(() => {
     loadCustomers()
   }, [])
+
+  useEffect(() => {
+    const statusFromUrl = searchParams?.get('status')
+    if (statusFromUrl === 'pending_approval') setFilterCompleted('pending_approval')
+  }, [searchParams])
 
   useEffect(() => {
     const mode = searchParams?.get('mode')
@@ -207,13 +228,38 @@ export default function ShipmentsPage() {
     }
   }, [filterStatus, selectedReadyCustomerId, readyProductsData])
 
+  const sortedShipments = useMemo(() => {
+    const list = [...shipments]
+    list.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'shipment_date') cmp = (a.shipment_date || '').localeCompare(b.shipment_date || '')
+      else if (sortKey === 'shipment_number') cmp = (a.shipment_number || '').localeCompare(b.shipment_number || '', 'tr', { numeric: true })
+      else if (sortKey === 'customer_name') cmp = (a.customer_name || '').localeCompare(b.customer_name || '', 'tr')
+      else if (sortKey === 'status') cmp = (a.status || '').localeCompare(b.status || '')
+      else cmp = (a.total_quantity ?? 0) - (b.total_quantity ?? 0)
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return list
+  }, [shipments, sortKey, sortDir])
+
+  function handleSortShip(key: SortKeyShip) {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir(key === 'shipment_date' ? 'desc' : 'asc') }
+  }
+  function SortIconShip({ column }: { column: SortKeyShip }) {
+    if (sortKey !== column) return null
+    return sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 inline ml-0.5" /> : <ChevronUp className="w-3.5 h-3.5 inline ml-0.5" />
+  }
+
+  useKeyboardShortcut('Enter', () => { if (selectedShipmentId) router.push(`/shipments/${selectedShipmentId}`) }, { enabled: !!selectedShipmentId })
+  useKeyboardShortcut('Escape', () => setSelectedShipmentId(null))
 
   async function loadCustomers() {
     try {
       const data = await fetchApi('/api/accounts?type=customer')
       setCustomers(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('Error loading customers:', error)
+      console.error('Müşteriler yüklenirken hata:', error)
     }
   }
 
@@ -314,7 +360,7 @@ export default function ShipmentsPage() {
         xPos = margin
         const statusText = shipment.status === 'delivered' ? 'Teslim Edildi' :
                           shipment.status === 'in_transit' ? 'Yolda' :
-                          shipment.status === 'cancelled' ? 'Iptal' :
+                          shipment.status === 'cancelled' ? 'İptal' :
                           'Beklemede'
         
         // Tarih formatla
@@ -381,7 +427,7 @@ export default function ShipmentsPage() {
       
       doc.save(fileName)
     } catch (error: any) {
-      console.error('PDF export hatası:', error)
+      console.error('PDF dışa aktarma hatası:', error)
       toast.error('PDF oluşturulurken hata oluştu: ' + error.message)
     } finally {
       setExporting(false)
@@ -412,6 +458,7 @@ export default function ShipmentsPage() {
   function getStatusBadge(status: string) {
     const badges: Record<string, { color: string; icon: any; text: string }> = {
       pending: { color: 'bg-yellow-900 text-yellow-300', icon: Clock, text: 'Beklemede' },
+      pending_approval: { color: 'bg-blue-900 text-blue-300', icon: ShieldCheck, text: 'Onay Bekliyor' },
       in_transit: { color: 'bg-blue-900 text-blue-300', icon: Truck, text: 'Yolda' },
       delivered: { color: 'bg-green-900 text-green-300', icon: CheckCircle, text: 'Teslim Edildi' },
       cancelled: { color: 'bg-red-900 text-red-300', icon: XCircle, text: 'İptal' },
@@ -438,9 +485,20 @@ export default function ShipmentsPage() {
             <LogoWithBackground size="sm" />
           </div>
           <p className="text-sm text-gray-400">Sevkiyat fişleri ve takibi</p>
+          <Breadcrumb items={[{ label: 'Panel', href: '/dashboard' }, { label: 'Sevkiyatlar' }]} className="mt-2" />
         </div>
         <div className="flex flex-wrap gap-2 mt-4 md:mt-0">
-          {filterStatus !== 'ready' && shipments.length > 0 && (
+          <button
+            type="button"
+            onClick={() => mutateShipments()}
+            disabled={shipmentsLoading}
+            title="Listeyi yenile"
+            className="bg-slate-600 text-white px-3 py-2 rounded-lg hover:bg-slate-500 transition inline-flex items-center space-x-2 text-sm disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={shipmentsLoading ? 'animate-spin' : ''} />
+            <span>Yenile</span>
+          </button>
+          {filterStatus !== 'ready' && shipments.length > 0 && canExport && (
             <button
               onClick={exportToPDF}
               disabled={exporting}
@@ -449,6 +507,18 @@ export default function ShipmentsPage() {
               <Printer size={20} />
               <span>{exporting ? 'PDF Oluşturuluyor...' : 'PDF Aktar'}</span>
             </button>
+          )}
+          {canScanBarcode && (
+            <Link
+              href="/barcodes/scan"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-amber-600 text-white px-3 py-2 rounded-lg hover:bg-amber-700 transition inline-flex items-center space-x-2 text-sm touch-manipulation"
+              title="Telefondan veya bu cihazdan üretim barkodlarını okutun"
+            >
+              <QrCode size={20} />
+              <span>Telefondan Barkod Okut</span>
+            </Link>
           )}
           <Link
             href="/shipments/new"
@@ -520,6 +590,7 @@ export default function ShipmentsPage() {
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             >
               <option value="all">Tümü</option>
+              <option value="pending_approval">Onay Bekleyen</option>
               <option value="pending">Beklemede</option>
               <option value="in_transit">Yolda</option>
               <option value="delivered">Teslim Edildi</option>
@@ -564,12 +635,18 @@ export default function ShipmentsPage() {
         )}
       </div>
 
+      {!isLoading && filterStatus !== 'ready' && shipments.length >= 0 && (
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+            <div className="text-sm text-gray-400 mb-1">Toplam sevkiyat</div>
+            <div className="text-2xl font-bold text-white">{shipments.length} adet</div>
+          </div>
+        </div>
+      )}
+
       {/* Sevkiyat Listesi */}
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
-        </div>
+        <TableSkeleton rows={8} cols={6} />
       ) : filterStatus === 'ready' ? (
         <div className="space-y-4">
           {readyItems.length === 0 ? (
@@ -808,19 +885,23 @@ export default function ShipmentsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-gray-800">
-                  <TableHead className="h-8 px-4 py-2 text-xs">Sevk No</TableHead>
-                  <TableHead className="h-8 px-4 py-2 text-xs">Müşteri</TableHead>
-                  <TableHead className="h-8 px-4 py-2 text-xs">Tarih</TableHead>
-                  <TableHead className="h-8 px-4 py-2 text-xs">Adet</TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortShip('shipment_number')}>Sevk No <SortIconShip column="shipment_number" /></TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortShip('customer_name')}>Müşteri <SortIconShip column="customer_name" /></TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortShip('shipment_date')}>Tarih <SortIconShip column="shipment_date" /></TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortShip('total_quantity')}>Adet <SortIconShip column="total_quantity" /></TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">Kalem</TableHead>
-                  <TableHead className="h-8 px-4 py-2 text-xs">Durum</TableHead>
+                  <TableHead className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortShip('status')}>Durum <SortIconShip column="status" /></TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">Fatura</TableHead>
                   <TableHead className="h-8 px-4 py-2 text-xs">İşlemler</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {shipments.map((shipment) => (
-                  <TableRow key={shipment.id} className="hover:bg-gray-800/50">
+                {sortedShipments.map((shipment) => (
+                  <TableRow
+                    key={shipment.id}
+                    className={`hover:bg-gray-800/50 cursor-pointer ${selectedShipmentId === shipment.id ? 'bg-blue-900/30 ring-1 ring-blue-500' : ''}`}
+                    onClick={() => setSelectedShipmentId(shipment.id)}
+                  >
                     <TableCell className="font-medium text-white text-xs px-4 py-2">
                       {shipment.shipment_number}
                     </TableCell>

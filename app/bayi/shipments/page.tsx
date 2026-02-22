@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Truck, Package } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Shipment = {
   id: string
@@ -127,8 +128,12 @@ export default function BayiShipmentsPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
         </div>
       ) : filteredShipments.length === 0 ? (
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-8 text-center text-slate-400">
-          {shipments.length === 0 ? 'Henüz sevkiyat bulunmuyor.' : 'Tarih aralığına uygun sevkiyat yok.'}
+        <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-6">
+          <EmptyState
+            title={shipments.length === 0 ? 'Henüz sevkiyat bulunmuyor' : 'Sonuç bulunamadı'}
+            description={shipments.length === 0 ? 'Sevkiyatlarınız burada listelenir.' : 'Tarih aralığına uygun sevkiyat yok.'}
+            icon={Truck}
+          />
         </div>
       ) : (
         <div className="space-y-4">

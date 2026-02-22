@@ -198,13 +198,13 @@ export class FinancialReportingService {
         SELECT 
           a.code as accountCode,
           a.name as accountName,
-          a.type as category,
-          SUM(CASE WHEN gl.debit_amount > 0 THEN gl.debit_amount ELSE 0 END) as debitBalance,
-          SUM(CASE WHEN gl.credit_amount > 0 THEN gl.credit_amount ELSE 0 END) as creditBalance
+          COALESCE(a.type, a.account_type) as category,
+          COALESCE(SUM(gl.debit), 0) as debitBalance,
+          COALESCE(SUM(gl.credit), 0) as creditBalance
         FROM chart_of_accounts a
-        LEFT JOIN general_ledger gl ON a.code = gl.account_code
-        WHERE gl.date <= ? AND gl.deleted_at IS NULL
-        GROUP BY a.code, a.name, a.type
+        LEFT JOIN general_ledger gl ON a.id = gl.account_id AND gl.entry_date <= ? AND (gl.deleted_at IS NULL OR gl.deleted_at = '')
+        WHERE (a.deleted_at IS NULL OR a.deleted_at = '')
+        GROUP BY a.id, a.code, a.name, a.type, a.account_type
         ORDER BY a.code
       `).all(endDate) as Array<{
         accountCode: string

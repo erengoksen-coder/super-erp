@@ -5,6 +5,7 @@ import './design-system.css'
 import './mobile-optimization.css'
 import './animations.css'
 import './performance.css'
+import './print.css'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/SidebarContext'
 import AuthGuard from '@/components/AuthGuard'
@@ -17,7 +18,8 @@ import ScrollToTop from '@/components/ScrollToTop'
 import MainShell from '@/components/MainShell'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import SuppressHydrationWarnings from './suppress-hydration-warnings'
-import { Toaster } from 'sonner'
+import SimpleToaster from '@/components/SimpleToaster'
+import OfflineBanner from '@/components/OfflineBanner'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -35,6 +37,9 @@ export default function RootLayout({
     <html lang="tr" className="dark" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+        <meta name="theme-color" content="#0b0f19" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className={`${inter.className} bg-gray-950 text-gray-100`} suppressHydrationWarning style={{ margin: 0, padding: 0, overflow: 'hidden', width: '100vw', height: '100vh', position: 'fixed', inset: 0 }}>
@@ -45,8 +50,9 @@ export default function RootLayout({
               <AuthGuard>
                 <ServiceWorker />
                 <GlobalBarcodeListener />
+                <OfflineBanner />
                 <ScrollToTop />
-                <Toaster richColors position="top-right" closeButton />
+                <SimpleToaster />
                 <SidebarProvider>
                   <Sidebar />
                   <MainShell>

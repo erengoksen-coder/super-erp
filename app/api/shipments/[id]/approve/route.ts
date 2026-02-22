@@ -132,31 +132,18 @@ export const POST = withAuth(async (
         `).run(transactionId, shipment.customer_id, itemFinalAmount, item.id, description)
       }
 
-      // Tüm kullanıcılara onay bildirimi gönder
-      const allUsers = db.prepare(`
-        SELECT id
-        FROM users
-        WHERE deleted_at IS NULL
-      `).all() as Array<{ id: string }>
-      
+      // Sevkiyat onayı bildirimini tercihi açık olan kullanıcılara gönder
+      const { getUserIdsWantingNotification } = await import('@/lib/notifications/preferences')
+      const userIds = getUserIdsWantingNotification(db, 'shipment_approved')
       const insertNotification = db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, created_at)
         VALUES (?, ?, ?, ?, 'success', 'shipment', ?, ?)
       `)
-      
       const notificationTitle = 'Sevkiyat Onaylandı'
       const notificationMessage = `${shipmentId} numaralı sevkiyat ${(user as Record<string, unknown>).full_name || (user as Record<string, unknown>).username || user.userId} tarafından onaylandı.`
-      
-      for (const u of allUsers) {
+      for (const uid of userIds) {
         const notificationId = randomUUID()
-        insertNotification.run(
-          notificationId,
-          u.id,
-          notificationTitle,
-          notificationMessage,
-          shipmentId,
-          now
-        )
+        insertNotification.run(notificationId, uid, notificationTitle, notificationMessage, shipmentId, now)
       }
     })()
 

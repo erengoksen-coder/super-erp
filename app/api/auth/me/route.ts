@@ -17,6 +17,9 @@ type UserRow = {
   is_approved: number
   is_locked: number
   dealer_name: string | null
+  can_export?: number
+  max_export_rows?: number | null
+  view_only?: number
 }
 
 // GET: Mevcut kullanıcı bilgileri
@@ -36,7 +39,8 @@ export const GET = withAuth(async (request: NextRequest) => {
     const userId = payload.userId
 
     const user = db.prepare(`
-      SELECT id, username, email, full_name, role, position, job_title, is_approved, COALESCE(is_locked, 0) as is_locked, dealer_name
+      SELECT id, username, email, full_name, role, position, job_title, is_approved, COALESCE(is_locked, 0) as is_locked, dealer_name,
+        COALESCE(can_export, 1) as can_export, max_export_rows, COALESCE(view_only, 0) as view_only
       FROM users
       WHERE id = ? AND is_approved = 1 AND deleted_at IS NULL
     `).get(userId) as UserRow | undefined
@@ -56,21 +60,16 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     const permissions = loadUserPermissions(db, userId)
 
-    // Puantaj için: kullanıcı e-postası ile eşleşen çalışan
-    const employee = db.prepare(`
-      SELECT id FROM hr_employees WHERE email = ? AND deleted_at IS NULL AND status = 'active'
-    `).get(user.email || '') as { id: string } | undefined
-    const employee_id = employee?.id ?? null
-
     return ok({
       user: {
         ...user,
         permissions,
-        employee_id,
       },
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Sunucu hatası'
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Auth me failed', { error: message })
     return fail(message, { status: 500 })
   }
 })

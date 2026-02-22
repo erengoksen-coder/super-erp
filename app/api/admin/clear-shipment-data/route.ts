@@ -16,7 +16,7 @@ export const POST = withAuth(
     try {
       const body = await request.json().catch(() => ({})) as { confirm?: boolean }
       if (body?.confirm !== true) {
-        return fail('Onay için body\'de { "confirm": true } gönderin.', { status: 400 })
+        return fail('Onay için istek gövdesinde { "confirm": true } gönderin.', { status: 400 })
       }
 
       const db = getDatabase()

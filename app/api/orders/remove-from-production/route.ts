@@ -24,26 +24,31 @@ type StockMovementRow = {
 export const POST = withAuth(async (request: NextRequest, user) => {
   let orderIdForLog: string | undefined
   try {
-    const body = await parseJsonBody<{ orderId: string }>(request)
-    const orderId = body?.orderId || (body as Record<string, unknown>)?.id
+    const body = await parseJsonBody<{ orderId?: string; id?: string }>(request).catch(() => ({}))
+    const bodyId = body?.orderId ?? ((body as Record<string, unknown>)?.id as string | undefined)
+    const orderId = bodyId?.trim?.()
     orderIdForLog = typeof orderId === 'string' ? orderId : undefined
     if (!orderId || typeof orderId !== 'string') {
-      return fail('Sipariş ID gerekli', { status: 400 })
+      return fail('Sipariş ID gerekli (orderId veya id gönderin)', { status: 400 })
     }
 
     const db = getDatabase()
     const row = db.prepare(`
-      SELECT id, order_number, status, production_order_id FROM orders WHERE id = ? AND deleted_at IS NULL
+      SELECT id, order_number, status, production_order_id FROM orders WHERE id = ? AND (deleted_at IS NULL OR deleted_at = '')
     `).get(orderId) as { id: string; order_number: string; status: string; production_order_id: string | null } | undefined
 
     if (!row) {
-      return fail('Sipariş bulunamadı', { status: 404 })
+      return fail('Sipariş bulunamadı. Geçerli sipariş ID gönderdiğinizden emin olun.', { status: 404 })
     }
 
     // Üretim emrine bağlı değilse çıkarılacak bir şey yok
     const prevProductionOrderId = row.production_order_id
     if (!prevProductionOrderId || String(prevProductionOrderId).trim() === '') {
       return fail('Bu sipariş üretim emrine bağlı değil; üretimden çıkarılamaz.', { status: 400 })
+    }
+
+    if (row.status !== 'in_production' && row.status !== 'in_progress') {
+      return fail(`Sipariş durumu "üretimde" değil (mevcut: ${row.status}). Üretimden çıkarılamaz.`, { status: 400 })
     }
 
     // Üretim emri bilgisi (URE numarası)
@@ -138,18 +143,19 @@ export const POST = withAuth(async (request: NextRequest, user) => {
         WHERE id = ?
       `).run(prevProductionOrderId)
 
-      // 6. Siparişi bekleyene al (DB'de status = 'pending', production_order_id = NULL)
+      // 6. Siparişi bekleyene al (DB'de status = 'pending', production_order_id = NULL) — WHERE için DB'den okunan row.id kullan
       const orderUpdate = db.prepare(`
         UPDATE orders SET status = 'pending', production_order_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?
-      `).run(orderId)
+      `).run(row.id)
       if (orderUpdate.changes !== 1) {
-        apiLogger.warn('remove-from-production: orders UPDATE etkilediği satır beklenen değil', { orderId, changes: orderUpdate.changes })
+        apiLogger.warn('remove-from-production: orders UPDATE etkilediği satır beklenen değil', { orderId: row.id, changes: orderUpdate.changes })
+        throw new Error(`Sipariş güncellenemedi (etkilenen satır: ${orderUpdate.changes}). Lütfen sayfayı yenileyip tekrar deneyin.`)
       }
 
-      // Doğrulama: güncel satırı oku (liste sorgusu aynı tabloyu kullanıyor)
-      const verify = db.prepare('SELECT id, status, production_order_id FROM orders WHERE id = ?').get(orderId) as { id: string; status: string; production_order_id: string | null } | undefined
+      // Doğrulama: transaction içinde güncel satırı oku
+      const verify = db.prepare('SELECT id, status, production_order_id FROM orders WHERE id = ?').get(row.id) as { id: string; status: string; production_order_id: string | null } | undefined
       apiLogger.info('remove-from-production: UPDATE sonrası doğrulama', {
-        orderId,
+        orderId: row.id,
         order_number: row.order_number,
         updated_status: verify?.status ?? null,
         updated_production_order_id: verify?.production_order_id ?? null,
@@ -159,24 +165,24 @@ export const POST = withAuth(async (request: NextRequest, user) => {
     logAudit(db, {
       tableName: 'orders',
       action: 'update',
-      recordId: orderId,
+      recordId: row.id,
       userId: user.userId,
       before: { status: row.status, production_order_id: prevProductionOrderId },
       after: { status: 'pending', production_order_id: null, _note: `Üretimden çıkarıldı. İptal olan URE: ${ureNumber}.` },
     })
 
-    const afterRow = db.prepare('SELECT status, production_order_id FROM orders WHERE id = ?').get(orderId) as { status: string; production_order_id: string | null } | undefined
+    // Başarılı işlemde her zaman beklenen değerleri dön (DB tekrar okumaya güvenme; bazen read-after-write farklı instance/cache dönebiliyor)
     return ok({
-      id: orderId,
+      id: row.id,
       order_number: row.order_number,
       production_order_number: ureNumber,
       message: `Sipariş üretimden çıkarıldı. İptal olan URE: ${ureNumber}. BOM malzemeleri depo stoğuna iade edildi.`,
-      updated_status: afterRow?.status ?? 'pending',
-      updated_production_order_id: afterRow?.production_order_id ?? null,
+      updated_status: 'pending',
+      updated_production_order_id: null,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'İşlem başarısız'
     apiLogger.error('remove-from-production failed', { orderId: orderIdForLog, error: message, stack: error instanceof Error ? error.stack : undefined })
-    return fail(message, { status: 500 })
+    return fail(message || 'Üretimden çıkarırken sunucu hatası oluştu.', { status: 500 })
   }
 })

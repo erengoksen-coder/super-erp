@@ -22,6 +22,7 @@ import {
   Truck
 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -95,44 +96,45 @@ function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrint
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(barcode)}`
 
   return (
-    <div className="mb-2 p-2 bg-gray-700/50 rounded border border-gray-600">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-1">
-          {/* Barkod Görseli */}
-          <div className="flex-shrink-0">
-            <div className="text-xs text-gray-400 mb-1">Barkod</div>
-            <div className="bg-white p-1 rounded border border-gray-600">
-              <canvas ref={canvasRef} className="max-w-full h-auto" style={{ maxWidth: '150px', height: 'auto' }} />
-            </div>
+    <div className="mb-2 p-2 bg-gray-700/50 rounded border border-gray-600 overflow-hidden">
+      <div className="flex flex-wrap items-start gap-3 min-w-0">
+        {/* Barkod + numara ve seri no altında */}
+        <div className="flex-shrink-0">
+          <div className="text-xs text-gray-400 mb-0.5">Barkod</div>
+          <div className="bg-white p-1 rounded border border-gray-600">
+            <canvas ref={canvasRef} className="max-w-full h-auto" style={{ maxWidth: '130px', height: 'auto' }} />
           </div>
-          {/* QR Kod */}
-          <div className="flex-shrink-0">
-            <div className="text-xs text-gray-400 mb-1">QR Kod</div>
-            <div className="bg-white p-1 rounded border border-gray-600 inline-block">
-              <img 
-                src={qrCodeUrl}
-                alt="QR Code" 
-                className="w-14 h-14"
-              />
+          <div className="mt-0.5 text-[10px] text-purple-300 truncate max-w-[140px]" title={barcode}>
+            <span className="font-semibold">Barkod:</span> {barcode}
+          </div>
+          {serialNumber && (
+            <div className="text-[10px] text-purple-300 break-all max-w-[220px]" title={serialNumber}>
+              <span className="font-semibold">Seri:</span> {serialNumber}
             </div>
+          )}
+        </div>
+        {/* QR Kod + Depoya giriş tarihi QR'ın altında */}
+        <div className="flex-shrink-0">
+          <div className="text-xs text-gray-400 mb-0.5">QR Kod</div>
+          <div className="bg-white p-1 rounded border border-gray-600 inline-block">
+            <img src={qrCodeUrl} alt="QR Code" className="w-12 h-12 object-contain" />
+          </div>
+          <div className="mt-1 px-1.5 py-0.5 bg-gray-700/50 rounded border border-gray-600">
+            <div className="text-[10px] text-gray-400">DEPOYA GİRİŞ TARİHİ</div>
+            <div className="text-white text-[10px] font-semibold truncate max-w-[90px]" title={entryDate || '-'}>{entryDate || '-'}</div>
           </div>
         </div>
-        {/* Depoya Giriş Tarihi */}
-        <div className="flex-shrink-0 text-right px-3 py-2 bg-gray-700/50 rounded border border-gray-600">
-          <div className="text-xs text-gray-400 mb-1">DEPOYA GİRİŞ TARİHİ</div>
-          <div className="text-white text-xs font-semibold">{entryDate || '-'}</div>
-        </div>
-        {/* Butonlar */}
-        <div className="flex-shrink-0 flex flex-col gap-2">
+        {/* Butonlar: sığsın diye min genişlik, yazılar kesilmesin */}
+        <div className="flex-shrink-0 flex flex-col gap-1.5 min-w-[7.5rem] ml-auto">
           <Button
             variant="solid"
             color="primary"
             size="sm"
             onClick={onPrintLabel}
-            className="flex items-center justify-center space-x-2 !bg-blue-600 hover:!bg-blue-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+            className="w-full justify-center gap-1.5 !bg-blue-600 hover:!bg-blue-700 !text-white border-0 shadow-md hover:shadow-lg transition-all text-xs py-1.5 px-2"
           >
-            <Printer className="w-4 h-4" />
-            <span>Etiket Yazdır</span>
+            <Printer className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="whitespace-nowrap">Etiket Yazdır</span>
           </Button>
           <Button
             variant="solid"
@@ -140,16 +142,16 @@ function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrint
             size="sm"
             onClick={isAlreadyShipped ? undefined : onShip}
             disabled={isAlreadyShipped}
-            title={isAlreadyShipped ? 'Bu kart zaten sevk edildi, tekrar sevk oluşturulamaz' : undefined}
+            title={isAlreadyShipped ? 'Bu kart zaten sevk edildi' : undefined}
             className={cn(
-              'flex items-center justify-center space-x-2 border-0 shadow-md transition-all whitespace-nowrap',
+              'w-full justify-center gap-1.5 border-0 shadow-md transition-all text-xs py-1.5 px-2',
               isAlreadyShipped
                 ? '!bg-gray-500 !text-gray-300 cursor-not-allowed opacity-60'
                 : '!bg-green-600 hover:!bg-green-700 !text-white hover:shadow-lg'
             )}
           >
-            <Truck className="w-4 h-4" />
-            <span>Sevk Et</span>
+            <Truck className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="whitespace-nowrap">Sevk Et</span>
           </Button>
           {onDelete && (
             <Button
@@ -157,23 +159,13 @@ function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrint
               color="error"
               size="sm"
               onClick={onDelete}
-              className="flex items-center justify-center space-x-2 !bg-red-600 hover:!bg-red-700 !text-white border-0 shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+              className="w-full justify-center gap-1.5 !bg-red-600 hover:!bg-red-700 !text-white border-0 shadow-md hover:shadow-lg transition-all text-xs py-1.5 px-2"
             >
-              <Trash2 className="w-4 h-4" />
-              <span>Sil</span>
+              <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="whitespace-nowrap">Sil</span>
             </Button>
           )}
         </div>
-      </div>
-      <div className="mt-2 flex items-center gap-4 text-xs">
-        <div className="text-purple-300">
-          <span className="font-semibold">Barkod:</span> {barcode}
-        </div>
-        {serialNumber && (
-          <div className="text-purple-300">
-            <span className="font-semibold">Seri No:</span> {serialNumber}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -213,6 +205,7 @@ type ViewMode = 'grid' | 'list'
 export function InventoryPage() {
   const router = useRouter()
   const pathname = usePathname()
+  const canExport = useAuthStore((s) => s.user?.can_export !== 0)
   const [activeTab, setActiveTab] = useState<InventoryType>('products')
   const [materials, setMaterials] = useState<MaterialItem[]>([])
   const [products, setProducts] = useState<ProductItem[]>([])
@@ -271,7 +264,7 @@ export function InventoryPage() {
         return acc.id
       }
     } catch (error) {
-      console.error('Account bulunamadı veya oluşturulamadı:', error)
+      console.error('Cari hesap bulunamadı veya oluşturulamadı:', error)
     }
 
     return null
@@ -283,11 +276,11 @@ export function InventoryPage() {
         fetchApi('/api/inventory/materials'),
         fetchApi('/api/inventory/products'),
         fetchApi('/api/inventory/products/warehouse').catch((err) => {
-          console.error('Warehouse API error:', err)
+          console.error('Depo API hatası:', err)
           return []
         }), // Mamül depo verileri
         fetchApi('/api/accounts?type=customer').catch((err) => {
-          console.error('Accounts API error:', err)
+          console.error('Cariler API hatası:', err)
           return []
         }) // Müşteri hesapları
       ])
@@ -298,7 +291,7 @@ export function InventoryPage() {
       setWarehouseItems(warehouseArray)
       setAccounts(Array.isArray(accountsData) ? accountsData : [])
     } catch (error) {
-      console.error('Error loading inventory:', error)
+      console.error('Envanter yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }
@@ -530,10 +523,12 @@ export function InventoryPage() {
       icon={Package}
       actions={
         <>
+          {canExport && (
           <Button variant="outline" size="sm">
             <Download className="w-4 h-4 mr-2" />
             Excel İndir
           </Button>
+          )}
           {activeTab === 'products' && (
             <Button
               variant="solid"
@@ -902,69 +897,69 @@ export function InventoryPage() {
                 return (
                   <div
                     key={item.barcode_id}
-                    className="bg-gray-800 rounded-lg p-2 border border-gray-700"
+                    className="bg-gray-800 rounded-lg p-2 border border-gray-700 overflow-hidden min-w-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
-                      <div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 min-w-0">
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                        <div className="text-white text-sm">{item.dealer_name || '-'}</div>
+                        <div className="text-white text-sm truncate" title={item.dealer_name || '-'}>{item.dealer_name || '-'}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                        <div className="text-white text-sm">{item.product_name || '-'}</div>
+                        <div className="text-white text-sm truncate" title={item.product_name || '-'}>{item.product_name || '-'}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                        <div className="text-white text-sm">{item.configuration || '-'}</div>
+                        <div className="text-white text-sm truncate" title={item.configuration || '-'}>{item.configuration || '-'}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">Durum</div>
                         <div>
-                          <span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">
+                          <span className="inline-block px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700 whitespace-nowrap">
                             Mamül Depoda
                           </span>
                         </div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
-                        <div className="text-white text-sm">{item.production_order_number || '-'}</div>
+                        <div className="text-white text-sm truncate" title={item.production_order_number || '-'}>{item.production_order_number || '-'}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                        <div className="text-white text-sm">{item.customer_name || '-'}</div>
+                        <div className="text-white text-sm truncate" title={item.customer_name || '-'}>{item.customer_name || '-'}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
-                        <div className="text-white text-sm">
+                        <div className="text-white text-sm truncate" title={fabricMatch ? fabricMatch[1].trim() : '-'}>
                           {fabricMatch ? fabricMatch[1].trim() : '-'}
                         </div>
                       </div>
-                      <div>
+                      <div className="min-w-0 md:col-span-1">
                         <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                        <div className="text-white text-sm break-words whitespace-normal">
+                        <div className="text-white text-sm break-words overflow-hidden max-h-9" title={cleanedNotes || '-'}>
                           {cleanedNotes || '-'}
                         </div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
                         <div className="text-white text-sm">1 {quantityUnit}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">KASA</div>
-                        <div className="text-white text-sm">
+                        <div className="text-white text-sm truncate" title={caseMatch ? caseMatch[1].trim() : '-'}>
                           {caseMatch ? caseMatch[1].trim() : '-'}
                         </div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
                         <div className="text-white text-sm">
                           {formatDate(item.order_date)}
                         </div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-gray-400 mb-1">AYAK</div>
-                        <div className="text-white text-sm">
+                        <div className="text-white text-sm truncate" title={legMatch ? legMatch[1].trim() : '-'}>
                           {legMatch ? legMatch[1].trim() : '-'}
                         </div>
                       </div>

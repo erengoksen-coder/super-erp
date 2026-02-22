@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Flame, RefreshCw } from 'lucide-react'
+import { Flame, RefreshCw, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
+import { ReportFilters, getDefaultReportFilters } from '@/components/filters/ReportFilters'
 
 type FireAnalysisRow = {
   material_id: string
@@ -20,12 +21,7 @@ type FireAnalysisRow = {
 }
 
 export default function FireAnalysisPage() {
-  const [startDate, setStartDate] = useState<string>(() => {
-    const date = new Date()
-    date.setMonth(date.getMonth() - 1)
-    return date.toISOString().split('T')[0]
-  })
-  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().split('T')[0])
+  const [filters, setFilters] = useState(getDefaultReportFilters)
   const [data, setData] = useState<FireAnalysisRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -38,11 +34,11 @@ export default function FireAnalysisPage() {
     setLoading(true)
     try {
       const response = await fetchApi<FireAnalysisRow[]>(
-        `/api/finance/fire-analysis?start=${startDate}&end=${endDate}`
+        `/api/finance/fire-analysis?start=${filters.from}&end=${filters.to}`
       )
       setData(response)
     } catch (error) {
-      console.error('Fire analysis load error:', error)
+      console.error('Fire analizi yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }
@@ -72,45 +68,32 @@ export default function FireAnalysisPage() {
           </div>
           <p className="text-gray-400">Planlanan, fiili tüketim ve fire sapmaları</p>
         </div>
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition disabled:opacity-50 flex items-center space-x-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Yenile</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition disabled:opacity-50 flex items-center space-x-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Yenile</span>
+          </button>
+          <button type="button" onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 flex items-center gap-2">
+            <Printer className="w-4 h-4" />
+            Yazdır
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Başlangıç</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-              className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Bitiş</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2"
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              onClick={loadData}
-              disabled={loading}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition disabled:opacity-50"
-            >
-              Filtrele
-            </button>
-          </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <ReportFilters value={filters} onChange={setFilters} variant="stacked" />
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition disabled:opacity-50"
+          >
+            Filtrele
+          </button>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Package, AlertTriangle, TrendingUp } from 'lucide-react'
 import { useRealtime } from '@/lib/hooks/useRealtime'
@@ -94,8 +95,9 @@ function StockRealtimeView({
 }) {
   const [showDetails, setShowDetails] = useState(true)
   const { lowStockItems, totalStockValue, activeProductCount, materialsWithStock } = useMemo(() => {
+    // Kritik stok sayısı sadece malzemeler (Kritik Stok sayfası sadece malzeme listeliyor; sayı eşleşsin)
     const lowStock = inventory.filter(
-      (item) => (item.stock_amount ?? 0) < (item.min_stock_level ?? 0)
+      (item) => item.item_type === 'material' && (item.min_stock_level ?? 0) > 0 && (item.stock_amount ?? 0) < (item.min_stock_level ?? 0)
     )
     const total = inventory.reduce((sum, item) => sum + (item.stock_amount ?? 0), 0)
     // Aktif ürünler = stokta miktarı > 0 olanlar (veri olarak "stokta olan" sayılır)
@@ -113,55 +115,66 @@ function StockRealtimeView({
   return (
     <div id="stock-details" className="space-y-4 scroll-mt-24">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card variant="flat">
+        <Card variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
           <CardBody className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Toplam Stok</p>
-                <p className="text-2xl font-semibold text-gray-900">{totalStockValue}</p>
-                <p className="text-xs text-gray-500">toplam adet</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Toplam Stok</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">{totalStockValue}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">toplam adet</p>
               </div>
-              <Package className="h-5 w-5 text-gray-400" />
+              <Package className="h-5 w-5 text-gray-400 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
             </div>
           </CardBody>
         </Card>
 
-        <Card variant="flat">
-          <CardBody className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Düşük Stok</p>
-                <p className="text-2xl font-semibold text-yellow-600">
-                  {lowStockItems.length}
-                </p>
-                <p className="text-xs text-gray-500">kritik stok</p>
+        <Link
+          href="/purchase/critical-stock"
+          onClick={(e) => e.stopPropagation()}
+          className="block"
+        >
+          <Card variant="flat" className="group transition-colors hover:bg-amber-500/20 dark:hover:bg-amber-500/20 border-amber-500/30 dark:border-amber-500/30 cursor-pointer">
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-200 group-hover:text-amber-100">Düşük Stok</p>
+                  <p className="text-2xl font-bold text-amber-600 dark:text-amber-300 group-hover:text-amber-200">
+                    {lowStockItems.length}
+                  </p>
+                  <p className="text-xs font-medium text-amber-600 dark:text-amber-300 group-hover:text-amber-100">Kritik stok</p>
+                </div>
+                <AlertTriangle className="h-5 w-5 text-amber-500 dark:text-amber-400 group-hover:text-amber-300" />
               </div>
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-            </div>
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
+        </Link>
 
-        <Card variant="flat">
+        <Card variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
           <CardBody className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Aktif Ürünler</p>
-                <p className="text-2xl font-semibold text-gray-900">{activeProductCount}</p>
-                <p className="text-xs text-gray-500">stokta</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Aktif Ürünler</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">{activeProductCount}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">stokta</p>
               </div>
-              <TrendingUp className="h-5 w-5 text-gray-400" />
+              <TrendingUp className="h-5 w-5 text-gray-400 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
             </div>
           </CardBody>
         </Card>
       </div>
 
       {lowStockItems.length > 0 && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-          {lowStockItems.length} ürün düşük stok seviyesinde. Acil sipariş önerilir.
-        </div>
+        <Link
+          href="/purchase/critical-stock"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-2 rounded-lg border border-red-500/80 dark:border-red-500 px-4 py-3 text-base font-semibold text-red-600 dark:text-red-400 hover:bg-red-500/10 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition-colors cursor-pointer"
+        >
+          <AlertTriangle className="h-5 w-5 flex-shrink-0 text-red-500 dark:text-red-400" aria-hidden />
+          <span>{lowStockItems.length} ürün düşük stok seviyesinde. Acil sipariş önerilir.</span>
+        </Link>
       )}
 
-      <Card>
+      <Card className="group">
         <div
           className="cursor-pointer"
           onClick={() => setShowDetails((prev) => !prev)}
@@ -171,16 +184,16 @@ function StockRealtimeView({
         {showDetails && (
           <CardBody className="space-y-2">
             {materialsWithStock.length === 0 ? (
-              <p className="py-4 text-center text-sm text-gray-500">Stokta hammadde bulunmuyor.</p>
+              <p className="py-4 text-center text-sm text-gray-500 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Stokta hammadde bulunmuyor.</p>
             ) : (
             materialsWithStock.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 p-3 bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700/80 transition-colors group/item"
               >
                 <div>
-                  <div className="font-medium text-gray-900">{item.name}</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-gray-900 dark:text-slate-100 group-hover/item:text-white dark:group-hover/item:text-white">{item.name}</div>
+                  <div className="text-sm text-gray-600 dark:text-slate-300 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">
                     {item.code || item.sku || 'Kod yok'}
                   </div>
                 </div>

@@ -45,7 +45,7 @@ export default function ProductionCalendarPage() {
       const data = await fetchApi<ProductionOrder[]>('/api/production')
       setOrders(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('Error loading orders:', error)
+      console.error('Siparişler yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }

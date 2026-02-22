@@ -112,9 +112,21 @@ export default function CrmClient() {
       authorized_person_name: selectedAccount.authorized_person_name || '',
       authorized_person_phone: selectedAccount.authorized_person_phone || '',
     })
-    requestAnimationFrame(() => {
-      detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    let rafId: number
+    let tId: ReturnType<typeof setTimeout>
+    rafId = requestAnimationFrame(() => {
+      tId = setTimeout(() => {
+        if (detailRef.current) {
+          detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        }
+      }, 100)
     })
+    return () => {
+      cancelAnimationFrame(rafId)
+      if (tId != null) clearTimeout(tId)
+    }
   }, [selectedAccount])
 
   async function createCustomer() {
@@ -293,90 +305,6 @@ export default function CrmClient() {
         </div>
       )}
 
-      <Card className="bg-gray-900 border border-gray-800">
-        <CardHeader title="Müşteri Listesi" subtitle="CRM müşteri kartları" />
-        <CardBody className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <input
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400"
-              placeholder="Ara (isim, kod, e-posta, telefon, vergi no)"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Button variant="outline" onClick={loadAccounts} disabled={loading}>
-              Yenile
-            </Button>
-            <Button onClick={() => setShowAddModal(true)}>
-              Müşteri Ekle
-            </Button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-400">
-                  <th className="py-2">Kod</th>
-                  <th className="py-2">Müşteri</th>
-                  <th className="py-2">E-posta</th>
-                  <th className="py-2">Telefon</th>
-                  <th className="py-2">Vergi No</th>
-                  <th className="py-2">Bakiye</th>
-                  <th className="py-2 text-right">İşlem</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAccounts.map((account) => (
-                  <tr
-                    key={account.id}
-                    className="border-t border-gray-800 text-gray-200 cursor-pointer hover:bg-gray-800/60"
-                    onClick={() => setSelectedAccount(account)}
-                  >
-                    <td className="py-2">{account.code || '-'}</td>
-                    <td className="py-2">{account.name}</td>
-                    <td className="py-2">{account.email || '-'}</td>
-                    <td className="py-2">{account.phone || '-'}</td>
-                    <td className="py-2">{account.tax_number || '-'}</td>
-                    <td className={`py-2 font-semibold ${account.balance && account.balance !== 0 ? (account.balance > 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-200'}`}>
-                      {account.balance ? `${account.balance.toLocaleString('tr-TR')} TL` : '0 TL'}
-                    </td>
-                    <td className="py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedAccount(account)
-                        }}
-                      >
-                        Detay
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        color="error"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteCustomer(account.id)
-                        }}
-                      >
-                        Sil
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {!filteredAccounts.length && (
-                  <tr>
-                    <td colSpan={7} className="py-4 text-center text-gray-500">
-                      Müşteri bulunamadı.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardBody>
-      </Card>
-
       {selectedAccount && (
         <Card className="bg-gray-900 border border-gray-800" ref={detailRef}>
           <CardHeader title="Müşteri Detayı" subtitle={selectedAccount.name} />
@@ -538,6 +466,98 @@ export default function CrmClient() {
           </CardBody>
         </Card>
       )}
+
+      <Card className="bg-gray-900 border border-gray-800">
+        <CardHeader title="Müşteri Listesi" subtitle="CRM müşteri kartları" />
+        <CardBody className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <input
+              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400"
+              placeholder="Ara (isim, kod, e-posta, telefon, vergi no)"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <Button variant="outline" onClick={loadAccounts} disabled={loading}>
+              Yenile
+            </Button>
+            <Button onClick={() => setShowAddModal(true)}>
+              Müşteri Ekle
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-400">
+                  <th className="py-2">Kod</th>
+                  <th className="py-2">Müşteri</th>
+                  <th className="py-2">E-posta</th>
+                  <th className="py-2">Telefon</th>
+                  <th className="py-2">Vergi No</th>
+                  <th className="py-2">Bakiye</th>
+                  <th className="py-2 text-right">İşlem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAccounts.map((account) => (
+                  <tr
+                    key={account.id}
+                    className="border-t border-gray-800 text-gray-200 cursor-pointer hover:bg-gray-800/60"
+                    onClick={() => {
+                      window.scrollTo({ top: 0, behavior: 'smooth' })
+                      setSelectedAccount(account)
+                    }}
+                  >
+                    <td className="py-2">{account.code || '-'}</td>
+                    <td className="py-2">{account.name}</td>
+                    <td className="py-2">{account.email || '-'}</td>
+                    <td className="py-2">{account.phone || '-'}</td>
+                    <td className="py-2">{account.tax_number || '-'}</td>
+                    <td className={`py-2 font-semibold ${account.balance && account.balance !== 0 ? (account.balance > 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-200'}`}>
+                      {account.balance ? `${account.balance.toLocaleString('tr-TR')} TL` : '0 TL'}
+                    </td>
+                    <td className="py-2 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                          setSelectedAccount(account)
+                        }}
+                      >
+                        Detay
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        color="error"
+                        size="sm"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          deleteCustomer(account.id)
+                        }}
+                      >
+                        Sil
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {!filteredAccounts.length && (
+                  <tr>
+                    <td colSpan={7} className="py-4 text-center text-gray-500">
+                      Müşteri bulunamadı.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
 
       {/* Müşteri Ekleme Modal */}
       <Modal

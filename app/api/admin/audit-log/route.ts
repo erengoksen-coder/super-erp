@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { isAdminRole } from '@/lib/auth/permissions-check'
+import { apiLogger } from '@/lib/api/logger'
 
 /** GET: Son admin işlemleri (audit_logs, table_name = admin_operation) - sadece admin */
 export const GET = withAuth(async (request: NextRequest, user: { userId: string; role: string }) => {
@@ -11,18 +12,10 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string;
   try {
     const { searchParams } = new URL(request.url)
     const limit = Math.min(Number(searchParams.get('limit')) || 50, 200)
-    const tableFilter = searchParams.get('table') || 'admin_operation'
+    const tableParam = searchParams.get('table')
+    const tableFilter = tableParam === 'all' || tableParam === '' ? '' : (tableParam || 'admin_operation')
 
-    const db = getDatabase()
-    const rows = db.prepare(`
-      SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, a.before_data, a.after_data, a.created_at,
-             u.full_name as user_name, u.username
-      FROM audit_logs a
-      LEFT JOIN users u ON u.id = a.user_id
-      WHERE a.table_name = ?
-      ORDER BY a.created_at DESC
-      LIMIT ?
-    `).all(tableFilter, limit) as Array<{
+    type Row = {
       id: string
       table_name: string
       action: string
@@ -33,7 +26,26 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string;
       created_at: string
       user_name: string | null
       username: string | null
-    }>
+    }
+    const db = getDatabase()
+    const rows: Row[] = tableFilter
+      ? (db.prepare(`
+          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, a.before_data, a.after_data, a.created_at,
+                 u.full_name as user_name, u.username
+          FROM audit_logs a
+          LEFT JOIN users u ON u.id = a.user_id
+          WHERE a.table_name = ?
+          ORDER BY a.created_at DESC
+          LIMIT ?
+        `).all(tableFilter, limit) as Row[])
+      : (db.prepare(`
+          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, a.before_data, a.after_data, a.created_at,
+                 u.full_name as user_name, u.username
+          FROM audit_logs a
+          LEFT JOIN users u ON u.id = a.user_id
+          ORDER BY a.created_at DESC
+          LIMIT ?
+        `).all(limit) as Row[])
 
     const list = rows.map((r) => {
       let before_data: unknown = null
@@ -58,7 +70,9 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string;
     })
 
     return NextResponse.json(list)
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Audit log hatası'
+    apiLogger.error('Audit log GET failed', { error: message })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }, ['admin'])

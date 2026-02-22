@@ -8,6 +8,7 @@ import { resolveUnitFactor } from '@/lib/units'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { apiLogger } from '@/lib/api/logger'
+import { getUserIdsWantingNotification } from '@/lib/notifications/preferences'
 
 type ShipmentRow = {
   id: string
@@ -223,25 +224,40 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     }
 
-    // Cari (müşteri) kontrolü: Sevkiyatın yapıldığı carideki iskonto oranı uygulanır (id ile al, tip filtresi yok – seçilen cari ne ise onun discount_rate kullanılır)
+    // Cari (müşteri) kontrolü: Önce id ile ara, bulunamazsa kod (MUS-001 vb.) ile ara
     let customer: (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+    const customerIdTrimmed = String(customer_id || '').trim()
     try {
       customer = db.prepare(`
         SELECT id, name, balance, risk_limit, COALESCE(discount_rate, 0) as discount_rate
         FROM accounts WHERE id = ? AND deleted_at IS NULL
-      `).get(customer_id) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+      `).get(customerIdTrimmed) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+      if (!customer && /^[A-Za-z]+-\d+$/.test(customerIdTrimmed)) {
+        const byCode = db.prepare(`
+          SELECT id, name, balance, risk_limit, COALESCE(discount_rate, 0) as discount_rate
+          FROM accounts WHERE code = ? AND deleted_at IS NULL
+        `).get(customerIdTrimmed) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+        if (byCode) customer = byCode
+      }
     } catch (e: any) {
       if (e.message?.includes('no such column: discount_rate')) {
         customer = db.prepare('SELECT id, name, balance, risk_limit FROM accounts WHERE id = ? AND deleted_at IS NULL')
-          .get(customer_id) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
-        if (customer) (customer as any).discount_rate = 0
+          .get(customerIdTrimmed) as (CustomerRow & { balance?: number | null; risk_limit?: number | null; discount_rate?: number | null; name?: string | null }) | undefined
+        if (!customer && /^[A-Za-z]+-\d+$/.test(customerIdTrimmed)) {
+          const byCode = db.prepare('SELECT id, name, balance, risk_limit FROM accounts WHERE code = ? AND deleted_at IS NULL').get(customerIdTrimmed) as any
+          if (byCode) {
+            customer = byCode
+            ;(customer as any).discount_rate = 0
+          }
+        } else if (customer) (customer as any).discount_rate = 0
       } else {
         throw e
       }
     }
     if (!customer) {
-      return fail('Müşteri/Cari bulunamadı', { status: 404 })
+      return fail('Müşteri/Cari bulunamadı. Cari kodunun (örn. MUS-001) veya cari ID\'sinin doğru olduğundan emin olun.', { status: 404 })
     }
+    const resolvedCustomerId = customer.id
 
     const shipmentId = randomUUID()
     const shipmentNumber = await generateShipmentNumber()
@@ -401,7 +417,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       `).run(
         shipmentId, 
         shipmentNumber, 
-        customer_id, 
+        resolvedCustomerId, 
         shipment_date, 
         totalQuantity, 
         baseTotalAmount, // İskonto öncesi BOM fiyatı (Ara Toplam)
@@ -416,9 +432,9 @@ export const POST = withAuth(async (request: NextRequest) => {
         approvalRequestedAt || null
       )
       
-      // Risk limitini aşıyorsa admin, manager ve muhasebe kullanıcılarına bildirim gönder
+      // Risk limitini aşıyorsa sevkiyat bildirimi tercihi açık olan yetkili kullanıcılara bildirim gönder
       if (exceedsRiskLimit) {
-        const now = new Date().toISOString()
+        const userIdsWanting = new Set(getUserIdsWantingNotification(db, 'shipment_approved'))
         const approvalUsers = db.prepare(`
           SELECT id, full_name, username
           FROM users
@@ -426,26 +442,18 @@ export const POST = withAuth(async (request: NextRequest) => {
             AND deleted_at IS NULL
             AND is_approved = 1
         `).all() as Array<{ id: string; full_name: string | null; username: string }>
-        
+        const now = new Date().toISOString()
         const customerName = customer.name || 'Bilinmeyen Müşteri'
         const notificationTitle = 'Risk Limiti Aşan Sevkiyat Onayı Gerekli'
         const notificationMessage = `${customerName} müşterisi için ${shipmentNumber} numaralı sevkiyat risk limitini aşıyor. Limit: ${riskLimit.toFixed(2)} ₺, Mevcut Bakiye: ${currentBalance.toFixed(2)} ₺, Yeni Bakiye: ${(currentBalance + finalAmount).toFixed(2)} ₺. Onay için sevkiyat detay sayfasına gidin.`
-        
         const insertNotification = db.prepare(`
           INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, created_at)
           VALUES (?, ?, ?, ?, 'warning', 'shipment', ?, ?)
         `)
-        
-        for (const user of approvalUsers) {
+        for (const u of approvalUsers) {
+          if (!userIdsWanting.has(u.id)) continue
           const notificationId = randomUUID()
-          insertNotification.run(
-            notificationId,
-            user.id,
-            notificationTitle,
-            notificationMessage,
-            shipmentId,
-            now
-          )
+          insertNotification.run(notificationId, u.id, notificationTitle, notificationMessage, shipmentId, now)
         }
       }
       
@@ -458,7 +466,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           SET balance = balance + ?,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(balanceUpdateAmount, customer_id)
+        `).run(balanceUpdateAmount, resolvedCustomerId)
       }
 
       // Sevkiyat kalemlerini ekle ve ürünleri sevkiyata başla
@@ -548,7 +556,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           VALUES (?, ?, 'debit', ?, 'shipment_item', ?, ?, CURRENT_TIMESTAMP)
         `).run(
           transactionId,
-          customer_id,
+          resolvedCustomerId,
           itemFinalAmount, // İskonto sonrası + KDV dahil tutar (cari hesaba bu tutar yazılır)
           itemId,
           description

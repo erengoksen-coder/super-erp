@@ -47,6 +47,9 @@ export const GET = withAuth(async (request: NextRequest) => {
         u.last_login,
         u.last_activity,
         u.dealer_name,
+        COALESCE(u.can_export, 1) as can_export,
+        u.max_export_rows,
+        COALESCE(u.view_only, 0) as view_only,
         a.full_name as approved_by_name
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
@@ -99,7 +102,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await parseJsonBody(request)
-    const { username, email, password, full_name, job_title, role, position, is_approved, permissions, dealer_name } = body
+    const { username, email, password, full_name, job_title, role, position, is_approved, permissions, dealer_name, can_export, max_export_rows, view_only } = body
 
     if (!username || !password) {
       return NextResponse.json(
@@ -133,9 +136,10 @@ export const POST = withAuth(async (request: NextRequest) => {
       const roleName = normalizeRoleName(role)
       const roleId = getRoleId(roleName)
 
+      const viewOnly = view_only === true || view_only === 1
       db.prepare(`
-        INSERT INTO users (id, username, email, password_hash, full_name, role, position, job_title, is_approved, company_id, branch_id, dealer_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, username, email, password_hash, full_name, role, position, job_title, is_approved, company_id, branch_id, dealer_name, can_export, max_export_rows, view_only)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         username,
@@ -148,7 +152,10 @@ export const POST = withAuth(async (request: NextRequest) => {
         is_approved ? 1 : 0,
         DEFAULT_COMPANY_ID,
         DEFAULT_BRANCH_ID,
-        (dealer_name != null && String(dealer_name).trim() !== '') ? String(dealer_name).trim() : null
+        (dealer_name != null && String(dealer_name).trim() !== '') ? String(dealer_name).trim() : null,
+        can_export === false || can_export === 0 ? 0 : 1,
+        max_export_rows == null || max_export_rows === '' ? null : Math.max(0, parseInt(String(max_export_rows), 10) || 0),
+        viewOnly ? 1 : 0
       )
 
       db.prepare(`
@@ -161,7 +168,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         VALUES (?, ?, ?, ?, ?)
       `).run(`ur_${userId}_${roleId}`, userId, roleId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
 
-      // İzinleri ekle
+      // İzinleri ekle (view_only ise ekleme/düzenleme/silme kapalı)
       if (permissions && Array.isArray(permissions)) {
         for (const perm of permissions) {
           if (perm.page_path) {
@@ -174,9 +181,9 @@ export const POST = withAuth(async (request: NextRequest) => {
               userId,
               perm.page_path,
               perm.can_view ? 1 : 0,
-              perm.can_create ? 1 : 0,
-              perm.can_edit ? 1 : 0,
-              perm.can_delete ? 1 : 0,
+              viewOnly ? 0 : (perm.can_create ? 1 : 0),
+              viewOnly ? 0 : (perm.can_edit ? 1 : 0),
+              viewOnly ? 0 : (perm.can_delete ? 1 : 0),
               DEFAULT_COMPANY_ID,
               DEFAULT_BRANCH_ID
             )

@@ -112,7 +112,7 @@ export default function BOMPage() {
       setProducts(productsData)
       setMaterials(materialsData)
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('Veri yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }

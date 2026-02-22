@@ -118,6 +118,97 @@ export const GET = withAuth(async (request) => {
         WHERE psn.shipment_id IS NOT NULL AND psn.shipment_id != ''
       `).get() as { count: number | null }
       const shippedCount = Number(shippedStats?.count ?? 0)
+
+      // Bu ay ciro: sevkiyatların final_amount toplamı (bu ay teslim/sevk edilen)
+      const now = new Date()
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      const salesThisMonthRow = db.prepare(`
+        SELECT COALESCE(SUM(CAST(final_amount AS REAL)), 0) as total
+        FROM shipments
+        WHERE (deleted_at IS NULL OR deleted_at = '')
+          AND (shipment_date >= ? OR created_at >= ?)
+      `).get(monthStart, monthStart) as { total: number }
+      const salesThisMonth = Number(salesThisMonthRow?.total ?? 0)
+
+      // Önceki ay ciro (karşılaştırma için)
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const prevMonthStartStr = prevMonthStart.toISOString().split('T')[0]
+      const prevMonthEndStr = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0]
+      const salesLastMonthRow = db.prepare(`
+        SELECT COALESCE(SUM(CAST(final_amount AS REAL)), 0) as total
+        FROM shipments
+        WHERE (deleted_at IS NULL OR deleted_at = '')
+          AND (shipment_date >= ? AND shipment_date <= ?)
+      `).get(prevMonthStartStr, prevMonthEndStr) as { total: number }
+      const salesLastMonth = Number(salesLastMonthRow?.total ?? 0)
+
+      // Bekleyen tahsilat: carilerdeki toplam alacak (balance > 0)
+      const receivablesRow = db.prepare(`
+        SELECT COALESCE(SUM(CAST(balance AS REAL)), 0) as total
+        FROM accounts
+        WHERE (deleted_at IS NULL OR deleted_at = '') AND CAST(balance AS REAL) > 0
+      `).get() as { total: number }
+      const totalReceivables = Number(receivablesRow?.total ?? 0)
+
+      // Bugünkü işlemler (bugün oluşturulan kayıt sayıları)
+      const todayStr = now.toISOString().split('T')[0]
+      const todayOrdersRow = db.prepare(`
+        SELECT COUNT(*) as count FROM orders WHERE deleted_at IS NULL AND date(created_at) = ?
+      `).get(todayStr) as CountRow | undefined
+      const todayInvoicesRow = db.prepare(`
+        SELECT COUNT(*) as count FROM invoices WHERE deleted_at IS NULL AND date(created_at) = ?
+      `).get(todayStr) as CountRow | undefined
+      const todayShipmentsRow = db.prepare(`
+        SELECT COUNT(*) as count FROM shipments WHERE deleted_at IS NULL AND date(created_at) = ?
+      `).get(todayStr) as CountRow | undefined
+      const todayOrders = Number(todayOrdersRow?.count ?? 0)
+      const todayInvoices = Number(todayInvoicesRow?.count ?? 0)
+      const todayShipments = Number(todayShipmentsRow?.count ?? 0)
+
+      // Onay bekleyen sevkiyat sayısı (risk limiti aşan)
+      const pendingApprovalRow = db.prepare(`
+        SELECT COUNT(*) as count FROM shipments
+        WHERE deleted_at IS NULL AND approval_status = 'pending'
+      `).get() as CountRow | undefined
+      const pendingApprovalCount = Number(pendingApprovalRow?.count ?? 0)
+
+      // Bu hafta teslim (delivery_date bu hafta içinde, Pazartesi–Pazar)
+      const dayOfWeek = now.getDay()
+      const toMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+      const weekStart = new Date(now)
+      weekStart.setDate(now.getDate() + toMonday)
+      weekStart.setHours(0, 0, 0, 0)
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      const weekStartStr = weekStart.toISOString().split('T')[0]
+      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      const deliveriesThisWeekRow = db.prepare(`
+        SELECT COUNT(*) as count FROM orders
+        WHERE deleted_at IS NULL AND delivery_date IS NOT NULL AND delivery_date != ''
+          AND date(delivery_date) >= ? AND date(delivery_date) <= ?
+      `).get(weekStartStr, weekEndStr) as CountRow | undefined
+      const deliveriesThisWeek = Number(deliveriesThisWeekRow?.count ?? 0)
+
+      const overdueOrdersRow = db.prepare(`
+        SELECT COUNT(*) as count FROM orders
+        WHERE deleted_at IS NULL AND delivery_date IS NOT NULL AND delivery_date != ''
+          AND date(delivery_date) < ? AND status NOT IN ('completed', 'cancelled')
+      `).get(todayStr) as CountRow | undefined
+      const overdueOrders = Number(overdueOrdersRow?.count ?? 0)
+
+      const overdueChecksRow = db.prepare(`
+        SELECT COUNT(*) as count FROM checks_and_notes
+        WHERE deleted_at IS NULL AND due_date IS NOT NULL AND date(due_date) < date('now')
+          AND status NOT IN ('collected', 'cancelled')
+      `).get() as CountRow | undefined
+      const overdueChecksNotes = Number(overdueChecksRow?.count ?? 0)
+
+      // Bekleyen satın alma talepleri (completed olmayan)
+      const pendingPurchaseRequestsRow = db.prepare(`
+        SELECT COUNT(*) as count FROM purchase_requests
+        WHERE deleted_at IS NULL AND status != 'completed'
+      `).get() as CountRow | undefined
+      const pendingPurchaseRequests = Number(pendingPurchaseRequestsRow?.count ?? 0)
       
       const stationOrder = ['pending', 'iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
       const stationNames: Record<string, string> = {
@@ -165,6 +256,17 @@ export const GET = withAuth(async (request) => {
         productionTrend: trendData,
         stationStats: formattedStationStats,
         bottleneck: bottleneck.count > 0 ? bottleneck : null,
+        salesThisMonth,
+        salesLastMonth,
+        totalReceivables,
+        todayOrders,
+        todayInvoices,
+        todayShipments,
+        pendingApprovalCount,
+        deliveriesThisWeek,
+        overdueOrders,
+        overdueChecksNotes,
+        pendingPurchaseRequests,
       }
     })
 

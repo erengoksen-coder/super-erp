@@ -586,9 +586,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const totalRows = data.length
+    const createdCount = insertedOrders.length
+    const skippedCount = errors.length
     return NextResponse.json({
-      message: `${insertedOrders.length} sipariş başarıyla yüklendi`,
-      inserted_count: insertedOrders.length,
+      message: createdCount > 0
+        ? `${createdCount} sipariş eklendi.${skippedCount > 0 ? ` ${skippedCount} satır atlandı.` : ''}`
+        : skippedCount > 0
+          ? `Hiç sipariş eklenemedi. ${skippedCount} satır atlandı.`
+          : 'İşlenen veri yok.',
+      inserted_count: createdCount,
+      total_rows: totalRows,
+      skipped_count: skippedCount,
       errors: errors.length > 0 ? errors : undefined
     })
   } catch (err: any) {

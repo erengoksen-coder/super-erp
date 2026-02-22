@@ -39,7 +39,7 @@ export default function FireAnalysisPage() {
       const data = await response.json()
       setAnalysis(data)
     } catch (error) {
-      console.error('Error loading analysis:', error)
+      console.error('Fire analizi yüklenirken hata:', error)
       toast.error('Analiz yüklenirken hata oluştu')
     } finally {
       setLoading(false)

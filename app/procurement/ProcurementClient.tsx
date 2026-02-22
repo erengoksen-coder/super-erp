@@ -4,6 +4,7 @@ import { useMemo, useEffect, useState } from 'react'
 import { fetchApi } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { toast } from '@/lib/notify'
 
 type PurchaseRequest = {
   id: string
@@ -69,50 +70,71 @@ export default function ProcurementClient() {
 
   async function createRequest() {
     setError(null)
-    await fetchApi('/api/procurement/purchase-requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        material_id: form.material_id,
-        requested_quantity: Number(form.requested_quantity),
-        unit_price: form.unit_price ? Number(form.unit_price) : undefined,
-        supplier_name: form.supplier_name || undefined,
-        notes: form.notes || undefined,
-      }),
-    })
-    setForm({
-      material_id: '',
-      requested_quantity: '',
-      unit_price: '',
-      supplier_name: '',
-      notes: '',
-    })
-    await loadRequests()
+    try {
+      await fetchApi('/api/procurement/purchase-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          material_id: form.material_id,
+          requested_quantity: Number(form.requested_quantity),
+          unit_price: form.unit_price ? Number(form.unit_price) : undefined,
+          supplier_name: form.supplier_name || undefined,
+          notes: form.notes || undefined,
+        }),
+      })
+      toast.success('Satın alma talebi oluşturuldu')
+      setForm({
+        material_id: '',
+        requested_quantity: '',
+        unit_price: '',
+        supplier_name: '',
+        notes: '',
+      })
+      await loadRequests()
+    } catch (err: any) {
+      const msg = err?.message || 'Talep oluşturulamadı'
+      setError(msg)
+      toast.error(msg)
+    }
   }
 
   async function updateRequest() {
     if (!selectedRequest) return
     setError(null)
-    await fetchApi(`/api/procurement/purchase-requests/${selectedRequest.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: editForm.status,
-        requested_quantity: Number(editForm.requested_quantity),
-        unit_price: editForm.unit_price ? Number(editForm.unit_price) : undefined,
-        supplier_name: editForm.supplier_name || undefined,
-      }),
-    })
-    await loadRequests()
+    try {
+      await fetchApi(`/api/procurement/purchase-requests/${selectedRequest.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: editForm.status,
+          requested_quantity: Number(editForm.requested_quantity),
+          unit_price: editForm.unit_price ? Number(editForm.unit_price) : undefined,
+          supplier_name: editForm.supplier_name || undefined,
+        }),
+      })
+      toast.success('Talep güncellendi')
+      await loadRequests()
+    } catch (err: any) {
+      const msg = err?.message || 'Talep güncellenemedi'
+      setError(msg)
+      toast.error(msg)
+    }
   }
 
   async function deleteRequest(id: string) {
     if (!confirm('Talep silinsin mi?')) return
-    await fetchApi(`/api/procurement/purchase-requests/${id}`, { method: 'DELETE' })
-    if (selectedRequest?.id === id) {
-      setSelectedRequest(null)
+    try {
+      await fetchApi(`/api/procurement/purchase-requests/${id}`, { method: 'DELETE' })
+      toast.success('Talep silindi')
+      if (selectedRequest?.id === id) {
+        setSelectedRequest(null)
+      }
+      await loadRequests()
+    } catch (err: any) {
+      const msg = err?.message || 'Talep silinemedi'
+      setError(msg)
+      toast.error(msg)
     }
-    await loadRequests()
   }
 
   const filteredRequests = useMemo(() => {

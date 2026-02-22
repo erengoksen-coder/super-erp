@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * data/backups/ içindeki 7 günden eski yedekleri siler.
- * Kullanım: node scripts/rotate-backups.js [--days=7]
+ * data/backups/ içindeki yedekleri rotasyona tabi tutar.
+ * Kullanım:
+ *   node scripts/rotate-backups.js [--days=7]     → 7 günden eski yedekleri siler
+ *   node scripts/rotate-backups.js [--keep=10]   → En son 10 yedeği tutar, eskileri siler
+ *   Her iki parametre verilirse önce --keep uygulanır, kalan dosyalarda --days uygulanır.
  * Öneri: backup-database.js sonrası veya cron ile çalıştırın.
  */
 
@@ -13,10 +16,12 @@ const backupDir = path.join(projectRoot, 'data', 'backups')
 
 const args = process.argv.slice(2)
 let keepDays = 7
+let keepCount = 0
 for (const arg of args) {
   if (arg.startsWith('--days=')) {
     keepDays = Math.max(1, parseInt(arg.slice(7), 10) || 7)
-    break
+  } else if (arg.startsWith('--keep=')) {
+    keepCount = Math.max(1, parseInt(arg.slice(7), 10) || 10)
   }
 }
 
@@ -25,24 +30,43 @@ if (!fs.existsSync(backupDir)) {
   process.exit(0)
 }
 
-const now = Date.now()
-const maxAgeMs = keepDays * 24 * 60 * 60 * 1000
 const files = fs.readdirSync(backupDir)
+  .map((name) => ({ name, path: path.join(backupDir, name), mtimeMs: fs.statSync(path.join(backupDir, name)).mtimeMs }))
+  .filter((f) => fs.statSync(f.path).isFile())
+  .sort((a, b) => b.mtimeMs - a.mtimeMs) // yeniden eskiye
+
 let removed = 0
 
-for (const name of files) {
-  const filePath = path.join(backupDir, name)
-  if (!fs.statSync(filePath).isFile()) continue
-  const stat = fs.statSync(filePath)
-  if (now - stat.mtimeMs > maxAgeMs) {
+if (keepCount > 0 && files.length > keepCount) {
+  const toRemove = files.slice(keepCount)
+  for (const f of toRemove) {
     try {
-      fs.unlinkSync(filePath)
-      console.log('Silindi:', name)
+      fs.unlinkSync(f.path)
+      console.log('Silindi (--keep):', f.name)
       removed++
     } catch (e) {
-      console.error('Silinemedi:', name, e.message)
+      console.error('Silinemedi:', f.name, e.message)
     }
   }
 }
 
-console.log('Rotasyon tamamlandı. Silinen:', removed, 'dosya. Tutulan süre:', keepDays, 'gün.')
+if (keepDays > 0) {
+  const now = Date.now()
+  const maxAgeMs = keepDays * 24 * 60 * 60 * 1000
+  const afterKeep = fs.readdirSync(backupDir)
+    .map((name) => ({ name, path: path.join(backupDir, name), mtimeMs: fs.statSync(path.join(backupDir, name)).mtimeMs }))
+    .filter((f) => fs.statSync(f.path).isFile())
+  for (const f of afterKeep) {
+    if (now - f.mtimeMs > maxAgeMs) {
+      try {
+        fs.unlinkSync(f.path)
+        console.log('Silindi (--days):', f.name)
+        removed++
+      } catch (e) {
+        console.error('Silinemedi:', f.name, e.message)
+      }
+    }
+  }
+}
+
+console.log('Rotasyon tamamlandı. Silinen:', removed, 'dosya.')

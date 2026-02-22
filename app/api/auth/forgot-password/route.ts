@@ -5,11 +5,19 @@ import { randomUUID } from 'crypto'
 import { sendEmail } from '@/lib/notifications/send'
 import { fillTemplate, emailTemplates } from '@/lib/notifications/templates'
 import { ok, fail } from '@/lib/api/response'
+import { rateLimit } from '@/lib/api/rateLimit'
 
 const TOKEN_VALID_HOURS = 1
 
 export async function POST(request: NextRequest) {
   try {
+    const limit = rateLimit(request, { keyPrefix: 'auth:forgot-password', max: 5, windowMs: 60_000 })
+    if (!limit.allowed) {
+      return fail('Çok fazla deneme. Lütfen sonra tekrar deneyin.', {
+        status: 429,
+        headers: { 'Retry-After': Math.ceil((limit.reset - Date.now()) / 1000).toString() },
+      })
+    }
     const body = await parseJsonBody(request).catch(() => null)
     const email = typeof body?.email === 'string' ? body.email.trim() : ''
     if (!email) {

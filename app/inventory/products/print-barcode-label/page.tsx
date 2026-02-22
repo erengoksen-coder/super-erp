@@ -42,7 +42,7 @@ export default function PrintBarcodeLabelPage() {
     logo_align: 'left',
     product_name_font_size: '27',
     barcode_height: '18',
-    qr_code_size: '28',
+    qr_code_size: '30',
     detail_font_size: '13',
     label_width: '100',
     label_height: '100',
@@ -427,15 +427,23 @@ export default function PrintBarcodeLabelPage() {
             )
           })()}
 
-          {/* Ürün Adı + QR Kod yan yana (kırlent etiketinde üstte görünsün) */}
-          <div className="flex justify-between items-start gap-2" style={{ marginBottom: '0.6mm', width: '100%' }}>
-            <div className="flex-1 min-w-0 text-left">
+          {/* Ürün Adı + QR Kod aynı satırda (yan yana), yazdırmada alt satıra düşmesin */}
+          <div
+            className="flex flex-nowrap justify-between items-center gap-2"
+            style={{
+              marginBottom: '0.6mm',
+              width: '100%',
+              flexWrap: 'nowrap',
+              pageBreakInside: 'avoid',
+            }}
+          >
+            <div className="flex-1 min-w-0 text-left" style={{ minWidth: 0 }}>
               <div className="font-black text-black leading-tight" style={{ fontSize: `${(parseFloat(labelSettings.product_name_font_size) || 27) + 4}px`, fontWeight: 900, lineHeight: '1.2', color: '#000000' }}>{barcodeData.product_name}</div>
             </div>
-            <div className="flex-shrink-0" style={{ marginLeft: '1mm' }}>
+            <div className="flex-shrink-0" style={{ marginLeft: '1mm', flexShrink: 0 }}>
               <QRCodeSVG
                 value={qrContent}
-                size={parseInt(labelSettings.qr_code_size) || 28}
+                size={parseInt(labelSettings.qr_code_size) || 30}
                 level="M"
                 includeMargin={false}
                 style={{
@@ -443,7 +451,8 @@ export default function PrintBarcodeLabelPage() {
                   visibility: 'visible',
                   opacity: 1,
                   width: `${labelSettings.qr_code_size}px`,
-                  height: `${labelSettings.qr_code_size}px`
+                  height: `${labelSettings.qr_code_size}px`,
+                  flexShrink: 0,
                 }}
               />
             </div>
@@ -583,6 +592,11 @@ export default function PrintBarcodeLabelPage() {
           min-height: 20mm !important;
         }
         
+        /* Ürün adı + QR aynı satırda kalsın (altına düşmesin) */
+        .print-label > div.flex.flex-nowrap {
+          flex-wrap: nowrap !important;
+          page-break-inside: avoid !important;
+        }
         /* QR kod görünürlüğü */
         svg[data-testid="qr-code-svg"] {
           display: block !important;

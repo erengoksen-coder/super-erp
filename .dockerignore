@@ -14,3 +14,7 @@ data
 *.db-wal
 *.log
 .env*
+mobile-rts-game
+testsprite_tests
+docs
+*.md

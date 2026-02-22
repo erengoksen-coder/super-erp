@@ -20,7 +20,9 @@ import {
   MoreHorizontal,
   Plus,
   Activity,
-  FileDown
+  FileDown,
+  Wallet,
+  FileText
 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { LogoWithBackground } from '@/components/Logo'
@@ -41,6 +43,12 @@ interface DashboardStats {
   totalStockValue: number
   pendingProduction: number
   criticalStock: number
+  deliveriesThisWeek?: number
+  overdueOrders?: number
+  overdueChecksNotes?: number
+  salesThisMonth?: number
+  salesLastMonth?: number
+  totalReceivables?: number
   productionTrend: Array<{
     date: string
     count: number
@@ -90,6 +98,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [criticalList, setCriticalList] = useState<CriticalMaterial[]>([])
   const user = useAuthStore((state) => state.user)
+  const canExport = user?.can_export !== 0
 
   useEffect(() => {
     let mounted = true
@@ -202,7 +211,7 @@ export default function DashboardPage() {
     setExporting(true)
     try {
       const res = await fetch('/api/dashboard/export', { credentials: 'include' })
-      if (!res.ok) throw new Error('Export başarısız')
+      if (!res.ok) throw new Error('Dışa aktarma başarısız')
       const blob = await res.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -211,7 +220,7 @@ export default function DashboardPage() {
       a.click()
       window.URL.revokeObjectURL(url)
     } catch {
-      // toast or silent
+      // Hata durumunda sessiz veya toast
     } finally {
       setExporting(false)
     }
@@ -235,10 +244,12 @@ export default function DashboardPage() {
       icon={Activity}
       actions={
         <>
+          {canExport && (
           <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={exporting}>
             <FileDown className="w-4 h-4 mr-2" />
             {exporting ? 'İndiriliyor...' : 'Excel İndir'}
           </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => router.push('/production/calendar')}>
             <Calendar className="w-4 h-4 mr-2" />
             Plan
@@ -281,11 +292,33 @@ export default function DashboardPage() {
       )}
 
       {/* 1. KPI Kartları - En üstte */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 lg:gap-6">
         <StatWidget
           title="Stok Değeri"
           value={`₺${stats?.totalStockValue?.toLocaleString('tr-TR') || '0'}`}
           icon={<DollarSign className="w-6 h-6" />}
+          color="primary"
+          loading={loading}
+        />
+        <StatWidget
+          title="Bu Ay Ciro"
+          value={`₺${(stats?.salesThisMonth ?? 0).toLocaleString('tr-TR')}`}
+          change={
+            stats?.salesLastMonth != null && stats.salesLastMonth > 0 && stats.salesThisMonth != null
+              ? (() => {
+                  const pct = ((stats.salesThisMonth - stats.salesLastMonth) / stats.salesLastMonth) * 100
+                  return { value: `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`, type: pct >= 0 ? 'increase' : 'decrease' }
+                })()
+              : undefined
+          }
+          icon={<TrendingUp className="w-6 h-6" />}
+          color="success"
+          loading={loading}
+        />
+        <StatWidget
+          title="Bekleyen Tahsilat"
+          value={`₺${(stats?.totalReceivables ?? 0).toLocaleString('tr-TR')}`}
+          icon={<Wallet className="w-6 h-6" />}
           color="primary"
           loading={loading}
         />
@@ -316,17 +349,48 @@ export default function DashboardPage() {
         <StatWidget
           title="Son 7 Gün Üretim"
           value={chartData.reduce((sum, item) => sum + item['Üretilen Miktar'], 0)}
-          icon={<TrendingUp className="w-6 h-6" />}
+          icon={<BarChart3 className="w-6 h-6" />}
           color="success"
           loading={loading}
         />
+        {canViewOrders && (
+          <div className="cursor-pointer" onClick={() => router.push('/orders')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/orders')}>
+            <StatWidget
+              title="Bu Hafta Teslim"
+              value={stats?.deliveriesThisWeek ?? 0}
+              icon={<Calendar className="w-6 h-6" />}
+              color="primary"
+              loading={loading}
+            />
+          </div>
+        )}
+        {canViewOrders && (
+          <div className="cursor-pointer" onClick={() => router.push('/orders?overdue=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/orders?overdue=1')}>
+            <StatWidget
+              title="Gecikmiş Sipariş"
+              value={stats?.overdueOrders ?? 0}
+              icon={<AlertCircle className="w-6 h-6" />}
+              color="error"
+              loading={loading}
+            />
+          </div>
+        )}
+        <div className="cursor-pointer" onClick={() => router.push('/checks-notes?overdue=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/checks-notes?overdue=1')}>
+          <StatWidget
+            title="Vadesi geçmiş çek/senet"
+            value={stats?.overdueChecksNotes ?? 0}
+            icon={<FileText className="w-6 h-6" />}
+            color="error"
+            loading={loading}
+          />
+        </div>
       </div>
 
       {/* Hızlı İşlemler - KPI altında, tek satır */}
       <Card className="border border-gray-200/80">
         <CardBody className="py-3 px-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-gray-600 mr-2">Hızlı İşlemler:</span>
+            <span className="text-sm font-medium text-gray-600 dark:text-slate-400 hover:text-slate-200 dark:hover:text-slate-200 transition-colors">Hızlı İşlemler:</span>
             <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/barcodes/scan')}>
               <QrCode className="w-4 h-4 mr-1.5" />
               Barkod Oku

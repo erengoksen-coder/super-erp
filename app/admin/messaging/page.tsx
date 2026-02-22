@@ -10,6 +10,7 @@ import { isAdminRole } from '@/lib/auth/permissions-check'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Conversation = {
   user_a_id: string
@@ -110,7 +111,13 @@ export default function AdminMessagingPage() {
             {loading ? (
               <div className="p-4 text-slate-400">Yükleniyor...</div>
             ) : conversations.length === 0 ? (
-              <div className="p-4 text-slate-400">Henüz konuşma yok.</div>
+              <div className="p-4">
+                <EmptyState
+                  title="Henüz konuşma yok"
+                  description="Kullanıcılar arası mesajlaşma burada listelenir."
+                  icon={MessageCircle}
+                />
+              </div>
             ) : (
               <div ref={listRef} className="max-h-[480px] overflow-y-auto">
                 {conversations.map((c) => {

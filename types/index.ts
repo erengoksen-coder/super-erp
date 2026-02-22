@@ -202,6 +202,32 @@ export interface Account {
   updated_at: string
 }
 
+/** Çek veya senet: alındığı/verildiği cari ile */
+export interface CheckNote {
+  id: string
+  type: 'check' | 'promissory_note'
+  direction: 'received' | 'given'
+  account_id: string
+  amount: number
+  currency: string
+  issue_date: string | null
+  due_date: string
+  bank_name: string | null
+  check_or_note_number: string | null
+  status: string
+  notes: string | null
+  /** Verildiği yer (kişi/firma adı) */
+  given_to?: string | null
+  /** Verildiği tarih (otomatik veya sonradan düzenlenebilir) */
+  given_at?: string | null
+  /** Verildiği cari hesap id (seçilirse bu carinin borcundan düşülür) */
+  given_to_account_id?: string | null
+  created_at: string
+  updated_at: string
+  account_name?: string | null
+  account_code?: string | null
+}
+
 // Permission Types
 export interface Permission {
   page_path: string

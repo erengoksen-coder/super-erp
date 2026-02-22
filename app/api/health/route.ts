@@ -1,11 +1,20 @@
 import { NextRequest } from 'next/server'
 
-const DEFAULT_PAGE_SIZE = 50
-const MAX_PAGE_SIZE = 500
+/**
+ * Uygulama sürümü (deploy/monitoring için).
+ * BUILD_VERSION ortam değişkeni ile override edilebilir.
+ */
+function getAppVersion(): string {
+  if (typeof process !== 'undefined' && process.env?.BUILD_VERSION) {
+    return process.env.BUILD_VERSION
+  }
+  return process.env.npm_package_version ?? '0.1.0'
+}
 
 /**
  * Sağlık kontrolü: veritabanı bağlantısı ve API yanıtı.
  * Monitoring / load balancer için kullanılabilir.
+ * ?deep=true ile veritabanı gerçekten sorgulanır.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -37,6 +46,8 @@ export async function GET(request: NextRequest) {
   return new Response(
     JSON.stringify({
       ok: overallHealth,
+      status: overallHealth ? 'healthy' : 'unhealthy',
+      version: getAppVersion(),
       checks,
       timestamp: new Date().toISOString(),
     }),

@@ -92,19 +92,37 @@ export const POST = withAuth(async (request: NextRequest) => {
     }
 
     const db = getDatabase()
+    const materialWhere = ' AND (deleted_at IS NULL OR deleted_at = \'\')'
     let material: any = null
 
     if (materialId) {
-      material = db.prepare('SELECT * FROM materials WHERE id = ?').get(materialId) as any
+      material = db.prepare(`SELECT * FROM materials WHERE id = ? ${materialWhere}`).get(materialId) as any
     } else if (materialCode) {
-      material = db.prepare('SELECT * FROM materials WHERE code = ?').get(materialCode) as any
+      material = db.prepare(`SELECT * FROM materials WHERE code = ? ${materialWhere}`).get(materialCode) as any
     }
 
-    if (!material) {
-      return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
+    if (material) {
+      return NextResponse.json({ material })
     }
 
-    return NextResponse.json({ material })
+    // Okutulan barkod ürün etiketine ait mi? (product_serial_numbers) — bu sayfa hammadde stoku için
+    const productBarcode = db.prepare(`
+      SELECT psn.barcode, psn.serial_number, p.name as product_name
+      FROM product_serial_numbers psn
+      LEFT JOIN active_products p ON psn.product_id = p.id
+      WHERE psn.barcode = ? OR psn.serial_number = ?
+      LIMIT 1
+    `).get(String(materialCode || qr_data || '').trim(), String(materialCode || qr_data || '').trim()) as { barcode?: string; product_name?: string } | undefined
+
+    if (productBarcode) {
+      return NextResponse.json({
+        error: 'Bu barkod ürün etiketine aittir (üretim emri/iskelethane). Bu sayfa hammadde stok girişi/çıkışı içindir. Hammadde stok işlemi için hammadde kartındaki QR kodu veya malzeme kodunu (örn. KMS-001) okutun.',
+        code: 'PRODUCT_BARCODE',
+        product_name: productBarcode.product_name,
+      }, { status: 404 })
+    }
+
+    return NextResponse.json({ error: 'Malzeme bulunamadı' }, { status: 404 })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

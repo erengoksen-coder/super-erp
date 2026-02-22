@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Development environment with hot reload
+# Kullanım: docker-compose -f docker-compose.dev.yml up
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    container_name: super-erp-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-key-change-in-production}
+      - DATABASE_PATH=/app/data/erp.db
+      - PORT=3000
+    volumes:
+      - ./app:/app/app
+      - ./lib:/app/lib
+      - ./pages:/app/pages
+      - ./public:/app/public
+      - ./data:/app/data
+      - /app/node_modules
+    restart: unless-stopped
+    networks:
+      - super-erp-network
+    command: npm run dev:simple
+
+networks:
+  super-erp-network:
+    driver: bridge

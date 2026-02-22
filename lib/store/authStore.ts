@@ -13,6 +13,12 @@ export type AuthUser = {
   job_title?: string | null
   position?: string | null
   dealer_name?: string | null
+  /** Dışa aktarmaya izin (0 = hayır, 1 = evet). Varsayılan 1. */
+  can_export?: number
+  /** Maksimum dışa aktarma satırı; null = sınırsız. */
+  max_export_rows?: number | null
+  /** Sadece görüntüleme (ekleme/düzenleme/silme kapalı). */
+  view_only?: number
   permissions?: Array<{
     page_path: string
     can_view: number

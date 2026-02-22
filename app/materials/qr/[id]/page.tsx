@@ -46,7 +46,7 @@ export default function MaterialQRPage() {
       // QR kod görselini oluştur
       generateQRCode(qrData)
     } catch (error) {
-      console.error('Error loading material:', error)
+      console.error('Malzeme yüklenirken hata:', error)
       toast.error('Malzeme yüklenirken hata oluştu')
     } finally {
       setLoading(false)

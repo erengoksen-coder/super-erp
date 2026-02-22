@@ -17,7 +17,7 @@ export default function NewProductPage() {
         const newCode = await generateProductCode()
         setCode(newCode)
       } catch (error) {
-        console.error('Error generating code:', error)
+        console.error('Kod oluşturulurken hata:', error)
         setCode('KOL-001')
       } finally {
         setCodeLoading(false)

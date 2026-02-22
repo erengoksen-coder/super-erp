@@ -17,7 +17,6 @@ export const ROUTES = {
   SHIPMENTS: '/shipments',
   ACCOUNTS: '/accounts',
   FINANCE: '/finance',
-  HR: '/hr',
   USERS: '/users',
   SETTINGS: '/settings',
   REPORTS: '/reports',

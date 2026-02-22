@@ -47,28 +47,27 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     })
 
-    // Mevcut malzemeleri kontrol et
+    // Mevcut (silinmemiş) malzemeleri kontrol et — silinenler listede görünmediği için yeniden eklenebilir
     const existingMaterials = db.prepare(`
       SELECT id, code, name 
       FROM materials 
-      WHERE code IS NOT NULL AND code != '' AND category = ?
+      WHERE (deleted_at IS NULL OR deleted_at = '')
+        AND code IS NOT NULL AND code != '' AND category = ?
     `).all('Kumaş') as Array<{ id: string; code: string; name: string }>
 
     const existingCodes = new Set(existingMaterials.map(m => m.code.toLowerCase().trim()))
     const existingNames = new Set(existingMaterials.map(m => m.name.toLowerCase().trim()))
 
-    // Depo stok kodu için sayaç (KUMAŞ-001, KUMAŞ-002 formatında)
-    // Mevcut kumaş kodlarından en yüksek numarayı bul
+    // Kod numarası: tablodaki TÜM malzemelerdeki (silinmiş dahil) en yüksek KMS-XXX değerinin üstünde başla (UNIQUE çakışmasın)
     let fabricCounter = 1
-    existingMaterials.forEach(m => {
-      if (m.code && m.code.startsWith('KUMAŞ-')) {
-        const match = m.code.match(/KUMAŞ-(\d+)/)
-        if (match) {
-          const num = parseInt(match[1])
-          if (num >= fabricCounter) {
-            fabricCounter = num + 1
-          }
-        }
+    const allKmsCodes = db.prepare(`
+      SELECT code FROM materials WHERE code IS NOT NULL AND code LIKE 'KMS-%'
+    `).all() as Array<{ code: string }>
+    allKmsCodes.forEach((m) => {
+      const match = m.code.match(/KMS-(\d+)/)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        if (!Number.isNaN(num) && num >= fabricCounter) fabricCounter = num + 1
       }
     })
 
@@ -93,20 +92,20 @@ export const POST = withAuth(async (request: NextRequest) => {
         return
       }
       
-      // Depo stok kodu oluştur (KUMAŞ-001, KUMAŞ-002, ...)
-      let materialCode = `KUMAŞ-${String(fabricCounter).padStart(3, '0')}`
+      // Depo stok kodu oluştur (KMS-001, KMS-002, ...)
+      let materialCode = `KMS-${String(fabricCounter).padStart(3, '0')}`
       
       // Eğer bu kod zaten varsa, farklı bir kod dene
       while (existingCodes.has(materialCode)) {
         fabricCounter++
-        materialCode = `KUMAŞ-${String(fabricCounter).padStart(3, '0')}`
+        materialCode = `KMS-${String(fabricCounter).padStart(3, '0')}`
       }
       
       try {
         const id = randomUUID()
         insertMaterial.run(
           id,
-          materialCode, // Depo stok kodu (KUMAŞ-001, KUMAŞ-002, ...)
+          materialCode, // Depo stok kodu (KMS-001, KMS-002, ...)
           fabricCode, // Hammadde adı (ALASKA 10, DARK 438, ...)
           'Kumaş', // Kategori
           'm²', // Birim

@@ -156,15 +156,26 @@ export async function generateAccountCode(
 }
 
 /**
- * Fatura numarası üretir
+ * Fatura numarası üretir (veritabanındaki son numaraya göre sıradakini döner)
  */
 export async function generateInvoiceNumber(
   invoiceType: 'sale' | 'purchase' = 'sale'
 ): Promise<string> {
   const prefix = invoiceType === 'sale' ? 'SAT' : 'ALI'
   const year = new Date().getFullYear()
-  const prefixWithYear = `${prefix}-${year}`
-  return generateNextCode(null, { prefix: prefixWithYear, padding: 3 })
+  const fallback = `${prefix}-${year}-001`
+  try {
+    const { fetchApi } = await import('@/lib/api/fetch')
+    const data = await fetchApi<{ nextNumber: string }>(
+      `/api/invoices/next-number?type=${encodeURIComponent(invoiceType)}`
+    )
+    if (data?.nextNumber && typeof data.nextNumber === 'string') {
+      return data.nextNumber
+    }
+  } catch {
+    // API yoksa veya hata varsa yalnızca önizleme için yıl-001 kullan
+  }
+  return fallback
 }
 
 // generateShipmentNumber moved to codeGenerator.server.ts

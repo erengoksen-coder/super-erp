@@ -13,14 +13,16 @@ const PUBLIC_API_PATHS = [
   '/api/auth/register',
   '/api/auth/refresh',
   '/api/auth/ping',
+  '/api/auth/db-check',
   '/api/health',
+  '/api/ready',
   '/api/icon',
   '/api/manifest',
   '/api/notifications/vapid-public-key',
 ]
 
 /** Giriş yapmadan erişilebilen sayfalar (ngrok dahil tüm adrese gelenler diğerlerinde login'e gider) */
-const PUBLIC_PAGE_PATHS = ['/auth/login', '/auth/register', '/durum', '/hr/clock']
+const PUBLIC_PAGE_PATHS = ['/auth/login', '/auth/register', '/durum', '/bakim']
 
 function isPublicApiPath(pathname: string) {
   return PUBLIC_API_PATHS.some((path) => pathname.startsWith(path))
@@ -43,22 +45,47 @@ function getRateLimitOptions(pathname: string) {
   return DEFAULT_LIMIT
 }
 
+/** Bakım modu: MAINTENANCE_MODE=true iken tüm sayfa istekleri /bakim'e, API istekleri 503 döner (health/ready hariç). */
+const MAINTENANCE_API_ALLOWED = ['/api/health', '/api/ready']
+
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
+
+  if (process.env.MAINTENANCE_MODE === 'true') {
+    if (pathname === '/bakim') return NextResponse.next()
+    if (pathname.startsWith('/api')) {
+      if (MAINTENANCE_API_ALLOWED.some((p) => pathname.startsWith(p))) return NextResponse.next()
+      return NextResponse.json(
+        { error: 'Sistem bakımda. Lütfen daha sonra tekrar deneyin.' },
+        { status: 503 }
+      )
+    }
+    return NextResponse.redirect(new URL('/bakim', request.url))
+  }
 
   // API istekleri: rate limit + auth (mevcut mantık)
   if (pathname.startsWith('/api')) {
     if (pathname === '/api/orders/import') {
       return NextResponse.next()
     }
+    // Veritabanı kontrolü — giriş yapmadan erişilebilir (login 500 ayıklama)
+    if (pathname === '/api/auth/db-check') {
+      return NextResponse.next()
+    }
     const options = getRateLimitOptions(pathname)
     const result = rateLimit(request, options)
     if (!result.allowed) {
+      const retryAfterSec = Math.ceil((result.reset - Date.now()) / 1000)
+      const message =
+        retryAfterSec > 0
+          ? `Çok fazla istek gönderdiniz. ${retryAfterSec} saniye sonra tekrar deneyin.`
+          : 'Çok fazla istek gönderdiniz. Lütfen kısa süre sonra tekrar deneyin.'
       return NextResponse.json(
-        { error: 'Rate limit aşıldı. Lütfen daha sonra tekrar deneyin.' },
+        { error: message },
         {
           status: 429,
           headers: {
+            'Retry-After': String(Math.max(1, retryAfterSec)),
             'x-ratelimit-limit': String(options.max),
             'x-ratelimit-remaining': String(result.remaining),
             'x-ratelimit-reset': String(result.reset),
@@ -106,5 +133,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/bayi', '/bayi/:path*', '/api/:path*'],
+  matcher: ['/', '/bakim', '/bayi', '/bayi/:path*', '/api/:path*'],
 }

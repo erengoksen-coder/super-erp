@@ -74,6 +74,28 @@ Uygulama hem ngrok hem de `*.trycloudflare.com` adreslerinde aynı şekilde çal
 
 ---
 
+## Telefonla Cloudflare üzerinden barkod okutma
+
+Uygulamaya Cloudflare Tunnel (veya ngrok) ile **telefondan** girip **kamera ile barkod/QR okutmak** için:
+
+1. **Telefonda tarayıcıyı açın** (Chrome, Safari vb.).
+2. **Cloudflare adresini yazın** – Tünel çalışırken terminalde görünen `https://....trycloudflare.com` adresini adres çubuğuna girin.
+3. **Giriş yapın** – Kullanıcı adı ve şifrenizle ERP’ye girin.
+4. **Barkod okuma sayfasına gidin:**
+   - Ana sayfada **“Barkod Okut”** benzeri bir buton varsa ona tıklayın, **veya**
+   - Sol menüden **Stok → Barkod Yönetimi** açıp **“Barkod Okut” / “Tarama”** linkine tıklayın, **veya**
+   - Doğrudan adrese ekleyin: `https://SIZIN-TUNNEL-ADRESINIZ.trycloudflare.com/barcodes/scan`
+5. **Kamera iznini verin** – Tarayıcı “Kameraya erişim” isterse **İzin Ver** / **Allow** deyin. (Cloudflare HTTPS sağladığı için kamera çalışır.)
+6. **Barkodu okutun** – Telefonu barkod/QR’a tutun; kare içine alındığında otomatik okunur.
+
+**Notlar:**
+
+- **HTTPS gerekir** – Kamera API’si sadece güvenli bağlantıda (HTTPS) veya localhost’ta çalışır. Cloudflare Tunnel adresi zaten HTTPS olduğu için telefonda da çalışır.
+- **İlk açılışta izin** – Bazı tarayıcılar kamera iznini sadece bir kez sorar; reddettiyseniz tarayıcı ayarlarından site için kamera iznini açmanız gerekebilir.
+- **USB okuyucu** – Bilgisayarda USB barkod okuyucu kullanıyorsanız aynı sayfada “USB Barkod Okuyucu” modu da vardır; telefonda ise kamera ile okutma kullanılır.
+
+---
+
 ## Sabit adres (Named Tunnel) – Her seferinde aynı URL
 
 Quick Tunnel’da adres her açılışta değişir. **Sabit adres** için Cloudflare hesabı ve **named tunnel** kurmanız gerekir.

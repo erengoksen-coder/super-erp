@@ -4,9 +4,10 @@ import { getDatabase } from '@/lib/database/db'
 import { logger } from '@/lib/utils/logger'
 import { logAudit } from '@/lib/audit'
 
-// POST: Tüm veri girişlerini sil (yapısal tablolar korunur) - Sadece admin
-// Yapısal tablolar (korunur): users, user_permissions, products, materials, bom, accounts, chart_of_accounts
-// Veri tabloları (silinir): orders, production_orders, stock_movements, shipments, purchase_requests, vb.
+// POST: BOM ve ayarlar hariç tüm verileri sil - Sadece admin
+// Korunan: companies, branches, warehouses, users, roles, permissions, unit_conversions, label_settings,
+//          operations, work_centers, bom, bom_versions, materials, products, chart_of_accounts, accounts (yapı)
+// Silinen: ödeme kayıtları, fatura, cari hareketler, siparişler, üretim emirleri, stok hareketleri, sevkiyat, vb.
 export const POST = withAuth(async (request: NextRequest, user: { userId: string }) => {
   try {
     const body = await request.json().catch(() => ({})) as { confirm?: boolean }
@@ -50,6 +51,36 @@ export const POST = withAuth(async (request: NextRequest, user: { userId: string
         logger.info(`[TEMİZLEME] ${deletedJournalEntries.changes} yevmiye kaydı silindi`)
       } catch (e: any) {
         logger.warn(`[TEMİZLEME] journal_entries silinirken hata: ${e.message}`)
+      }
+
+      // 3b. Cari hareketleri ve ödemeler (BOM/ayar değil, silinir)
+      try {
+        const deletedAccountTx = db.prepare('DELETE FROM account_transactions').run()
+        deletedCounts.account_transactions = deletedAccountTx.changes
+        logger.info(`[TEMİZLEME] ${deletedAccountTx.changes} cari hareket silindi`)
+      } catch (e: any) {
+        logger.warn(`[TEMİZLEME] account_transactions silinirken hata: ${e.message}`)
+      }
+      try {
+        const deletedPayments = db.prepare('DELETE FROM payments').run()
+        deletedCounts.payments = deletedPayments.changes
+        logger.info(`[TEMİZLEME] ${deletedPayments.changes} ödeme kaydı silindi`)
+      } catch (e: any) {
+        logger.warn(`[TEMİZLEME] payments silinirken hata: ${e.message}`)
+      }
+      try {
+        const deletedInvoiceItems = db.prepare('DELETE FROM invoice_items').run()
+        deletedCounts.invoice_items = deletedInvoiceItems.changes
+        logger.info(`[TEMİZLEME] ${deletedInvoiceItems.changes} fatura kalemi silindi`)
+      } catch (e: any) {
+        logger.warn(`[TEMİZLEME] invoice_items silinirken hata: ${e.message}`)
+      }
+      try {
+        const deletedInvoices = db.prepare('DELETE FROM invoices').run()
+        deletedCounts.invoices = deletedInvoices.changes
+        logger.info(`[TEMİZLEME] ${deletedInvoices.changes} fatura silindi`)
+      } catch (e: any) {
+        logger.warn(`[TEMİZLEME] invoices silinirken hata: ${e.message}`)
       }
       
       // 4. Shipment Items (Sevkiyat Kalemleri) - Önce silinmeli (FOREIGN KEY)
@@ -96,6 +127,20 @@ export const POST = withAuth(async (request: NextRequest, user: { userId: string
       } catch (e: any) {
         logger.warn(`[TEMİZLEME] stock_movements silinirken hata: ${e.message}`)
       }
+
+      // 8b. Üretim emri operasyonları ve iş emirleri (BOM değil)
+      try {
+        const deletedProdOp = db.prepare('DELETE FROM production_order_operations').run()
+        deletedCounts.production_order_operations = deletedProdOp.changes
+      } catch (e: any) {}
+      try {
+        const deletedWoOp = db.prepare('DELETE FROM work_order_operations').run()
+        deletedCounts.work_order_operations = deletedWoOp.changes
+      } catch (e: any) {}
+      try {
+        const deletedWo = db.prepare('DELETE FROM work_orders').run()
+        deletedCounts.work_orders = deletedWo.changes
+      } catch (e: any) {}
       
       // 9. Production Orders (Üretim Emirleri)
       try {
@@ -167,7 +212,7 @@ export const POST = withAuth(async (request: NextRequest, user: { userId: string
     
     return NextResponse.json({
       success: true,
-      message: `Tüm veri girişleri başarıyla silindi. Toplam ${totalDeleted} kayıt temizlendi. Yapısal tablolar (kullanıcılar, ürünler, malzemeler, cari hesaplar, vb.) korundu.`,
+      message: `BOM ve ayarlar korundu; diğer tüm veriler silindi. Toplam ${totalDeleted} kayıt temizlendi. (Ödeme kayıtları, faturalar, cari hareketler, siparişler, üretim emirleri, stok hareketleri, sevkiyatlar vb. silindi.)`,
       deleted_counts: result,
       total_deleted: totalDeleted
     })

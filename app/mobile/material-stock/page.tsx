@@ -26,6 +26,7 @@ export default function MaterialStockPage() {
   const [stockType, setStockType] = useState<'in' | 'out'>('in')
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [scanResultModal, setScanResultModal] = useState<{ message: string; isError: boolean } | null>(null)
   const html5QrCodeRef = useRef<any>(null)
   const scannerRef = useRef<HTMLDivElement>(null)
 
@@ -54,8 +55,9 @@ export default function MaterialStockPage() {
 
       const data = await response.json()
       setMaterial(data.material)
+      setScanResultModal({ message: `Barkod okundu: ${data.material?.name || data.material?.code || 'Malzeme'}`, isError: false })
     } catch (error: any) {
-      toast.error('Hata: ' + error.message)
+      setScanResultModal({ message: error?.message || 'Malzeme yüklenemedi', isError: true })
     } finally {
       setLoading(false)
     }
@@ -100,7 +102,7 @@ export default function MaterialStockPage() {
         if (!containerElement) {
           setScanning(false)
           setErrorMessage('Scanner container bulunamadı. Sayfayı yenileyin.')
-          console.error('Scanner container bulunamadı')
+          console.error('Tarayıcı kapsayıcısı bulunamadı')
           return
         }
       }
@@ -310,7 +312,7 @@ export default function MaterialStockPage() {
         await html5QrCodeRef.current.stop()
         await html5QrCodeRef.current.clear()
       } catch (err) {
-        console.error('Scanner stop error:', err)
+        console.error('Tarayıcı durdurma hatası:', err)
       }
       html5QrCodeRef.current = null
       setScanning(false)
@@ -332,7 +334,7 @@ export default function MaterialStockPage() {
 
       await loadMaterialFromQR(qrData)
     } catch (error: any) {
-      toast.error('QR kod okunamadı: ' + error.message)
+      setScanResultModal({ message: error?.message || 'QR kod okunamadı', isError: true })
     }
   }
 
@@ -409,6 +411,28 @@ export default function MaterialStockPage() {
           </h1>
           <p className="text-gray-400 text-sm">QR kod okutarak malzeme stokunu düzenleyin</p>
         </div>
+
+        {/* Okunan barkod mesajı - Tamam'a basılana kadar ekranda kalır */}
+        {scanResultModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70">
+            <div className={`rounded-xl border-2 p-6 max-w-md w-full shadow-xl ${
+              scanResultModal.isError ? 'bg-red-900/95 border-red-600' : 'bg-green-900/95 border-green-600'
+            }`}>
+              <p className={`text-lg font-semibold mb-4 whitespace-pre-line ${
+                scanResultModal.isError ? 'text-red-100' : 'text-green-100'
+              }`}>
+                {scanResultModal.message}
+              </p>
+              <button
+                type="button"
+                onClick={() => setScanResultModal(null)}
+                className="w-full py-3 bg-white text-gray-900 rounded-lg font-bold text-lg hover:bg-gray-100 transition"
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* QR Scanner - Manuel giriş öncelikli */}
         {!material && (

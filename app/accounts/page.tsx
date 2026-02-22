@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown, ChevronLeft, ChevronRight, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
@@ -12,7 +13,8 @@ import { useDebounce } from '@/lib/hooks/useDebounce'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
-import { PageLoader } from '@/components/ui/PageLoader'
+import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
+import { TableSkeleton } from '@/components/ui/TableSkeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 
 interface Account {
@@ -39,14 +41,24 @@ interface Account {
   updated_by_username?: string
 }
 
+const APP_TITLE = 'LIVASOFA ERP'
+
 export default function AccountsPage() {
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
+  useEffect(() => { document.title = `Cari Hesaplar - ${APP_TITLE}`; return () => { document.title = APP_TITLE } }, [])
   const [filterType, setFilterType] = useState<string>('all')
+  const [filterBalance, setFilterBalance] = useState<string>('all') // all, debt, credit, zero
+  type SortKeyAccount = 'code' | 'name' | 'balance' | 'type' | 'created_at'
+  const [sortKey, setSortKey] = useState<SortKeyAccount>('code')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const user = useAuthStore((state) => state.user)
   const userId = user?.id ?? null
   const isBayi = (user?.role ?? '').toString().trim().toLowerCase() === 'bayi'
+  const canExport = user?.can_export !== 0
   const [editForm, setEditForm] = useState({
     name: '',
     type: 'customer',
@@ -60,19 +72,108 @@ export default function AccountsPage() {
     authorized_person_phone: ''
   })
   const [applyDiscountToShipments, setApplyDiscountToShipments] = useState(false)
+  const [creatingFromOrders, setCreatingFromOrders] = useState(false)
+  const autoCreateAttemptedRef = useRef(false)
   const [page, setPage] = useState(0)
-  const PAGE_SIZE = 20
+  const PAGE_SIZE = 50
 
   const accountsUrl = useMemo(() => {
     const params = new URLSearchParams()
     params.set('limit', String(PAGE_SIZE))
     params.set('offset', String(page * PAGE_SIZE))
     if (filterType !== 'all') params.set('type', filterType)
+    if (filterBalance !== 'all') params.set('balance', filterBalance)
     return `/api/accounts?${params.toString()}`
-  }, [filterType, page])
+  }, [filterType, filterBalance, page])
 
-  const { data: accountsData, meta, isLoading, mutate } = usePaginatedApi<Account>(accountsUrl)
+  const { data: accountsData, meta, isLoading, error: listError, mutate } = usePaginatedApi<Account>(accountsUrl, {
+    revalidateIfStale: true,
+    revalidateOnMount: true,
+  })
   const { total, limit, offset } = meta
+
+  // "Tümü"ne geçildiğinde listeyi yeniden doğrula (önbellekte boş liste kalmasın)
+  const didRevalidateForAllRef = useRef(false)
+  useEffect(() => {
+    if (filterType !== 'all') {
+      didRevalidateForAllRef.current = false
+      return
+    }
+    if (didRevalidateForAllRef.current) return
+    didRevalidateForAllRef.current = true
+    mutate()
+  }, [filterType, mutate])
+
+  // Liste boşken bir kez siparişlerden cari oluşturmayı dene; böylece ilk açılışta cariler gelir.
+  const createAccountsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (isBayi || isLoading || creatingFromOrders || autoCreateAttemptedRef.current || total !== 0) return
+    let cancelled = false
+    autoCreateAttemptedRef.current = true
+    setCreatingFromOrders(true)
+    // Takılı kalmayı önle: en fazla 20 saniye sonra "Ekleniyor" kapat
+    createAccountsTimeoutRef.current = setTimeout(() => {
+      if (cancelled) return
+      cancelled = true
+      setCreatingFromOrders(false)
+      toast.error('İstek zaman aşımına uğradı. "Siparişlerden Carileri Ekle" ile tekrar deneyin.')
+    }, 20_000)
+    fetch('/api/orders/create-accounts', { method: 'POST', headers: getAuthHeaders(), credentials: 'include' })
+      .then((res) => res.json().catch(() => ({})) as Promise<{ created?: number; existing?: number; message?: string; error?: string }>)
+      .then((data) => {
+        if (cancelled) return
+        if ((data?.created ?? 0) > 0 || (data?.existing ?? 0) > 0) {
+          toast.success(data?.message ?? `${data?.created ?? 0} yeni cari eklendi.`)
+          mutate()
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Siparişlerden cari eklenirken hata oluştu')
+      })
+      .finally(() => {
+        if (createAccountsTimeoutRef.current) {
+          clearTimeout(createAccountsTimeoutRef.current)
+          createAccountsTimeoutRef.current = null
+        }
+        if (!cancelled) setCreatingFromOrders(false)
+      })
+    return () => {
+      cancelled = true
+      if (createAccountsTimeoutRef.current) {
+        clearTimeout(createAccountsTimeoutRef.current)
+        createAccountsTimeoutRef.current = null
+      }
+      setCreatingFromOrders(false)
+    }
+  }, [total, isLoading, creatingFromOrders, isBayi, mutate])
+
+  async function createAccountsFromOrders() {
+    setCreatingFromOrders(true)
+    const timeoutMs = 25_000
+    const timeoutId = setTimeout(() => {
+      setCreatingFromOrders(false)
+      toast.error('İstek zaman aşımına uğradı. Ağ bağlantınızı kontrol edip tekrar deneyin.')
+    }, timeoutMs)
+    try {
+      const res = await fetch('/api/orders/create-accounts', { method: 'POST', headers: getAuthHeaders(), credentials: 'include' })
+      const data = await res.json().catch(() => ({})) as { created?: number; existing?: number; message?: string; error?: string }
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Cari hesaplar oluşturulamadı')
+        return
+      }
+      if ((data?.created ?? 0) > 0 || (data?.existing ?? 0) > 0) {
+        toast.success(data?.message ?? `${data.created ?? 0} yeni cari eklendi, ${data.existing ?? 0} zaten mevcuttu.`)
+      } else if ((data?.created ?? 0) === 0 && (data?.existing ?? 0) === 0) {
+        toast.info('Eklenebilecek yeni cari yok; siparişlerdeki tüm cariler zaten kayıtlı.')
+      }
+      await mutate()
+    } catch {
+      toast.error('İşlem sırasında hata oluştu')
+    } finally {
+      clearTimeout(timeoutId)
+      setCreatingFromOrders(false)
+    }
+  }
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const currentPage = Math.floor(offset / limit) + 1
   const from = total === 0 ? 0 : offset + 1
@@ -99,8 +200,39 @@ export default function AccountsPage() {
     )
   })
 
+  const displayedAccounts = useMemo(() => {
+    const list = [...filteredAccounts]
+    list.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'code') cmp = (a.code || '').localeCompare(b.code || '', 'tr', { numeric: true })
+      else if (sortKey === 'name') cmp = (a.name || '').localeCompare(b.name || '', 'tr')
+      else if (sortKey === 'balance') cmp = (a.balance ?? 0) - (b.balance ?? 0)
+      else if (sortKey === 'type') cmp = (a.type || '').localeCompare(b.type || '')
+      else cmp = (a.created_at || '').localeCompare(b.created_at || '')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return list
+  }, [filteredAccounts, sortKey, sortDir])
+
+  function handleSortAccount(key: SortKeyAccount) {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir(key === 'balance' ? 'desc' : 'asc') }
+  }
+  function SortIconAccount({ column }: { column: SortKeyAccount }) {
+    if (sortKey !== column) return null
+    return sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 inline ml-0.5" /> : <ChevronUp className="w-3.5 h-3.5 inline ml-0.5" />
+  }
+
+  useKeyboardShortcut('Enter', () => { if (selectedAccountId) router.push(`/accounts/${selectedAccountId}`) }, { enabled: !!selectedAccountId })
+  useKeyboardShortcut('Escape', () => { if (showEditModal) setShowEditModal(false); else setSelectedAccountId(null) })
+
   async function handleEdit(account: Account) {
     if (isBayi) return
+    if (!account?.id) {
+      toast.error('Cari seçilemedi; liste yenileniyor.')
+      await mutate()
+      return
+    }
     setEditingAccount(account)
     const fillForm = (a: Account) => ({
       name: a.name,
@@ -120,6 +252,13 @@ export default function AccountsPage() {
     // Başka cihazda güncellenmiş veriyi göstermek için sunucudan güncel cari çek
     try {
       const res = await fetch(`/api/accounts/${account.id}`, { headers: getAuthHeaders(), credentials: 'include' })
+      if (res.status === 404) {
+        setShowEditModal(false)
+        setEditingAccount(null)
+        mutate()
+        toast.info('Seçilen cari bulunamadı, liste yenilendi.')
+        return
+      }
       if (res.ok) {
         const json = await res.json()
         const data = json?.data ?? json
@@ -154,8 +293,16 @@ export default function AccountsPage() {
       })
       
       if (!response.ok) {
-        const error = await response.json()
-        let errorMessage = error.error || 'Güncelleme başarısız'
+        const error = await response.json().catch(() => ({}))
+        let errorMessage = error?.error || 'Güncelleme başarısız'
+        if (response.status === 404) {
+          setShowEditModal(false)
+          setEditingAccount(null)
+          setApplyDiscountToShipments(false)
+          await mutate()
+          toast.info('Seçilen cari bulunamadı, liste yenilendi.')
+          return
+        }
         // Hata mesajını Türkçe'ye çevir
         if (errorMessage.includes('no such column')) {
           errorMessage = 'Veritabanı kolonu bulunamadı. Lütfen veritabanını güncelleyin.'
@@ -169,11 +316,36 @@ export default function AccountsPage() {
         throw new Error(errorMessage)
       }
       
+      const updatedAccount: Account = {
+        ...editingAccount,
+        name: editForm.name.trim(),
+        type: editForm.type,
+        tax_number: editForm.tax_number.trim() || undefined,
+        phone: editForm.phone.trim() || undefined,
+        email: editForm.email.trim() || undefined,
+        address: editForm.address.trim() || undefined,
+        risk_limit: editForm.risk_limit.trim() === '' ? null : Number(editForm.risk_limit),
+        discount_rate: rawDiscount === '' ? null : discountRate,
+        authorized_person_name: editForm.authorized_person_name.trim() || null,
+        authorized_person_phone: editForm.authorized_person_phone.trim() || null,
+      }
+      // Önce listeyi güncellenmiş cari ile güncelle (sıfırlanma olmasın), sonra sunucudan yenile
+      mutate(
+        (prev) => {
+          if (!prev?.list) return prev
+          const list = prev.list.map((a) => (a.id === editingAccount.id ? { ...a, ...updatedAccount } : a))
+          return { ...prev, list }
+        },
+        { revalidate: true }
+      )
       toast.success(applyDiscountToShipments ? 'Cari güncellendi; iskonto oranı sevkiyat fişlerine uygulandı.' : 'Cari hesap başarıyla güncellendi')
       setShowEditModal(false)
       setEditingAccount(null)
       setApplyDiscountToShipments(false)
-      await mutate()
+      // Tip değiştiyse (Müşteri ↔ Tedarikçi) filtreyi "Tümü" yap ki güncellenen cari listede görünsün
+      if (editForm.type !== editingAccount.type) {
+        setFilterType('all')
+      }
     } catch (error: unknown) {
       let errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
       if (errorMessage.includes('no such column')) {
@@ -259,25 +431,29 @@ export default function AccountsPage() {
           <p className="text-gray-400 mt-1">Müşteri ve tedarikçi yönetimi</p>
         </div>
         <div className="flex items-center gap-2">
-        <button
-          onClick={async () => {
-            if (!confirm('Tüm cari hesapları silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
-            try {
-              const res = await fetch('/api/accounts?all=1', { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' })
-              if (!res.ok) throw new Error((await res.json()).error || 'Silinemedi')
-              const data = await res.json()
-              mutate()
-              toast.success(data?.message || 'Cariler silindi.')
-            } catch (e: any) {
-              toast.error(e.message || 'Cariler silinemedi')
-            }
-          }}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition inline-flex items-center space-x-2"
-        >
-          <Trash2 size={20} />
-          <span>Tüm Carileri Sil</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => mutate()}
+            disabled={isLoading}
+            title="Listeyi yenile"
+            className="bg-slate-700 text-white px-4 py-2 rounded-lg hover:bg-slate-600 transition disabled:opacity-50 inline-flex items-center space-x-2"
+          >
+            <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
+            <span>Yenile</span>
+          </button>
         {!isBayi && (
+          <button
+            type="button"
+            title="Siparişlerde görünüp caride olmayan müşteri adları (örn. ÖZKARDEŞLER YOZGAT) bu butonla cari olarak eklenir."
+            onClick={createAccountsFromOrders}
+            disabled={creatingFromOrders}
+            className="bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-500 transition disabled:opacity-50 inline-flex items-center space-x-2"
+          >
+            <Users size={20} />
+            <span>{creatingFromOrders ? 'Ekleniyor...' : 'Siparişlerden Carileri Ekle'}</span>
+          </button>
+        )}
+        {!isBayi && canExport && (
           <button
             type="button"
             onClick={async () => {
@@ -344,51 +520,139 @@ export default function AccountsPage() {
               <option value="supplier">Tedarikçi</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Bakiye Filtresi
+            </label>
+            <select
+              value={filterBalance}
+              onChange={(e) => { setFilterBalance(e.target.value); setPage(0) }}
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="all">Tümü</option>
+              <option value="debt">Borçlu (bakiye &gt; 0)</option>
+              <option value="credit">Alacaklı (bakiye &lt; 0)</option>
+              <option value="zero">Bakiye sıfır</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {isLoading ? (
-        <PageLoader fullScreen label="Cariler yükleniyor..." />
+        <TableSkeleton rows={10} cols={8} />
+      ) : listError ? (
+        <div className="bg-gray-900 rounded-lg border border-amber-800 overflow-hidden p-6">
+          <div className="max-w-lg mx-auto text-center">
+            <p className="text-amber-400 font-medium mb-2">Cari listesi yüklenemedi</p>
+            <p className="text-gray-400 text-sm mb-4">
+              {listError?.message?.includes('403') || listError?.message?.toLowerCase().includes('erişemez')
+                ? 'Cari listesine sadece yöneticiler erişebilir. Bayi kullanıcıları "Cari Hesabım" sayfasını kullanmalıdır.'
+                : 'Ağ hatası veya yetki sorunu olabilir. Yenile butonuna tıklayın.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => mutate()}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition"
+            >
+              Yenile
+            </button>
+          </div>
+        </div>
       ) : filteredAccounts.length === 0 ? (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <EmptyState
             title={searchTerm ? 'Arama sonucu bulunamadı' : 'Henüz cari hesap yok'}
-            description={searchTerm ? 'Farklı bir arama deneyin' : 'Yeni cari hesap ekleyerek başlayın'}
+            description={searchTerm ? 'Farklı bir arama deneyin' : 'İlk cari hesabı ekleyin veya siparişlerden toplu aktarın.'}
             icon={Building2}
             action={!searchTerm ? (
-              <Link href="/accounts/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center">
-                <Plus size={18} className="mr-2" />
-                Yeni Cari Hesap
-              </Link>
+              <div className="flex flex-wrap gap-3 justify-center">
+                <Link href="/accounts/new">
+                  <Button variant="solid" color="primary" size="sm" className="inline-flex items-center gap-2">
+                    <Plus size={18} />
+                    İlk cari hesabı ekle
+                  </Button>
+                </Link>
+                <button
+                  type="button"
+                  onClick={createAccountsFromOrders}
+                  disabled={creatingFromOrders}
+                  className="bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-500 transition disabled:opacity-50 inline-flex items-center"
+                >
+                  <Users size={18} className="mr-2" />
+                  {creatingFromOrders ? 'Ekleniyor...' : 'Siparişlerden carileri ekle'}
+                </button>
+              </div>
             ) : undefined}
           />
         </div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          {/* Toplam / sayfa bilgisi: "36 cari var, 20 görünüyor" tutarsızlığını giderir */}
+          {total > 0 && (
+            <div className="px-4 py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3 bg-gray-800/30">
+              <span className="text-sm text-gray-300">
+                Toplam <strong className="text-white">{total}</strong> cari
+                {total > limit && (
+                  <span className="text-gray-400 ml-1">
+                    — Bu sayfada <strong className="text-white">{from}-{to}</strong> arası gösteriliyor
+                    {totalPages > 1 && (
+                      <span className="ml-1">(Sayfa {currentPage} / {totalPages})</span>
+                    )}
+                  </span>
+                )}
+              </span>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Önceki
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1}
+                  >
+                    Sonraki
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {filterType === 'all' && filteredAccounts.length > 0 && filteredAccounts.every((a) => a.type === 'customer') && (
+            <p className="text-sm text-slate-400 px-4 py-2 bg-slate-800/50 border-b border-gray-800">
+              Sadece müşteri carileri listeleniyor. Tedarikçi eklemek için &quot;+ Yeni Cari Hesap&quot; ile tip olarak Tedarikçi seçin veya bir cariyi düzenleyip tipini Tedarikçi yapın.
+            </p>
+          )}
           <Table>
             <TableHeader>
               <TableRow className="border-gray-800">
-                <TableHead className="h-8">Kod</TableHead>
-                <TableHead className="h-8">Ad/Ünvan</TableHead>
-                <TableHead className="h-8">Tip</TableHead>
+                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('code')}>Kod <SortIconAccount column="code" /></TableHead>
+                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('name')}>Ad/Ünvan <SortIconAccount column="name" /></TableHead>
+                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('type')}>Tip <SortIconAccount column="type" /></TableHead>
                 <TableHead className="h-8">Vergi No</TableHead>
                 <TableHead className="h-8">Telefon</TableHead>
-                <TableHead className="h-8">Bakiye</TableHead>
+                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('balance')}>Bakiye <SortIconAccount column="balance" /></TableHead>
                 <TableHead className="h-8">Oluşturan</TableHead>
                 <TableHead className="h-8">Güncelleyen</TableHead>
-                <TableHead className="h-8">Tarih</TableHead>
+                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('created_at')}>Tarih <SortIconAccount column="created_at" /></TableHead>
                 <TableHead className="h-8">İşlemler</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {
-                filteredAccounts.map((account) => (
-                  <TableRow 
+                displayedAccounts.map((account) => (
+                  <TableRow
                     key={account.id}
-                    className="hover:bg-gray-800 cursor-pointer"
-                    onDoubleClick={() => {
-                      window.location.href = `/accounts/${account.id}`
-                    }}
+                    className={`hover:bg-gray-800 cursor-pointer ${selectedAccountId === account.id ? 'bg-blue-900/30 ring-1 ring-blue-500' : ''}`}
+                    onClick={() => setSelectedAccountId(account.id)}
+                    onDoubleClick={() => { router.push(`/accounts/${account.id}`) }}
                   >
                     <TableCell>
                       <div className="text-xs font-mono font-bold text-white">
@@ -417,15 +681,21 @@ export default function AccountsPage() {
                     <TableCell className="text-gray-400 text-xs">
                       {account.phone || '-'}
                     </TableCell>
-                    <TableCell className={`text-xs font-semibold ${
-                      account.balance > 0 ? 'text-red-400' : 
-                      account.balance < 0 ? 'text-green-400' : 
-                      'text-gray-400'
-                    }`}>
-                      {account.balance.toLocaleString('tr-TR', { 
-                        minimumFractionDigits: 2, 
-                        maximumFractionDigits: 2 
-                      })} ₺
+                    <TableCell
+                      className={`text-xs font-semibold tabular-nums ${
+                        account.balance > 0
+                          ? 'text-red-300 bg-red-900/30'
+                          : account.balance < 0
+                            ? 'text-green-300 bg-green-900/30'
+                            : 'text-gray-400'
+                      }`}
+                      title={account.balance > 0 ? 'Borçlu (cari bize borçlu)' : account.balance < 0 ? 'Alacaklı (biz cariye borçluyuz)' : 'Bakiye sıfır'}
+                    >
+                      {account.balance.toLocaleString('tr-TR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      ₺
                     </TableCell>
                     <TableCell className="text-gray-400 text-xs">
                       {account.created_by_name || account.created_by_username || '-'}

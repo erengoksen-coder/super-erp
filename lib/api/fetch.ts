@@ -55,6 +55,19 @@ export function getAuthHeaders(): Record<string, string> {
   return { ...ngrok, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
 }
 
+/** Varsayılan API istek zaman aşımı (ms). Uzun rapor/export için init.signal ile geçersiz kılınabilir. */
+export const API_REQUEST_TIMEOUT_MS = 60_000
+
+/** Ağ hatası veya 5xx sonrası tekrar deneme sayısı */
+const API_RETRY_COUNT = 1
+const API_RETRY_DELAY_MS = 1_500
+
+function isRetryable(error: unknown, status?: number): boolean {
+  if (typeof status === 'number' && status >= 500) return true
+  if (error instanceof TypeError && (error.message === 'Failed to fetch' || error.message.includes('network'))) return true
+  return false
+}
+
 export async function fetchApi<T>(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -68,41 +81,77 @@ export async function fetchApi<T>(
     const token = getStoredToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
   }
-  const response = await fetch(input, {
-    credentials: 'include',
-    ...init,
-    headers,
-  })
-  let payload: unknown = null
 
-  try {
-    payload = await response.json()
-  } catch (error) {
-    payload = null
-  }
+  const isClient = typeof window !== 'undefined'
+  const timeoutMs = isClient && !init?.signal ? API_REQUEST_TIMEOUT_MS : undefined
+  let lastError: Error | null = null
+  let lastStatus: number | undefined
 
-  if (!response.ok) {
-    if (response.status === 401) clearStoredAuthToken()
-    if (isApiEnvelope<T>(payload) && payload.success === false) {
-      throw new Error(String(payload.error || 'Request failed'))
+  for (let attempt = 0; attempt <= (isClient ? API_RETRY_COUNT : 0); attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, API_RETRY_DELAY_MS))
     }
-    if (payload && typeof payload === 'object' && 'error' in payload) {
-      throw new Error(String((payload as { error?: unknown }).error || 'Request failed'))
-    }
-    const statusMsg = response.status ? ` (${response.status})` : ''
-    throw new Error(response.statusText ? `${response.statusText}${statusMsg}` : `Request failed${statusMsg}`)
-  }
+    const controller = timeoutMs ? new AbortController() : null
+    const timeoutId =
+      isClient && controller && timeoutMs
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null
+    const signal = init?.signal ?? controller?.signal
 
-  if (isApiEnvelope<T>(payload)) {
-    if (payload.success) {
-      if ('data' in payload && payload.data !== undefined) {
-        return payload.data
+    try {
+      const response = await fetch(input, {
+        credentials: 'include',
+        ...init,
+        headers,
+        signal,
+      })
+      if (timeoutId) clearTimeout(timeoutId)
+      lastStatus = response.status
+      let payload: unknown = null
+      try {
+        payload = await response.json()
+      } catch {
+        payload = null
       }
-      // Fallback for legacy responses that set success=true but omit data.
-      return payload as unknown as T
+
+      if (!response.ok) {
+        if (response.status === 401) clearStoredAuthToken()
+        if (isApiEnvelope<T>(payload) && payload.success === false) {
+          lastError = new Error(String(payload.error || 'Request failed'))
+        } else if (payload && typeof payload === 'object' && 'error' in payload) {
+          lastError = new Error(String((payload as { error?: unknown }).error || 'Request failed'))
+        } else {
+          const statusMsg = response.status ? ` (${response.status})` : ''
+          lastError = new Error(response.statusText ? `${response.statusText}${statusMsg}` : `Request failed${statusMsg}`)
+        }
+        if (attempt < API_RETRY_COUNT && isRetryable(lastError, response.status)) continue
+        if (response.status === 503 || response.status === 502 || response.status === 504) {
+          lastError = new Error('Sunucu geçici olarak yanıt vermiyor. Lütfen kısa süre sonra tekrar deneyin.')
+        }
+        throw lastError
+      }
+
+      if (isApiEnvelope<T>(payload)) {
+        if (payload.success) {
+          if ('data' in payload && payload.data !== undefined) return payload.data
+          return payload as unknown as T
+        }
+        lastError = new Error(String(payload.error))
+        throw lastError
+      }
+      return payload as T
+    } catch (err) {
+      if (timeoutId) clearTimeout(timeoutId)
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      if (isAbort) {
+        lastError = new Error('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.')
+        throw lastError
+      }
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt < API_RETRY_COUNT && isRetryable(lastError, lastStatus)) continue
+      throw lastError
     }
-    throw new Error(payload.error)
   }
 
-  return payload as T
+  throw lastError ?? new Error('Request failed')
 }

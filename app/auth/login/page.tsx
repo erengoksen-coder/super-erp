@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { LogIn, User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
-import { fetchApi } from '@/lib/api/client'
 import { useAuthStore, type AuthUser } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 import { userSchemas } from '@/lib/validation/schemas'
@@ -50,17 +49,29 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      const res = await fetchApi<{ user?: unknown; accessToken?: string; data?: { user?: unknown; accessToken?: string } }>('/api/auth/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: data.username, password: data.password }),
       })
+      const payload = await res.json().catch(() => ({})) as { success?: boolean; data?: { user?: unknown; accessToken?: string }; user?: unknown; accessToken?: string; error?: string }
 
-      const user = res?.user ?? res?.data?.user
-      const accessToken = res?.accessToken ?? res?.data?.accessToken
+      if (!res.ok || payload.success === false) {
+        const msg = payload?.error || (res.status === 401 ? 'Kullanıcı adı veya şifre hatalı.' : 'Giriş yapılamadı. Lütfen tekrar deneyin.')
+        setError(msg)
+        setLoading(false)
+        return
+      }
+
+      const dataPayload = payload.data ?? payload
+      const user = dataPayload?.user ?? (payload as { user?: unknown }).user
+      const accessToken = dataPayload?.accessToken ?? (payload as { accessToken?: string }).accessToken
 
       if (!user) {
-        throw new Error('Giriş başarısız: kullanıcı bilgisi alınamadı')
+        setError('Giriş başarısız: kullanıcı bilgisi alınamadı')
+        setLoading(false)
+        return
       }
 
       if (accessToken && typeof window !== 'undefined') {
@@ -84,9 +95,8 @@ function LoginForm() {
       const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : (isBayi ? '/bayi' : '/')
       router.push(target)
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : (err as { error?: string })?.error || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
+      const errorMessage = err instanceof Error ? err.message : 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.'
       setError(errorMessage)
-      console.error('Login error:', err)
     } finally {
       setLoading(false)
     }

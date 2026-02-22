@@ -12,7 +12,9 @@ type StockRealtimeProps = {
 
 export default function StockRealtime({ onUpdate, pollIntervalMs = REALTIME_POLL_INTERVAL_MS }: StockRealtimeProps) {
   const onUpdateRef = useRef(onUpdate)
-  onUpdateRef.current = onUpdate
+  useEffect(() => {
+    onUpdateRef.current = onUpdate
+  }, [onUpdate])
 
   useEffect(() => {
     const supabase = createClient()

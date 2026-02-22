@@ -86,6 +86,7 @@ export default function NewProductionOrderPage() {
   const [customerSearch, setCustomerSearch] = useState<string>('')
   const [productSearch, setProductSearch] = useState<string>('')
   const [hasInitializedFromQuery, setHasInitializedFromQuery] = useState(false)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     async function loadCode() {
@@ -849,10 +850,17 @@ export default function NewProductionOrderPage() {
   }, [selectedProductId, quantity])
 
   async function handleStartProduction() {
+    setFormErrors({})
     const hasSelectedOrders = selectedOrderIds.size > 0 || Boolean(selectedOrderId)
-    if (!hasSelectedOrders && (!selectedProductId || quantity <= 0)) {
-      toast.warning('Lütfen ürün ve miktar seçin')
-      return
+    if (!hasSelectedOrders) {
+      const errors: Record<string, string> = {}
+      if (!selectedProductId) errors.productId = 'Ürün seçiniz'
+      if (quantity <= 0 || Number.isNaN(quantity)) errors.quantity = 'Miktar en az 1 olmalıdır'
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors)
+        toast.warning('Lütfen ürün ve miktar seçin')
+        return
+      }
     }
 
     // Eğer seçili siparişler varsa, onları dönüştür
@@ -893,6 +901,7 @@ export default function NewProductionOrderPage() {
         }
         
         toast.warning(alertMessage)
+        setFormErrors({})
         setSelectedOrderIds(new Set())
         setSelectedOrderId('')
         setSelectedProductId('')
@@ -1005,6 +1014,7 @@ export default function NewProductionOrderPage() {
       }
 
       const result = await response.json()
+      setFormErrors({})
       toast.success('Üretim emri oluşturuldu ve stoklar otomatik düşüldü!')
       router.push('/production')
     } catch (error: any) {
@@ -1229,9 +1239,17 @@ export default function NewProductionOrderPage() {
                 required
                 min="1"
                 value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(e) => {
+                  setQuantity(parseInt(e.target.value) || 1)
+                  if (formErrors.quantity) setFormErrors((prev) => ({ ...prev, quantity: '' }))
+                }}
+                className={`w-full px-3 py-2 bg-gray-800 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${formErrors.quantity ? 'border-red-500' : 'border border-gray-700'}`}
+                aria-invalid={!!formErrors.quantity}
+                aria-describedby={formErrors.quantity ? 'production-quantity-error' : undefined}
               />
+              {formErrors.quantity && (
+                <p id="production-quantity-error" className="text-red-400 text-xs mt-1">{formErrors.quantity}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -1284,8 +1302,13 @@ export default function NewProductionOrderPage() {
               <>
                 <select
                   value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onChange={(e) => {
+                    setSelectedProductId(e.target.value)
+                    if (formErrors.productId) setFormErrors((prev) => ({ ...prev, productId: '' }))
+                  }}
+                  className={`w-full px-3 py-2 bg-gray-800 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${formErrors.productId ? 'border-red-500' : 'border border-gray-700'}`}
+                  aria-invalid={!!formErrors.productId}
+                  aria-describedby={formErrors.productId ? 'production-product-error' : undefined}
                 >
                   <option value="">Ürün seçin...</option>
                   {products.map((product) => (
@@ -1294,6 +1317,9 @@ export default function NewProductionOrderPage() {
                     </option>
                   ))}
                 </select>
+                {formErrors.productId && (
+                  <p id="production-product-error" className="text-red-400 text-xs mt-1">{formErrors.productId}</p>
+                )}
                 <p className="mt-1 text-xs text-gray-500">Sadece reçetesi (BOM) tanımlı koltuk modelleri listelenir.</p>
                 {selectedProductId && getDealerForProduct(selectedProductId, null) && (
                   <p className="mt-2 text-sm text-gray-400">

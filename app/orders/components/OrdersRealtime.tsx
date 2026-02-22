@@ -84,53 +84,53 @@ function OrdersRealtimeView({
   return (
     <div id="orders-details" className="space-y-4 scroll-mt-24">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card variant="flat">
+        <Card variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
           <CardBody className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Bugünkü Siparişler</p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Bugünkü Siparişler</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">
                   {todayOrders.length}
                 </p>
-                <p className="text-xs text-gray-500">sipariş</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">sipariş</p>
               </div>
-              <Package className="h-5 w-5 text-gray-400" />
+              <Package className="h-5 w-5 text-gray-400 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
             </div>
           </CardBody>
         </Card>
 
-        <Card variant="flat">
+        <Card variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
           <CardBody className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Toplam Ciro</p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Toplam Ciro</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">
                   ₺{totalToday.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-xs text-gray-500">bugün</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">bugün</p>
               </div>
-              <TrendingUp className="h-5 w-5 text-green-500" />
+              <TrendingUp className="h-5 w-5 text-green-500 dark:text-green-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
             </div>
           </CardBody>
         </Card>
 
-        <Card variant="flat">
+        <Card variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
           <CardBody className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Ortalama Sipariş</p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Ortalama Sipariş</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">
                   ₺{avgOrderValue.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-xs text-gray-500">değer</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">değer</p>
               </div>
-              <TrendingDown className="h-5 w-5 text-gray-400" />
+              <TrendingDown className="h-5 w-5 text-gray-400 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
             </div>
           </CardBody>
         </Card>
       </div>
 
-      <Card>
+      <Card className="group">
         <div
           className="cursor-pointer"
           onClick={() => setShowDetails((prev) => !prev)}
@@ -142,17 +142,17 @@ function OrdersRealtimeView({
             {todayOrders.map((order) => (
               <div
                 key={order.id}
-                className="flex items-center justify-between rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 p-3 bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700/80 transition-colors group/item"
               >
                 <div className="space-y-1">
-                  <div className="font-medium text-gray-900">#{order.order_number}</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-gray-900 dark:text-slate-100 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">#{order.order_number}</div>
+                  <div className="text-sm text-gray-600 dark:text-slate-300 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">
                     {order.customer_name || 'Müşteri'}
                   </div>
                 </div>
 
                 <div className="text-right">
-                  <div className="font-semibold text-gray-900">
+                  <div className="font-semibold text-gray-900 dark:text-slate-100 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">
                     ₺{(order.total_amount ?? 0).toLocaleString('tr-TR', {
                       maximumFractionDigits: 2,
                     })}
@@ -165,7 +165,7 @@ function OrdersRealtimeView({
             ))}
 
             {todayOrders.length === 0 && (
-              <div className="text-sm text-gray-500">Bugün için sipariş yok.</div>
+              <div className="text-sm text-gray-500 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">Bugün için sipariş yok.</div>
             )}
           </CardBody>
         )}

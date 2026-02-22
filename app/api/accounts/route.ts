@@ -31,14 +31,25 @@ export const GET = withAuth(async (request: NextRequest, user: { role?: string }
   }
   try {
     const { searchParams } = new URL(request.url)
-    const type = searchParams.get('type') // 'customer' veya 'supplier'
+    const typeParam = (searchParams.get('type') ?? '').trim().toLowerCase()
+    // Sadece customer/supplier ise filtrele; tümü/boş/all → hem müşteri hem tedarikçi
+    const type =
+      typeParam === 'customer' ? 'customer' :
+      typeParam === 'supplier' ? 'supplier' :
+      null
+    const balanceParam = (searchParams.get('balance') ?? '').trim().toLowerCase()
+    const balanceFilter =
+      balanceParam === 'debt' ? 'debt' as const :
+      balanceParam === 'credit' ? 'credit' as const :
+      balanceParam === 'zero' ? 'zero' as const :
+      null
     const limit = Math.min(
       Math.max(1, parseInt(searchParams.get('limit') || String(PAGINATION.DEFAULT_LIMIT), 10) || PAGINATION.DEFAULT_LIMIT),
       PAGINATION.MAX_LIMIT
     )
     const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
 
-    const { rows, total } = accountsRepo.getPage(type, limit, offset)
+    const { rows, total } = accountsRepo.getPage(type, limit, offset, balanceFilter)
     return ok(rows, { headers: CACHE_HEADERS_SHORT, meta: { total, limit, offset } })
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error('Accounts API GET failed')
@@ -73,26 +84,20 @@ export const POST = withAuth(async (request: NextRequest, user: { role?: string 
       return fail('Müşteri/Tedarikçi adı gerekli', { status: 400 })
     }
 
-    // Benzersiz kod oluştur (aynı anda iki istek veya silinmiş kayıt nedeniyle çakışma olmasın)
+    // Benzersiz kod: 001'den başlayan ilk kullanılmayan numara (MUS-001, MUS-002, ...)
     const db = getDatabase()
     const prefix = type === 'customer' ? 'MUS' : 'TED'
+    const existingRows = db.prepare(
+      'SELECT code FROM accounts WHERE type = ? AND deleted_at IS NULL AND code LIKE ?'
+    ).all(type, `${prefix}-%`) as { code: string }[]
+    const usedNumbers = new Set<number>()
+    for (const row of existingRows) {
+      const num = parseInt(row.code.replace(/[^0-9]/g, ''), 10)
+      if (!isNaN(num)) usedNumbers.add(num)
+    }
     let codeNumber = 1
-    const lastRow = db.prepare(
-      'SELECT code FROM accounts WHERE type = ? AND deleted_at IS NULL ORDER BY code DESC LIMIT 1'
-    ).get(type) as { code: string } | undefined
-    if (lastRow?.code) {
-      const lastNum = parseInt(lastRow.code.replace(/[^0-9]/g, ''), 10) || 0
-      codeNumber = lastNum + 1
-    }
-    let code = `${prefix}-${String(codeNumber).padStart(4, '0')}`
-    for (let i = 0; i < 100; i++) {
-      const candidate = `${prefix}-${String(codeNumber + i).padStart(4, '0')}`
-      const exists = db.prepare('SELECT 1 FROM accounts WHERE code = ? AND deleted_at IS NULL').get(candidate)
-      if (!exists) {
-        code = candidate
-        break
-      }
-    }
+    while (usedNumbers.has(codeNumber)) codeNumber++
+    const code = `${prefix}-${String(codeNumber).padStart(3, '0')}`
 
     const id = `acc-${Date.now()}-${Math.random().toString(36).substring(7)}`
     const accountData = {
@@ -117,7 +122,8 @@ export const POST = withAuth(async (request: NextRequest, user: { role?: string 
       // Aynı anda iki istek aynı kodu aldıysa tekrar dene (başka bilgisayar / çoklu sekme)
       if (insertErr?.message?.includes('UNIQUE') || insertErr?.message?.includes('zaten kullanılıyor')) {
         for (let retry = 1; retry <= 20; retry++) {
-          const nextCode = `${prefix}-${String(codeNumber + 99 + retry).padStart(4, '0')}`
+          const nextNum = codeNumber + retry
+          const nextCode = `${prefix}-${String(nextNum).padStart(3, '0')}`
           const exists = db.prepare('SELECT 1 FROM accounts WHERE code = ? AND deleted_at IS NULL').get(nextCode)
           if (!exists) {
             accountData.code = nextCode
@@ -152,17 +158,27 @@ export const POST = withAuth(async (request: NextRequest, user: { role?: string 
   }
 })
 
-// DELETE: Tüm carileri sil (all=1, sadece admin)
+// DELETE: Tüm carileri sil — SADECE bilinçli kullanıcı isteği (all=1 + X-Confirm-Delete-All-Accounts).
+// Otomatik veya yanlışlıkla tetiklenmeyi önlemek için özel header zorunludur; girilen veriler otomatik silinmez.
 export const DELETE = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const all = searchParams.get('all')
+    const confirmHeader = request.headers.get('X-Confirm-Delete-All-Accounts')
     if (all !== '1' && all !== 'true') {
       return fail('Tümünü silmek için ?all=1 gerekli', { status: 400 })
     }
+    if (confirmHeader !== '1' && confirmHeader !== 'true') {
+      return fail('Otomatik silme kapalı. Tüm carileri silmek için arayüzdeki butonu ve onay adımlarını kullanın.', { status: 400 })
+    }
     const db = getDatabase()
-    const result = db.prepare('UPDATE accounts SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL').run()
-    return ok({ deleted_count: result.changes }, { message: `${result.changes} cari hesap silindi` })
+    // Çek/senet kaydı olan carileri silme; sadece referansı olmayanları sil
+    const result = db.prepare(`
+      UPDATE accounts SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE deleted_at IS NULL
+        AND id NOT IN (SELECT DISTINCT account_id FROM checks_and_notes WHERE deleted_at IS NULL AND account_id IS NOT NULL)
+    `).run()
+    return ok({ deleted_count: result.changes }, { message: `${result.changes} cari hesap silindi (çek/senet kaydı olan cariler korundu)` })
   } catch (error: any) {
     apiLogger.error('Accounts API DELETE failed', { error: error?.message, stack: error?.stack })
     return fail(error.message || 'Silinemedi', { status: 500 })

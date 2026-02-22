@@ -53,14 +53,39 @@ type ReadyItemUpdateInput = {
   ready?: boolean
 }
 
+/** Türkçe karakterleri normalize ederek cari ismiyle eşleştirir (ÖZKARDEŞLER = OZKARDESLER vb.) */
+function findAccountByNormalizedName(db: ReturnType<typeof getDatabase>, name: string): { id: string } | undefined {
+  const n = (s: string) =>
+    (s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/ı/g, 'i')
+      .replace(/i/g, 'i')
+      .replace(/ş/g, 's')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+  const needle = n(name)
+  if (!needle) return undefined
+  const rows = db.prepare('SELECT id, name FROM accounts WHERE deleted_at IS NULL').all() as { id: string; name: string }[]
+  const found = rows.find((r) => n(r.name) === needle)
+  return found ? { id: found.id } : undefined
+}
+
 // GET: Müşteriye ait sevk edilebilir ürünleri getir (customer_id yoksa tümünü getir)
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
-    const customerId = searchParams.get('customer_id')
+    let customerId = searchParams.get('customer_id')?.trim() ?? null
     const barcode = searchParams.get('barcode')
 
     const db = getDatabase()
+    // customer_id kod (MUS-001 vb.) ise id'ye çevir
+    if (customerId && /^[A-Za-z]+-\d+$/.test(customerId)) {
+      const byCode = db.prepare('SELECT id FROM accounts WHERE code = ? AND deleted_at IS NULL').get(customerId) as { id: string } | undefined
+      if (byCode) customerId = byCode.id
+    }
 
     if (barcode) {
       const item = db.prepare(`
@@ -86,7 +111,84 @@ export const GET = withAuth(async (request: NextRequest) => {
         return fail('Sevke hazır ürün bulunamadı', { status: 404 })
       }
 
-      return ok({ item })
+      // Barkodta cari yoksa: sipariş (orders) veya satış siparişi (sales_orders) üzerinden cariyi bul
+      let suggested_customer_id: string | null = item.customer_id
+      if (!suggested_customer_id && item.production_order_id) {
+        const poId = item.production_order_id
+        const orderRow = db.prepare(`
+          SELECT customer_code, dealer_name, customer_name FROM orders WHERE production_order_id = ? AND deleted_at IS NULL LIMIT 1
+        `).get(poId) as { customer_code: string | null; dealer_name: string | null; customer_name?: string | null } | undefined
+        if (orderRow) {
+          const code = (orderRow.customer_code || '').trim()
+          const nameDealer = (orderRow.dealer_name || '').trim()
+          const nameCustomer = (orderRow.customer_name || '').trim()
+          let acc = code
+            ? db.prepare('SELECT id FROM accounts WHERE code = ? AND deleted_at IS NULL').get(code) as { id: string } | undefined
+            : null
+          if (!acc && nameDealer) {
+            acc = db.prepare('SELECT id FROM accounts WHERE TRIM(name) = ? AND deleted_at IS NULL').get(nameDealer) as { id: string } | undefined
+            if (!acc) acc = db.prepare('SELECT id FROM accounts WHERE LOWER(TRIM(name)) = ? AND deleted_at IS NULL').get(nameDealer.toLowerCase()) as { id: string } | undefined
+            if (!acc) acc = findAccountByNormalizedName(db, nameDealer)
+          }
+          if (!acc && nameCustomer) {
+            acc = db.prepare('SELECT id FROM accounts WHERE TRIM(name) = ? AND deleted_at IS NULL').get(nameCustomer) as { id: string } | undefined
+            if (!acc) acc = db.prepare('SELECT id FROM accounts WHERE LOWER(TRIM(name)) = ? AND deleted_at IS NULL').get(nameCustomer.toLowerCase()) as { id: string } | undefined
+            if (!acc) acc = findAccountByNormalizedName(db, nameCustomer)
+          }
+          suggested_customer_id = acc?.id ?? null
+        }
+        if (!suggested_customer_id && poId) {
+          const salesRow = db.prepare(`
+            SELECT so.customer_id FROM sales_order_items soi
+            JOIN sales_orders so ON so.id = soi.sales_order_id AND so.deleted_at IS NULL
+            WHERE soi.production_order_id = ? LIMIT 1
+          `).get(poId) as { customer_id: string | null } | undefined
+          if (salesRow?.customer_id) {
+            const exists = db.prepare('SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL').get(salesRow.customer_id) as { id: string } | undefined
+            if (exists) suggested_customer_id = salesRow.customer_id
+          }
+        }
+        // Siparişte production_order_id dolu değilse: üretim emri order_number ile eşleştir
+        if (!suggested_customer_id && poId) {
+          const poNumber = db.prepare('SELECT order_number FROM production_orders WHERE id = ?').get(poId) as { order_number: string } | undefined
+          if (poNumber?.order_number) {
+            const orderByNumber = db.prepare(`
+              SELECT customer_code, dealer_name, customer_name FROM orders WHERE order_number = ? AND deleted_at IS NULL LIMIT 1
+            `).get(poNumber.order_number) as { customer_code: string | null; dealer_name: string | null; customer_name?: string | null } | undefined
+            if (orderByNumber) {
+              const code = (orderByNumber.customer_code || '').trim()
+              const nameDealer = (orderByNumber.dealer_name || '').trim()
+              const nameCustomer = (orderByNumber.customer_name || '').trim()
+              let acc = code ? db.prepare('SELECT id FROM accounts WHERE code = ? AND deleted_at IS NULL').get(code) as { id: string } | undefined : null
+              if (!acc && nameDealer) {
+                acc = db.prepare('SELECT id FROM accounts WHERE (TRIM(name) = ? OR LOWER(TRIM(name)) = ?) AND deleted_at IS NULL').get(nameDealer, nameDealer.toLowerCase()) as { id: string } | undefined
+                if (!acc) acc = findAccountByNormalizedName(db, nameDealer)
+              }
+              if (!acc && nameCustomer) {
+                acc = db.prepare('SELECT id FROM accounts WHERE (TRIM(name) = ? OR LOWER(TRIM(name)) = ?) AND deleted_at IS NULL').get(nameCustomer, nameCustomer.toLowerCase()) as { id: string } | undefined
+                if (!acc) acc = findAccountByNormalizedName(db, nameCustomer)
+              }
+              if (acc) suggested_customer_id = acc.id
+            }
+          }
+        }
+      }
+      const resolvedCustomerId = item.customer_id ?? suggested_customer_id
+      // Barkod kaydında cari yoktu ama sipariş/satıştan bulduysak bir sonraki okutmada doğrudan kullanılsın diye kaydet
+      if (resolvedCustomerId && !item.customer_id && item.id) {
+        try {
+          db.prepare('UPDATE product_serial_numbers SET customer_id = ? WHERE id = ?').run(resolvedCustomerId, item.id)
+        } catch (_) {
+          // Güncelleme başarısız olsa da yanıt dönüyoruz
+        }
+      }
+      return ok({
+        item: {
+          ...item,
+          customer_id: resolvedCustomerId,
+        },
+        suggested_customer_id: suggested_customer_id ?? item.customer_id ?? undefined,
+      })
     }
 
     let readyItems: ReadyItemRow[]
@@ -218,7 +320,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const { barcode, customer_id, ready } = body
 
     if (!barcode) {
-      return fail('barcode gerekli', { status: 400 })
+      return fail('Barkod gerekli', { status: 400 })
     }
 
     const db = getDatabase()

@@ -2,10 +2,14 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
-import { fetchApi } from '@/lib/api/client'
+import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2, Copy, Printer } from 'lucide-react'
+import { fetchApi, getAuthHeaders } from '@/lib/api/client'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
+import type { CheckNote } from '@/types'
+import Link from 'next/link'
+import { FileText, RefreshCw } from 'lucide-react'
+import { pushRecent } from '@/lib/recentViews'
 
 interface Account {
   id: string
@@ -89,6 +93,15 @@ export default function AccountDetailPage() {
   const [endPickerYear, setEndPickerYear] = useState(new Date().getFullYear())
   const [clearingData, setClearingData] = useState(false)
   const [applyingDiscount, setApplyingDiscount] = useState(false)
+  const [checks, setChecks] = useState<CheckNote[]>([])
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+    const t = setTimeout(() => {
+      window.scrollTo(0, 0)
+    }, 150)
+    return () => clearTimeout(t)
+  }, [params?.id])
 
   useEffect(() => {
     const id = params?.id as string
@@ -96,15 +109,31 @@ export default function AccountDetailPage() {
       loadAccount(id)
       loadShipments(id)
       loadTransactions(id)
+      loadChecks(id)
     }
   }, [params?.id])
 
   async function loadAccount(id: string) {
     try {
-      const data = await fetchApi<Account>(`/api/accounts/${id}`)
+      const res = await fetch(`/api/accounts/${id}`, { credentials: 'include', headers: getAuthHeaders() })
+      const json = await res.json().catch(() => ({}))
+      if (res.status === 404 || (json && json.success === false)) {
+        toast.error('Cari hesap bulunamadı veya silinmiş olabilir.')
+        router.push('/accounts')
+        setLoading(false)
+        return
+      }
+      if (!res.ok) {
+        toast.error((json?.error as string) || 'Cari hesap yüklenemedi')
+        router.push('/accounts')
+        setLoading(false)
+        return
+      }
+      const data = (json?.data != null ? json.data : json) as Account
       setAccount(data)
+      pushRecent({ type: 'account', id: data.id, label: `${data.code} — ${data.name}`, href: `/accounts/${data.id}` })
     } catch (error) {
-      console.error('Error loading account:', error)
+      console.error('Cari hesap yüklenirken hata:', error)
       toast.error('Cari hesap yüklenirken hata oluştu')
       router.push('/accounts')
     } finally {
@@ -117,7 +146,7 @@ export default function AccountDetailPage() {
       const data = await fetchApi<Shipment[]>(`/api/shipments?customer_id=${accountId}`)
       setShipments(data)
     } catch (error) {
-      console.error('Error loading shipments:', error)
+      console.error('Sevkiyatlar yüklenirken hata:', error)
     }
   }
 
@@ -145,7 +174,17 @@ export default function AccountDetailPage() {
       const data = await fetchApi<AccountTransaction[]>(`/api/accounts/${accountId}/transactions`)
       setTransactions(data)
     } catch (error) {
-      console.error('Error loading transactions:', error)
+      console.error('İşlemler yüklenirken hata:', error)
+    }
+  }
+
+  async function loadChecks(accountId: string) {
+    try {
+      const data = await fetchApi<CheckNote[]>(`/api/checks-notes?account_id=${encodeURIComponent(accountId)}`)
+      setChecks(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Çek/senet yüklenirken hata:', error)
+      setChecks([])
     }
   }
 
@@ -291,6 +330,15 @@ export default function AccountDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>← Geri</span>
           </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-gray-700 text-white hover:bg-gray-600 transition"
+            title="Sayfayı yazdır"
+          >
+            <Printer className="w-4 h-4" />
+            Yazdır
+          </button>
           {account.type === 'customer' && (
             <button
               type="button"
@@ -310,7 +358,17 @@ export default function AccountDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <div className="text-gray-400 mb-1">Kod:</div>
-              <div className="text-white font-mono">{account.code}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-white font-mono">{account.code}</span>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(account.code); toast.success('Cari kodu panoya kopyalandı') }}
+                  className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition"
+                  title="Kodu kopyala"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
             <div>
               <div className="text-gray-400 mb-1">Tip:</div>
@@ -417,6 +475,72 @@ export default function AccountDetailPage() {
               ) : null}
             </div>
           </div>
+        </div>
+
+        {/* Çek ve Senet (bu carideki) */}
+        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6">
+          <h2 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center space-x-2">
+              <FileText className="w-5 h-5" />
+              <span>Çek ve Senet</span>
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => account && loadChecks(account.id)}
+                className="text-sm text-gray-400 hover:text-white inline-flex items-center gap-1"
+                title="Listeyi yenile"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Yenile
+              </button>
+              <Link
+                href="/checks-notes"
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                Çek/Senet sayfasına git →
+              </Link>
+            </div>
+          </h2>
+          {checks.length === 0 ? (
+            <p className="text-gray-400 text-sm">Bu caride kayıtlı çek/senet yok.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    <th className="text-left py-2 px-3 text-xs text-gray-400">Tip</th>
+                    <th className="text-left py-2 px-3 text-xs text-gray-400">Yön</th>
+                    <th className="text-right py-2 px-3 text-xs text-gray-400">Tutar</th>
+                    <th className="text-left py-2 px-3 text-xs text-gray-400">Vade</th>
+                    <th className="text-left py-2 px-3 text-xs text-gray-400">Durum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {checks.map((c) => (
+                    <tr key={c.id} className="border-b border-gray-800 hover:bg-gray-800">
+                      <td className="py-2 px-3 text-gray-300">{c.type === 'check' ? 'Çek' : 'Senet'}</td>
+                      <td className="py-2 px-3 text-gray-300">{c.direction === 'received' ? 'Alındığı' : 'Verildiği'}</td>
+                      <td className="py-2 px-3 text-right text-white font-mono">
+                        {Number(c.amount).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                      </td>
+                      <td className="py-2 px-3 text-gray-300">{c.due_date ? formatDate(c.due_date) : '-'}</td>
+                      <td className="py-2 px-3">
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          c.status === 'pending' ? 'bg-amber-900/50 text-amber-300' :
+                          c.status === 'collected' ? 'bg-green-900/50 text-green-300' :
+                          c.status === 'bounced' ? 'bg-red-900/50 text-red-300' :
+                          'bg-gray-700 text-gray-300'
+                        }`}>
+                          {c.status === 'pending' ? 'Beklemede' : c.status === 'given' ? 'Verildi' : c.status === 'collected' ? 'Tahsil' : c.status === 'bounced' ? 'Karşılıksız' : c.status === 'cancelled' ? 'İptal' : c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Döküman Aralığı */}
@@ -834,10 +958,53 @@ export default function AccountDetailPage() {
 
         {/* Sevkiyatlar */}
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6">
-          <h2 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center space-x-2">
-            <Truck className="w-5 h-5" />
-            <span>Sevk Fişleri</span>
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg md:text-xl font-bold text-white flex items-center space-x-2">
+              <Truck className="w-5 h-5" />
+              <span>Sevk Fişleri</span>
+            </h2>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-400">Cari iskonto oranı:</span>
+              <span className={`font-semibold ${(account.discount_rate ?? 0) > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                %{(Number(account.discount_rate) || 0).toFixed(2)}
+              </span>
+              {(account.discount_rate ?? 0) > 0 && (
+                <button
+                  type="button"
+                  disabled={applyingDiscount}
+                  onClick={async () => {
+                    if (!account?.id) return
+                    if (!confirm(`Bu carideki tüm sevkiyat fişlerine %${account.discount_rate!.toFixed(2)} iskonto bir seferlik uygulanacak. Devam?`)) return
+                    setApplyingDiscount(true)
+                    const ac = new AbortController()
+                    const timeoutId = setTimeout(() => ac.abort(), 30000)
+                    try {
+                      const data = await fetchApi<{ updated_count?: number; message?: string }>(
+                        `/api/accounts/${account.id}/apply-discount-to-shipments`,
+                        { method: 'POST', signal: ac.signal }
+                      )
+                      clearTimeout(timeoutId)
+                      const msg = (data && typeof data === 'object' && 'message' in data) ? (data as any).message : 'İskonto sevkiyat fişlerine uygulandı.'
+                      toast.success(msg)
+                      loadAccount(account.id)
+                      loadShipments(account.id)
+                      loadTransactions(account.id)
+                    } catch (e: any) {
+                      clearTimeout(timeoutId)
+                      const isTimeout = e?.name === 'AbortError' || /timeout|abort/i.test(String(e?.message))
+                      toast.error(isTimeout ? 'İşlem zaman aşımına uğradı. Tekrar deneyin.' : 'Hata: ' + (e?.message || 'İşlem yapılamadı'))
+                    } finally {
+                      setApplyingDiscount(false)
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium disabled:opacity-60"
+                >
+                  <Percent className="w-3.5 h-3.5" />
+                  {applyingDiscount ? 'Uygulanıyor...' : 'Tüm fişlere uygula'}
+                </button>
+              )}
+            </div>
+          </div>
 
           {filteredShipments.length === 0 ? (
             <div className="text-center py-8 text-gray-400">

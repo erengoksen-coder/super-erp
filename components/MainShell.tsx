@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/cn'
 import PendingUsersBanner from '@/components/PendingUsersBanner'
 import NotificationToaster from '@/components/NotificationToaster'
+import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
+import { KeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp'
 import BayiOrderAlertBanner from '@/components/BayiOrderAlertBanner'
 import MessengerBox from '@/components/MessengerBox'
 import { useSidebar } from '@/components/SidebarContext'
@@ -64,18 +66,21 @@ export default function MainShell({ children }: MainShellProps) {
         overflowX: 'hidden',
       }}
       className={cn(
-        'fixed inset-0 overscroll-contain box-border transition-[left] duration-300',
+        'fixed inset-0 left-0 overscroll-contain box-border transition-[left] duration-300 min-h-[100dvh]',
         !isAuthPage && (collapsed ? 'lg:left-[72px]' : 'lg:left-64')
       )}
     >
       <div className={cn(
         // Production: full-width with consistent padding
         isProductionRoute && "w-full p-6",
-        // Other pages: container with responsive padding
-        !isProductionRoute && "p-3 sm:p-4 md:p-6 lg:p-8"
+        // Other pages: container with responsive padding + mobil safe area (çentik/notch)
+        !isProductionRoute && "p-3 sm:p-4 md:p-6 lg:p-8",
+        'mobile-safe-left mobile-safe-right mobile-safe-bottom mobile-safe-top'
       )}>
         {!isAuthPage && (
           <>
+            <KeyboardShortcuts />
+            <KeyboardShortcutsHelp />
             <PendingUsersBanner />
             <BayiOrderAlertBanner />
             <NotificationToaster />

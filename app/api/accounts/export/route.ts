@@ -2,20 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { EXPORT_MAX_LIMIT } from '@/lib/constants'
+import { getExportLimits, applyExportRowLimit } from '@/lib/auth/export-limits'
+import { fail } from '@/lib/api/response'
+import { apiLogger } from '@/lib/api/logger'
 import * as XLSX from 'xlsx'
 
 // GET: Cari hesapları Excel olarak dışa aktar
-export const GET = withAuth(async (request: NextRequest, user) => {
+export const GET = withAuth(async (request: NextRequest, user: { userId: string; role?: string }) => {
   const role = (user?.role ?? '').toString().trim().toLowerCase()
   if (role === 'bayi') {
     return NextResponse.json({ error: 'Bu işlem için yetkiniz yok' }, { status: 403 })
   }
+  const db = getDatabase()
+  const limits = getExportLimits(db, user.userId, user.role)
+  if (!limits.canExport) {
+    return fail('Dışa aktarma yetkiniz yok. Yönetici ile iletişime geçin.', { status: 403 })
+  }
   try {
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') || ''
-    const limit = Math.min(EXPORT_MAX_LIMIT, parseInt(searchParams.get('limit') || String(EXPORT_MAX_LIMIT), 10) || EXPORT_MAX_LIMIT)
-
-    const db = getDatabase()
+    const requestedLimit = Math.min(EXPORT_MAX_LIMIT, parseInt(searchParams.get('limit') || String(EXPORT_MAX_LIMIT), 10) || EXPORT_MAX_LIMIT)
+    const limit = applyExportRowLimit(requestedLimit, limits, EXPORT_MAX_LIMIT)
     let query = `
       SELECT 
         code as "Kod",
@@ -45,6 +52,9 @@ export const GET = withAuth(async (request: NextRequest, user) => {
     const rows = db.prepare(query).all(...params) as Record<string, unknown>[]
     const workbook = XLSX.utils.book_new()
     const sheet = XLSX.utils.json_to_sheet(rows)
+    sheet['!cols'] = [
+      { wch: 12 }, { wch: 28 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 18 },
+    ]
     XLSX.utils.book_append_sheet(workbook, sheet, 'Cari Hesaplar')
     const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
     return new NextResponse(buf, {
@@ -55,6 +65,7 @@ export const GET = withAuth(async (request: NextRequest, user) => {
     })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Export hatası'
+    apiLogger.error('Accounts export failed', { error: message, userId: user?.userId })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 })

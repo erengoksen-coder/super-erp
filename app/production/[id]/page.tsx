@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer } from 'lucide-react'
+import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer, Copy } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { pushRecent } from '@/lib/recentViews'
 
 interface ProductionOrder {
   id: string
@@ -59,6 +60,7 @@ export default function ProductionOrderDetailPage() {
   const [barcodes, setBarcodes] = useState<Barcode[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [actualQuantities, setActualQuantities] = useState<Record<string, string>>({})
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [customers, setCustomers] = useState<any[]>([])
@@ -114,6 +116,7 @@ export default function ProductionOrderDetailPage() {
       }
 
       setOrder(foundOrder)
+      pushRecent({ type: 'production', id: foundOrder.id, label: foundOrder.order_number, href: `/production/${foundOrder.id}` })
       const productionOrderId = foundOrder.id
 
       // Fiili harcanan malzemeleri yükle
@@ -141,11 +144,11 @@ export default function ProductionOrderDetailPage() {
         setBarcodes(barcodesData)
       }
 
-      // Müşterileri yükle
-      const customersData = await fetchApi('/api/accounts?type=customer')
-      setCustomers((Array.isArray(customersData) ? customersData : []))
+      // Müşterileri yükle (limit=500 ile tüm cariler)
+      const customersData = await fetchApi<{ id: string; code: string; name: string }[]>('/api/accounts?type=customer&limit=500')
+      setCustomers(Array.isArray(customersData) ? customersData : [])
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('Veri yüklenirken hata:', error)
       setOrder(null)
     } finally {
       setLoading(false)
@@ -154,21 +157,22 @@ export default function ProductionOrderDetailPage() {
 
   async function handleCancelProduction() {
     if (!order) return
-    if (!confirm(`${order.order_number} üretim emrini iptal etmek istiyor musunuz?`)) {
+    if (!confirm(`${order.order_number} üretim emrini iptal etmek istiyor musunuz? BOM malzemeleri depoya iade edilecek, bu emre bağlı siparişler bekleyene alınacaktır.`)) {
       return
     }
+    setCancelling(true)
     try {
-      const response = await fetch(`/api/production/${order.id}/cancel`, {
+      const res = await fetchApi<{ success?: boolean; message?: string }>(`/api/production/${order.id}/cancel`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'İptal işlemi başarısız')
-      }
-      toast.success('Üretim emri iptal edildi')
+      toast.success(res?.message ?? 'Üretim emri iptal edildi. BOM malzemeleri depoya iade edildi.')
       await loadData()
-    } catch (error: any) {
-      toast.error('Hata: ' + error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'İptal işlemi başarısız'
+      toast.error('Hata: ' + message)
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -287,17 +291,29 @@ export default function ProductionOrderDetailPage() {
         </Link>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white">{order.order_number}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold text-white">{order.order_number}</h1>
+              <button
+                type="button"
+                onClick={() => { navigator.clipboard.writeText(order.order_number); toast.success('Üretim emri no panoya kopyalandı') }}
+                className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition"
+                title="Üretim emri numarasını kopyala"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
             <p className="text-gray-400 mt-1">{order.product_name} ({order.sku})</p>
           </div>
           <div className="flex items-center space-x-2">
             {order.status !== 'cancelled' && order.status !== 'completed' && (
               <button
+                type="button"
                 onClick={handleCancelProduction}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition inline-flex items-center space-x-2"
+                disabled={cancelling}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition inline-flex items-center space-x-2"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>İptal Et</span>
+                <span>{cancelling ? 'İptal ediliyor...' : 'ÜRETİMİ İPTAL ET'}</span>
               </button>
             )}
             {getStatusBadge(order.status)}

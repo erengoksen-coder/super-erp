@@ -29,16 +29,18 @@ import {
   Calendar,
   FileText,
   FileSignature,
+  Star,
 } from 'lucide-react'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
+import { useDebounce } from '@/lib/hooks/useDebounce'
 import { LogoWithBackground } from './Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { useTheme } from '@/lib/theme'
 import { logout } from '@/lib/auth'
 import { useSidebar } from './SidebarContext'
 import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
-import { useApi } from '@/lib/api/client'
+import { useApi, fetchApi } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/cn'
@@ -54,6 +56,53 @@ type MenuItem = {
 }
 /** Command palette'de gösterilen düzleştirilmiş menü öğesi */
 type CommandPaletteItem = { name: string; href: string; icon?: React.ComponentType<{ className?: string }>; parent: string | null }
+
+type GlobalSearchItem = { id: string; label: string; sub?: string; href: string }
+type GlobalSearchData = { orders: GlobalSearchItem[]; accounts: GlobalSearchItem[]; invoices: GlobalSearchItem[] }
+
+const RECENT_KEY = 'sidebar-recent-paths'
+const FAVORITE_KEY = 'sidebar-favorite-paths'
+const MAX_RECENT = 5
+const MAX_FAVORITES = 8
+const PATH_LABELS: Record<string, string> = {
+  dashboard: 'Kontrol Paneli',
+  reports: 'Raporlar',
+  finance: 'Finans',
+  admin: 'Yönetim',
+  accounts: 'Cari Hesaplar',
+  orders: 'Siparişler',
+  invoices: 'Faturalar',
+  shipments: 'Sevkiyatlar',
+  inventory: 'Depo',
+  production: 'Üretim',
+  users: 'Kullanıcılar',
+  settings: 'Ayarlar',
+  notifications: 'Bildirimler',
+  payments: 'Ödemeler',
+  purchase: 'Satın Alma',
+  'purchase-orders': 'Satın Alma Siparişleri',
+  'purchase-requests': 'Satın Alma Talepleri',
+  'sales-orders': 'Satış Siparişleri',
+  crm: 'CRM',
+  barcodes: 'Barkodlar',
+  'checks-notes': 'Çek / Senet',
+  'api-catalog': 'API Kataloğu',
+  mobile: 'Mobil',
+  bayi: 'Bayi',
+}
+function getLabelForPath(path: string): string {
+  for (const item of menuItems) {
+    if (item.href === path || (item.href !== '/' && path.startsWith(item.href))) {
+      const sub = item.submenu?.find((s) => s.href === path || (s.href !== '/' && path.startsWith(s.href)))
+      return sub?.name ?? item.name
+    }
+    const sub = item.submenu?.find((s) => s.href === path || (s.href !== '/' && path.startsWith(s.href)))
+    if (sub) return sub.name
+  }
+  if (path === '/dashboard' || path === '/') return 'Kontrol Paneli'
+  const segment = path.split('/').filter(Boolean)[0] ?? ''
+  return PATH_LABELS[segment] ?? segment
+}
 
 const menuItems: MenuItem[] = [
   { name: 'Kontrol Paneli', href: ROUTES.HOME, icon: LayoutDashboard, group: '' },
@@ -111,7 +160,7 @@ const menuItems: MenuItem[] = [
     group: 'Satış & Tedarik',
     submenu: [
       { name: 'Talepler', href: '/purchase-requests' },
-      { name: 'Siparişler', href: '/purchase-orders' },
+      { name: 'Satın Alma Siparişleri', href: '/purchase-orders' },
       { name: 'Kritik Stok', href: '/purchase/critical-stock' },
     ],
   },
@@ -124,6 +173,7 @@ const menuItems: MenuItem[] = [
     submenu: [
       { name: 'Cari Hesaplar', href: ROUTES.ACCOUNTS },
       { name: 'Ödemeler', href: '/payments' },
+      { name: 'Çek ve Senet', href: '/checks-notes' },
       { name: 'Yevmiye Fişleri', href: `${ROUTES.FINANCE}/journal-entries` },
       { name: 'Yeni Fiş', href: `${ROUTES.FINANCE}/new` },
       { name: 'Hesap Planı', href: `${ROUTES.FINANCE}/chart-of-accounts` },
@@ -139,22 +189,6 @@ const menuItems: MenuItem[] = [
     ],
   },
   { name: 'Muhasebe', href: '/accounting', icon: BookOpen, group: 'Finans' },
-  {
-    name: 'İnsan Kaynakları',
-    href: ROUTES.HR,
-    icon: Users,
-    group: 'Diğer',
-    submenu: [
-      { name: 'Özet', href: ROUTES.HR },
-      { name: 'Giriş/Çıkış (Puantaj)', href: `${ROUTES.HR}/clock` },
-      { name: 'Devam / Puantaj', href: `${ROUTES.HR}/attendance` },
-      { name: 'İzinler', href: `${ROUTES.HR}/leave` },
-      { name: 'Bordro', href: `${ROUTES.HR}/payroll` },
-      { name: 'Performans', href: `${ROUTES.HR}/performance` },
-      { name: 'İşe Alım', href: `${ROUTES.HR}/recruitment` },
-      { name: 'Vardiya', href: `${ROUTES.HR}/shifts` },
-    ],
-  },
   { name: 'CRM', href: '/crm', icon: Handshake, group: 'Diğer' },
   { name: 'Doküman Yönetimi', href: ROUTES.DOCUMENTS, icon: FileText, group: 'Diğer' },
   { name: 'Sözleşmeler', href: ROUTES.CONTRACTS, icon: FileSignature, group: 'Diğer' },
@@ -166,7 +200,6 @@ const menuItems: MenuItem[] = [
     group: 'Diğer',
     submenu: [
       { name: 'Üretim Takvimi', href: '/production/calendar' },
-      { name: 'İzinler', href: '/hr/leave' },
     ],
   },
   {
@@ -187,6 +220,7 @@ const menuItems: MenuItem[] = [
     group: 'Sistem',
     submenu: [
       { name: 'Genel', href: ROUTES.SETTINGS },
+      { name: 'Şifre değiştir', href: '/settings/change-password' },
       { name: 'Entegrasyonlar', href: '/settings/integrations' },
       { name: 'Yönetici Paneli', href: '/admin' },
       { name: 'Kullanıcılar', href: ROUTES.USERS },
@@ -262,10 +296,48 @@ export default function Sidebar() {
     })
     return initial
   })
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
+  const [globalSearchData, setGlobalSearchData] = useState<GlobalSearchData | null>(null)
+  const [recentPaths, setRecentPaths] = useState<Array<{ path: string; label: string }>>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = window.localStorage.getItem(RECENT_KEY)
+      const parsed = raw ? JSON.parse(raw) : []
+      const list = Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT) : []
+      return list.map((p: { path: string; label?: string }) => ({
+        path: p.path,
+        label: getLabelForPath(p.path),
+      }))
+    } catch {
+      return []
+    }
+  })
+  const [favoritePaths, setFavoritePaths] = useState<Array<{ path: string; label: string }>>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = window.localStorage.getItem(FAVORITE_KEY)
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed.slice(0, MAX_FAVORITES) : []
+    } catch {
+      return []
+    }
+  })
+
+  const toggleFavorite = useCallback((path: string, label: string) => {
+    setFavoritePaths((prev) => {
+      const exists = prev.some((p) => p.path === path)
+      const next = exists ? prev.filter((p) => p.path !== path) : [{ path, label }, ...prev].slice(0, MAX_FAVORITES)
+      try {
+        window.localStorage.setItem(FAVORITE_KEY, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [])
+  const isFavorite = (path: string) => favoritePaths.some((p) => p.path === path)
   const user = useAuthStore((s) => s.user)
   const { mode, toggleMode } = useTheme()
-  const { data: notificationsList } = useApi<Array<{ read?: number }>>('/api/notifications')
-  const unreadNotificationsCount = (notificationsList ?? []).filter((n) => !n.read).length
+  const { data: unreadData } = useApi<{ count: number }>('/api/notifications/unread-count')
+  const unreadNotificationsCount = unreadData?.count ?? 0
 
   const isAdmin = isAdminRole(user?.role)
   const isBayiUser = (user?.role || '').toString().trim().toLowerCase() === 'bayi'
@@ -283,8 +355,36 @@ export default function Sidebar() {
     setExpandedMenus((prev) => (prev[parent.name] ? prev : { [parent.name]: true }))
   }, [pathname])
 
+  useEffect(() => {
+    if (!pathname || pathname === ROUTES.LOGIN || pathname === ROUTES.REGISTER || pathname === '/') return
+    const label = getLabelForPath(pathname)
+    setRecentPaths((prev) => {
+      const next = [{ path: pathname, label }, ...prev.filter((p) => p.path !== pathname)].slice(0, MAX_RECENT)
+      try {
+        window.localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [pathname])
+
   const isItemActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href)
+
+  useEffect(() => {
+    if (debouncedSearchTerm.trim().length < 2) {
+      setGlobalSearchData(null)
+      return
+    }
+    let cancelled = false
+    fetchApi<GlobalSearchData>(`/api/search?q=${encodeURIComponent(debouncedSearchTerm)}`)
+      .then((data) => {
+        if (!cancelled) setGlobalSearchData(data)
+      })
+      .catch(() => {
+        if (!cancelled) setGlobalSearchData(null)
+      })
+    return () => { cancelled = true }
+  }, [debouncedSearchTerm])
 
   const filteredSearchResults = useMemo((): CommandPaletteItem[] => {
     if (!searchTerm.trim()) return []
@@ -305,6 +405,9 @@ export default function Sidebar() {
       .filter((x) => x.name.toLowerCase().includes(term))
       .slice(0, 8)
   }, [searchTerm, isAdmin, visibleMenuGroups])
+
+  const hasGlobalResults = globalSearchData &&
+    (globalSearchData.orders.length > 0 || globalSearchData.accounts.length > 0 || globalSearchData.invoices.length > 0)
 
   const openSearch = useCallback(() => {
     setIsSearchOpen(true)
@@ -353,6 +456,75 @@ export default function Sidebar() {
           <Search className="w-5 h-5" />
         </button>
       )}
+      {!collapsed && favoritePaths.length > 0 && (
+        <div className="mb-3">
+          <p className="px-3 text-[10px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">Favoriler</p>
+          <ul className="space-y-0.5">
+            {favoritePaths.map(({ path, label }) => (
+              <li key={path} className="group flex items-center gap-0.5">
+                <Link
+                  href={path}
+                  className={cn(
+                    'flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0',
+                    pathname === path ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                  )}
+                >
+                  <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
+                  <span className="truncate">{label}</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    toggleFavorite(path, label)
+                  }}
+                  className="p-1.5 rounded text-gray-500 hover:text-amber-400 hover:bg-white/5 opacity-0 group-hover:opacity-100 transition"
+                  title="Favorilerden çıkar"
+                  aria-label="Favorilerden çıkar"
+                >
+                  <Star className="h-3.5 w-3.5 fill-amber-400" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!collapsed && recentPaths.length > 0 && (
+        <div className="mb-3">
+          <p className="px-3 text-[10px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">Son ziyaretler</p>
+          <ul className="space-y-0.5">
+            {recentPaths.map(({ path, label }) => (
+              <li key={path} className="group flex items-center gap-0.5">
+                <Link
+                  href={path}
+                  className={cn(
+                    'flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0',
+                    pathname === path ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                  )}
+                >
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                  <span className="truncate">{label}</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    toggleFavorite(path, label)
+                  }}
+                  className={cn(
+                    'p-1.5 rounded transition opacity-0 group-hover:opacity-100',
+                    isFavorite(path) ? 'text-amber-400' : 'text-gray-500 hover:text-amber-400 hover:bg-white/5'
+                  )}
+                  title={isFavorite(path) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+                  aria-label={isFavorite(path) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+                >
+                  <Star className={cn('h-3.5 w-3.5', isFavorite(path) && 'fill-amber-400 text-amber-400')} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {visibleMenuGroups.map((group) => (
         <div key={group.label ?? 'main'} className={cn(group.label && 'mt-4')}>
           {group.label && !collapsed && (
@@ -367,7 +539,7 @@ export default function Sidebar() {
             const Icon = item.icon
 
             const linkClass = cn(
-              'w-full flex items-center gap-3 rounded-lg transition-all duration-150',
+              'w-full flex items-center gap-3 rounded-lg transition-all duration-150 min-h-[44px]',
               collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5 text-left',
               isActive
                 ? 'bg-blue-500/15 text-blue-400 border-l-2 border-blue-500'
@@ -405,8 +577,9 @@ export default function Sidebar() {
                           <Link
                             key={sub.href}
                             href={sub.href}
+                            onClick={() => setIsOpen(false)}
                             className={cn(
-                              'flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
+                              'flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors min-h-[44px]',
                               pathname === sub.href
                                 ? 'bg-blue-500/10 text-blue-400'
                                 : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
@@ -425,7 +598,14 @@ export default function Sidebar() {
                     )}
                   </>
                 ) : (
-                  <Link href={item.href} className={linkClass}>
+                  <Link
+                    href={item.href}
+                    className={linkClass}
+                    onClick={() => {
+                      if (item.href === ROUTES.HOME) setExpandedMenus({})
+                      setIsOpen(false)
+                    }}
+                  >
                     <Icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
                     {!collapsed && (
                       <span className="flex-1 text-sm font-medium">{item.name}</span>
@@ -462,6 +642,7 @@ export default function Sidebar() {
         <div className="flex items-center justify-between h-14 px-3 border-b border-slate-700/80 gap-2">
           <Link
             href={ROUTES.HOME}
+            onClick={() => setIsOpen(false)}
             className={cn(
               'flex items-center gap-2 overflow-hidden min-w-0',
               collapsed ? 'justify-center w-full' : 'flex-1'
@@ -552,10 +733,10 @@ export default function Sidebar() {
             disabled={isLoggingOut}
             onClick={(e) => {
               e.preventDefault()
-              if (!isLoggingOut) {
-                setIsLoggingOut(true)
-                logout()
-              }
+              if (isLoggingOut) return
+              if (!window.confirm('Çıkmak istediğinize emin misiniz?')) return
+              setIsLoggingOut(true)
+              logout()
             }}
           >
             {collapsed ? (
@@ -567,8 +748,8 @@ export default function Sidebar() {
         </div>
       </aside>
 
-      {/* Mobile menu button */}
-      <div className="lg:hidden fixed bottom-4 left-4 z-50">
+      {/* Mobile menu button - safe area ile cep için */}
+      <div className="lg:hidden fixed z-50 bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))]">
         <Button
           variant="solid"
           className="rounded-full shadow-lg bg-slate-700 hover:bg-slate-600 text-white"
@@ -600,29 +781,98 @@ export default function Sidebar() {
                 />
               </div>
               <div className="max-h-[60vh] overflow-y-auto">
+                {hasGlobalResults && (
+                  <div className="border-b border-slate-700">
+                    <p className="px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-gray-500 bg-slate-900/50">
+                      Sipariş / Cari / Fatura
+                    </p>
+                    {globalSearchData!.orders.length > 0 && (
+                      <>
+                        {globalSearchData!.orders.map((o) => (
+                          <Link
+                            key={`order-${o.id}`}
+                            href={o.href}
+                            className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-700/50 transition-colors"
+                            onClick={closeSearch}
+                          >
+                            <ShoppingCart className="w-4 h-4 text-amber-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-white block truncate">{o.label}</span>
+                              {o.sub && <span className="text-xs text-gray-500 block truncate">{o.sub}</span>}
+                            </div>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                    {globalSearchData!.accounts.length > 0 && (
+                      <>
+                        {globalSearchData!.accounts.map((a) => (
+                          <Link
+                            key={`acc-${a.id}`}
+                            href={a.href}
+                            className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-700/50 transition-colors"
+                            onClick={closeSearch}
+                          >
+                            <Users className="w-4 h-4 text-blue-400 shrink-0" />
+                            <span className="text-sm font-medium text-white truncate">{a.label}</span>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                    {globalSearchData!.invoices.length > 0 && (
+                      <>
+                        {globalSearchData!.invoices.map((i) => (
+                          <Link
+                            key={`inv-${i.id}`}
+                            href={i.href}
+                            className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-700/50 transition-colors"
+                            onClick={closeSearch}
+                          >
+                            <FileText className="w-4 h-4 text-green-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-white block truncate">{i.label}</span>
+                              {i.sub && <span className="text-xs text-gray-500 block truncate">{i.sub}</span>}
+                            </div>
+                          </Link>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
                 {filteredSearchResults.length > 0 ? (
-                  filteredSearchResults.map((item, i) => (
-                    <Link
-                      key={`${item.href}-${i}`}
-                      href={item.href}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700/50 transition-colors border-b border-slate-700/50 last:border-0"
-                      onClick={closeSearch}
-                    >
-                      {item.icon && (
-                        <item.icon className="w-4 h-4 text-gray-400 shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-white block truncate">
-                          {item.name}
-                        </span>
-                        {item.parent && (
-                          <span className="text-xs text-gray-500">{item.parent}</span>
+                  <div className={hasGlobalResults ? 'border-t border-slate-700' : ''}>
+                    {hasGlobalResults && (
+                      <p className="px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-gray-500 bg-slate-900/50">
+                        Menü
+                      </p>
+                    )}
+                    {filteredSearchResults.map((item, i) => (
+                      <Link
+                        key={`${item.href}-${i}`}
+                        href={item.href}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700/50 transition-colors border-b border-slate-700/50 last:border-0"
+                        onClick={() => {
+                          closeSearch()
+                          if (item.href === ROUTES.HOME) setExpandedMenus({})
+                        }}
+                      >
+                        {item.icon && (
+                          <item.icon className="w-4 h-4 text-gray-400 shrink-0" />
                         )}
-                      </div>
-                      <span className="text-xs text-gray-500">↵</span>
-                    </Link>
-                  ))
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-white block truncate">
+                            {item.name}
+                          </span>
+                          {item.parent && (
+                            <span className="text-xs text-gray-500">{item.parent}</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-500">↵</span>
+                      </Link>
+                    ))}
+                  </div>
                 ) : (
+                  !hasGlobalResults &&
                   searchTerm && (
                     <p className="px-4 py-6 text-sm text-gray-500 text-center">
                       Sonuç bulunamadı

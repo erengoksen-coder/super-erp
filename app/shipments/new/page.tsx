@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Truck, User, Package, Plus, X, AlertCircle, CheckCircle } from 'lucide-react'
+import Link from 'next/link'
+import { Truck, User, Package, Plus, X, AlertCircle, CheckCircle, QrCode } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { fetchApi, useApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
@@ -66,8 +67,11 @@ export default function NewShipmentPage() {
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [partialShipmentReason, setPartialShipmentReason] = useState('')
-  const userRole = useAuthStore((state) => state.user?.role ?? null)
-  const isUserAdmin = userRole === 'admin' || userRole === 'manager'
+  const user = useAuthStore((state) => state.user)
+  const userRole = (user?.role ?? '').toString().trim().toLowerCase()
+  const position = (user?.position ?? (user as any)?.job_title ?? '').toString().trim().toLowerCase()
+  const isUserAdmin = userRole === 'admin' || userRole === 'manager' || userRole === 'yönetici' || userRole === 'yonetici'
+  const canScanBarcode = isUserAdmin || position === 'sevkiyat'
 
   useEffect(() => {
     // URL parametresinden customerId'yi oku (barcode otomatik işlenmez)
@@ -87,7 +91,7 @@ export default function NewShipmentPage() {
     }
   }, [selectedCustomerId])
 
-  const { data: customersData } = useApi<Customer[]>('/api/accounts?type=customer')
+  const { data: customersData } = useApi<Customer[]>('/api/accounts?type=customer&limit=500')
 
   useEffect(() => {
     setCustomers(customersData ?? [])
@@ -100,7 +104,9 @@ export default function NewShipmentPage() {
   }, [selectedCustomerId])
 
   const { data: readyItemsData, isLoading } = useApi<{ items: ReadyItem[] }>(readyItemsKey)
-  const pendingScansRef = useRef<string[]>([])
+  type PendingScan = { barcode: string; product_id: string; production_order_id: string | null }
+  const pendingScansRef = useRef<PendingScan[]>([])
+  const [barcodeFirstInput, setBarcodeFirstInput] = useState('')
 
   const readyBarcodeIndex = useMemo(() => {
     const map = new Map<string, { product_id: string; production_order_id: string | null; product_name: string }>()
@@ -129,16 +135,16 @@ export default function NewShipmentPage() {
       barcodes: [],
       required_count: item.total_barcodes_in_po ?? item.total_count,
     }))
-    setShipmentItems(initialItems)
+    const pending = pendingScansRef.current.splice(0, pendingScansRef.current.length)
+    const withPending = initialItems.map((it) => {
+      const toAdd = pending.filter(
+        (p) => p.product_id === it.product_id && (p.production_order_id ?? '') === (it.production_order_id ?? '')
+      )
+      const barcodes = toAdd.map((p) => p.barcode).filter((b) => b)
+      return { ...it, barcodes }
+    })
+    setShipmentItems(withPending)
     setError('')
-
-    if (pendingScansRef.current.length > 0) {
-      const pending = [...pendingScansRef.current]
-      pendingScansRef.current = []
-      pending.forEach((code) => {
-        handleGlobalScan(code)
-      })
-    }
   }, [readyItemsData])
 
   useEffect(() => {
@@ -153,7 +159,7 @@ export default function NewShipmentPage() {
     return () => window.removeEventListener('barcode:scanned', onScan as EventListener)
   }, [selectedCustomerId, shipmentItems])
 
-  async function handleGlobalScan(barcode: string) {
+  async function handleGlobalScan(barcode: string): Promise<void> {
     if (!barcode) return
     try {
       const response = await fetch(`/api/shipments/ready-items?barcode=${encodeURIComponent(barcode)}`)
@@ -181,18 +187,33 @@ export default function NewShipmentPage() {
         return
       }
       const payload = await response.json()
-      const item = payload?.data?.item || payload?.item
+      const data = payload?.data ?? payload
+      const item = data?.item
+      const suggestedCustomerId = data?.suggested_customer_id ?? item?.customer_id ?? (item as { customer_id?: string })?.customer_id
       if (!item?.product_id) return
 
-      if (!selectedCustomerId && item.customer_id) {
-        setSelectedCustomerId(item.customer_id)
-      } else if (selectedCustomerId && item.customer_id && item.customer_id !== selectedCustomerId) {
-        setError('Bu barkod seçili müşteriye ait değil.')
+      if (!selectedCustomerId && suggestedCustomerId) {
+        setSelectedCustomerId(suggestedCustomerId)
+        pendingScansRef.current.push({
+          barcode,
+          product_id: item.product_id,
+          production_order_id: item.production_order_id ?? null,
+        })
+        setError('')
+        toast.success('Müşteri otomatik seçildi. Barkod sevkiyata eklenecek.')
+        return
+      }
+      if (selectedCustomerId && suggestedCustomerId && suggestedCustomerId !== selectedCustomerId) {
+        setError('Bu barkod seçili müşteriye ait değil. Siparişteki carie sevk edilecek.')
         return
       }
 
       if (!shipmentItems.length) {
-        pendingScansRef.current.push(barcode)
+        pendingScansRef.current.push({
+          barcode,
+          product_id: item.product_id,
+          production_order_id: item.production_order_id ?? null,
+        })
         return
       }
 
@@ -326,7 +347,7 @@ export default function NewShipmentPage() {
       // API response'u shipment objesi olarak dönüyor
       const shipmentId = shipmentData.id || shipmentData.shipment?.id
       if (!shipmentId) {
-        console.error('Shipment data:', shipmentData)
+        console.error('Sevkiyat verisi:', shipmentData)
         throw new Error('Sevkiyat oluşturuldu ancak ID alınamadı')
       }
       toast.success('Sevkiyat oluşturuldu!')
@@ -342,20 +363,76 @@ export default function NewShipmentPage() {
   return (
     <div className="p-3 sm:p-4 md:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white mb-2 flex items-center space-x-2">
-            <Truck className="w-6 h-6 md:w-8 md:h-8" />
-            <span>Yeni Sevkiyat</span>
-          </h1>
-          <p className="text-sm text-gray-400">Sevk edilebilir ürünlerden sevkiyat oluşturun</p>
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white mb-2 flex items-center space-x-2">
+              <Truck className="w-6 h-6 md:w-8 md:h-8" />
+              <span>Yeni Sevkiyat</span>
+            </h1>
+            <p className="text-sm text-gray-400">Sevk edilebilir ürünlerden sevkiyat oluşturun</p>
+          </div>
+          {canScanBarcode && (
+            <Link
+              href="/barcodes/scan"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-amber-600 text-white px-3 py-2 rounded-lg hover:bg-amber-700 transition inline-flex items-center space-x-2 text-sm touch-manipulation shrink-0"
+              title="Telefondan veya bu cihazdan üretim barkodlarını okutun"
+            >
+              <QrCode size={20} />
+              <span>Telefondan Barkod Okut</span>
+            </Link>
+          )}
         </div>
+
+        {/* Barkod ile başla: Müşteri seçmeden barkod okutunca müşteri otomatik seçilir */}
+        {!selectedCustomerId && (
+          <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 md:p-6 mb-6">
+            <label className="block text-sm font-medium text-blue-200 mb-2">
+              <Package className="w-4 h-4 inline mr-1" />
+              Önce barkod okutun — müşteri otomatik seçilir
+            </label>
+            <p className="text-xs text-gray-400 mb-3">
+              Barkod okuttuğunuzda ürünün kayıtlı olduğu müşteri otomatik seçilir; müşteri seçmeye gerek kalmaz.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={barcodeFirstInput}
+                onChange={(e) => setBarcodeFirstInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const v = barcodeFirstInput.trim()
+                    if (v) handleGlobalScan(v).then(() => setBarcodeFirstInput(''))
+                  }
+                }}
+                placeholder="Barkod okutun veya yazın"
+                className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const v = barcodeFirstInput.trim()
+                  if (v) {
+                    await handleGlobalScan(v)
+                    setBarcodeFirstInput('')
+                  }
+                }}
+                className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Müşteri Seçimi - Sadece Admin/Yönetici için */}
         {isUserAdmin ? (
           <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6">
             <label className="block text-sm font-medium text-gray-300 mb-2">
               <User className="w-4 h-4 inline mr-1" />
-              Müşteri *
+              Müşteri * {!selectedCustomerId && <span className="text-gray-500 font-normal">(veya yukarıdan barkod okutun)</span>}
             </label>
             <select
               value={selectedCustomerId}

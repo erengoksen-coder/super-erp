@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import { Plus, X, ClipboardList } from 'lucide-react'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi, useApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { purchaseOrderSchemas } from '@/lib/validation/schemas'
 
 type Account = {
   id: string
@@ -98,13 +100,25 @@ export default function PurchaseOrdersPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const validItems = form.items.filter((item) => item.material_id && item.quantity && item.unit_price)
-    if (!form.supplier_id) {
-      toast.warning('Tedarikçi seçilmelidir')
-      return
+    const validItems = form.items
+      .map((item) => ({
+        material_id: item.material_id,
+        quantity: parseFloat(item.quantity) || 0,
+        unit_price: parseFloat(item.unit_price) || 0,
+      }))
+      .filter((item) => item.material_id && item.quantity > 0)
+    const payload = {
+      supplier_id: form.supplier_id,
+      order_date: form.order_date || null,
+      status: form.status || 'pending',
+      payment_terms_days: form.payment_terms_days ? Number(form.payment_terms_days) : null,
+      notes: form.notes || null,
+      items: validItems,
     }
-    if (validItems.length === 0) {
-      toast.warning('En az bir malzeme eklemelisiniz')
+    const validation = purchaseOrderSchemas.create.safeParse(payload)
+    if (!validation.success) {
+      const first = validation.error.issues[0]
+      toast.warning(first?.message ?? 'Lütfen formu kontrol edin')
       return
     }
     setSaving(true)
@@ -112,18 +126,7 @@ export default function PurchaseOrdersPage() {
       await fetchApi('/api/purchase-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supplier_id: form.supplier_id,
-          order_date: form.order_date || null,
-          status: form.status || 'pending',
-          payment_terms_days: form.payment_terms_days ? Number(form.payment_terms_days) : null,
-          notes: form.notes || null,
-          items: validItems.map((item) => ({
-            material_id: item.material_id,
-            quantity: Number(item.quantity),
-            unit_price: Number(item.unit_price)
-          }))
-        })
+        body: JSON.stringify(validation.data)
       })
       setForm({
         supplier_id: '',
@@ -163,6 +166,15 @@ export default function PurchaseOrdersPage() {
       </div>
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+        {!isLoading && orders.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              title="Henüz satın alma siparişi yok"
+              description="Yeni satın alma siparişi oluşturmak için yukarıdaki butonu kullanın."
+              icon={ClipboardList}
+            />
+          </div>
+        ) : (
         <Table>
           <TableHeader>
             <TableRow className="border-gray-800">
@@ -179,12 +191,6 @@ export default function PurchaseOrdersPage() {
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-gray-400">
                   Yükleniyor...
-                </TableCell>
-              </TableRow>
-            ) : orders.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-400">
-                  Henüz satın alma siparişi yok.
                 </TableCell>
               </TableRow>
             ) : (
@@ -213,6 +219,7 @@ export default function PurchaseOrdersPage() {
             )}
           </TableBody>
         </Table>
+        )}
       </div>
 
       {showModal && (

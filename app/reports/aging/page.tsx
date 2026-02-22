@@ -2,9 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Receipt, RefreshCw, ArrowLeft } from 'lucide-react'
+import { Receipt, RefreshCw, ArrowLeft, FileDown, FileText } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
+import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
+import { jsPDF } from 'jspdf'
+import * as XLSX from 'xlsx'
 
 type AgingItem = {
   id: string
@@ -35,6 +39,8 @@ const BUCKET_LABELS: Record<string, string> = {
 }
 
 export default function AgingReportPage() {
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
   const [data, setData] = useState<AgingRes | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -52,6 +58,54 @@ export default function AgingReportPage() {
   useEffect(() => {
     load()
   }, [])
+
+  function downloadExcel() {
+    if (!data?.items?.length) {
+      toast.warning('Dışa aktarılacak veri yok')
+      return
+    }
+    const rows = data.items.map((r) => ({
+      Kod: r.code ?? '',
+      'Cari Adı': r.name,
+      'Bakiye (₺)': r.balance,
+      'Yaş (gün)': r.days_since_transaction ?? '',
+      Grup: BUCKET_LABELS[r.aging_bucket] ?? r.aging_bucket,
+      'Son İşlem': r.last_transaction_at ? new Date(r.last_transaction_at).toLocaleDateString('tr-TR') : '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Cari Yasadirma')
+    XLSX.writeFile(wb, `cari_yaslandirma_${new Date().toISOString().split('T')[0]}.xlsx`)
+    toast.success('Excel indirildi')
+  }
+
+  function downloadPdf() {
+    if (!data) {
+      toast.warning('Rapor verisi yok')
+      return
+    }
+    const doc = new jsPDF()
+    doc.setFontSize(14)
+    doc.text('Cari Yaslandirma (Alacaklar)', 14, 16)
+    doc.setFontSize(10)
+    doc.text(`Toplam Alacak: ${(data.summary?.totalReceivables ?? 0).toLocaleString('tr-TR')} TL  |  Cari Sayisi: ${data.summary?.count ?? 0}`, 14, 24)
+    let y = 34
+    doc.setFontSize(9)
+    ;(data.items ?? []).slice(0, 50).forEach((row) => {
+      doc.text(
+        `${(row.code ?? '').slice(0, 10)} | ${row.name.slice(0, 18)} | ${row.balance.toLocaleString('tr-TR')} | ${row.days_since_transaction ?? '-'} | ${BUCKET_LABELS[row.aging_bucket] ?? row.aging_bucket}`,
+        14,
+        y
+      )
+      y += 5
+      if (y > 275) {
+        doc.addPage()
+        y = 16
+      }
+    })
+    doc.save(`cari_yaslandirma_${new Date().toISOString().split('T')[0]}.pdf`)
+    toast.success('PDF indirildi')
+  }
 
   return (
     <div>
@@ -76,6 +130,28 @@ export default function AgingReportPage() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Güncelle
         </button>
+        {canExport && (
+          <>
+            <button
+              type="button"
+              onClick={downloadExcel}
+              disabled={!data?.items?.length}
+              className="px-4 py-2 bg-emerald-700 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              <FileDown className="w-4 h-4" />
+              Excel
+            </button>
+            <button
+              type="button"
+              onClick={downloadPdf}
+              disabled={!data}
+              className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 disabled:opacity-50 flex items-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              PDF
+            </button>
+          </>
+        )}
       </div>
 
       {loading && !data ? (

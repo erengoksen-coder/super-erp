@@ -54,7 +54,7 @@ export default function CostAnalysisPage() {
         profitMargin,
       })
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('Veri yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }

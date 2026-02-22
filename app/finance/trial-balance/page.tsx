@@ -84,6 +84,7 @@ export default function TrialBalancePage() {
         <EmptyState
           title="Mizan verisi yok"
           description="Seçilen dönemde hesap hareketi bulunamadı veya hesap planı boş."
+          icon={BarChart3}
         />
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">

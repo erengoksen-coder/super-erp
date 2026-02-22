@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Package, Truck, Wallet, User, ChevronRight, Clock, CheckCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { useAuthStore } from '@/lib/store/authStore'
 import Link from 'next/link'
 
@@ -160,7 +161,7 @@ export default function BayiDashboardPage() {
         </div>
         <div className="p-4">
           {lastOrders.length === 0 ? (
-            <p className="text-slate-500 text-sm text-center py-4">Henüz sipariş yok.</p>
+            <EmptyState title="Henüz sipariş yok" description="Siparişleriniz burada görünecek." icon={Package} className="py-6" />
           ) : (
             <ul className="space-y-3">
               {lastOrders.map((o) => (
@@ -207,7 +208,7 @@ export default function BayiDashboardPage() {
         </div>
         <div className="p-4">
           {lastShipments.length === 0 ? (
-            <p className="text-slate-500 text-sm text-center py-4">Henüz sevkiyat yok.</p>
+            <EmptyState title="Henüz sevkiyat yok" description="Sevkiyatlarınız burada görünecek." icon={Truck} className="py-6" />
           ) : (
             <ul className="space-y-3">
               {lastShipments.map((s) => (

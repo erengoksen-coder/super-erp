@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Package, RefreshCw, ArrowLeft } from 'lucide-react'
+import { Package, RefreshCw, ArrowLeft, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
+import { ReportFilters, getDefaultReportFilters } from '@/components/filters/ReportFilters'
 
 type MovementRow = {
   id: string
@@ -29,22 +30,18 @@ type MovementRow = {
 type StockMovementsRes = {
   from: string | null
   to: string | null
+  summary?: { total: number; byType?: Record<string, number>; totalInQty?: number; totalOutQty?: number }
   items: MovementRow[]
 }
 
 export default function StockMovementsReportPage() {
-  const [from, setFrom] = useState(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().split('T')[0]
-  })
-  const [to, setTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [filters, setFilters] = useState(getDefaultReportFilters)
   const [data, setData] = useState<StockMovementsRes | null>(null)
   const [loading, setLoading] = useState(true)
 
   function load() {
     setLoading(true)
-    fetchApi<StockMovementsRes>(`/api/reports/stock-movements?from=${from}&to=${to}&limit=300`)
+    fetchApi<StockMovementsRes>(`/api/reports/stock-movements?from=${filters.from}&to=${filters.to}&limit=300`)
       .then((res: any) => {
         const d = res?.data ?? res
         setData(d)
@@ -75,19 +72,7 @@ export default function StockMovementsReportPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
-          <span className="text-gray-500">–</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
+          <ReportFilters value={filters} onChange={setFilters} />
           <button
             onClick={load}
             disabled={loading}
@@ -96,12 +81,38 @@ export default function StockMovementsReportPage() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Güncelle
           </button>
+          <button type="button" onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 flex items-center gap-2">
+            <Printer className="w-4 h-4" />
+            Yazdır
+          </button>
         </div>
       </div>
 
       {loading && !data ? (
         <div className="text-center py-12 text-gray-400">Yükleniyor...</div>
       ) : data ? (
+        <>
+          {(data as any).summary && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-xs uppercase">Toplam hareket</div>
+                <div className="text-xl font-bold text-white">{(data as any).summary.total}</div>
+              </div>
+              <div className="bg-green-900/30 rounded-lg p-4 border border-green-800/50">
+                <div className="text-green-400 text-xs uppercase">Giriş (adet)</div>
+                <div className="text-xl font-bold text-green-300">{(data as any).summary.byType?.in ?? 0}</div>
+              </div>
+              <div className="bg-red-900/30 rounded-lg p-4 border border-red-800/50">
+                <div className="text-red-400 text-xs uppercase">Çıkış (adet)</div>
+                <div className="text-xl font-bold text-red-300">{(data as any).summary.byType?.out ?? 0}</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-xs uppercase">Giriş / Çıkış miktar</div>
+                <div className="text-sm font-semibold text-green-300">{(data as any).summary.totalInQty ?? 0}</div>
+                <div className="text-sm font-semibold text-red-300">{(data as any).summary.totalOutQty ?? 0}</div>
+              </div>
+            </div>
+          )}
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -137,6 +148,7 @@ export default function StockMovementsReportPage() {
             <p className="py-8 text-center text-gray-500">Bu dönemde hareket bulunamadı.</p>
           )}
         </div>
+        </>
       ) : (
         <p className="text-gray-500 py-8">Veri yüklenemedi.</p>
       )}

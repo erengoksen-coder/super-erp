@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { FileText, ArrowLeft, Trash2 } from 'lucide-react'
+import { FileText, ArrowLeft, Trash2, Copy, Printer } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { pushRecent } from '@/lib/recentViews'
 
 type InvoiceItem = {
   id: string
@@ -37,6 +38,7 @@ type InvoiceDetail = {
   final_amount: number
   notes?: string | null
   end_customer_name?: string | null
+  document_kind?: string | null
   items: InvoiceItem[]
 }
 
@@ -60,6 +62,7 @@ export default function InvoiceDetailPage() {
     try {
       const data = await fetchApi<InvoiceDetail>(`/api/invoices/${id}`)
       setInvoice(data)
+      pushRecent({ type: 'invoice', id: data.id, label: data.invoice_number, href: `/invoices/${data.id}` })
     } catch (error: any) {
       toast.error('Fatura yüklenemedi: ' + error.message)
       router.push('/invoices')
@@ -122,6 +125,15 @@ export default function InvoiceDetailPage() {
         </Link>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-gray-700 text-white hover:bg-gray-600 transition"
+            title="Sayfayı yazdır"
+          >
+            <Printer className="w-4 h-4" />
+            Yazdır
+          </button>
+          <button
             onClick={sendEinvoice}
             className="inline-flex items-center px-3 py-2 rounded-lg text-sm bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-60"
             type="button"
@@ -142,9 +154,17 @@ export default function InvoiceDetailPage() {
       </div>
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-6">
-        <div className="flex items-center space-x-2 text-white mb-4">
+        <div className="flex items-center gap-2 text-white mb-4">
           <FileText className="w-5 h-5" />
           <h1 className="text-xl font-bold">{invoice.invoice_number}</h1>
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard.writeText(invoice.invoice_number); toast.success('Fatura no panoya kopyalandı') }}
+            className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition"
+            title="Fatura numarasını kopyala"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div>
@@ -161,7 +181,7 @@ export default function InvoiceDetailPage() {
           </div>
           <div>
             <div className="text-gray-400">Tip</div>
-            <div className="text-white">{invoice.type === 'sale' ? 'Satış' : 'Alış'}</div>
+            <div className="text-white">{invoice.type === 'sale' ? 'Satış' : invoice.document_kind === 'slip' ? 'Alış (Fiş)' : 'Alış (Fatura)'}</div>
           </div>
           <div>
             <div className="text-gray-400">Durum</div>

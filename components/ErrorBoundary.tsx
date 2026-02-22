@@ -29,7 +29,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     if (typeof window !== 'undefined' && window.console) {
-      console.error('ErrorBoundary caught:', error, errorInfo)
+      console.error('ErrorBoundary hatayı yakaladı:', error, errorInfo)
     }
   }
 

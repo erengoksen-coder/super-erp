@@ -54,6 +54,9 @@ export const GET = withAuth(async (
         u.approved_at,
         u.created_at,
         u.last_login,
+        COALESCE(u.can_export, 1) as can_export,
+        u.max_export_rows,
+        COALESCE(u.view_only, 0) as view_only,
         a.full_name as approved_by_name
       FROM users u
       LEFT JOIN users a ON u.approved_by = a.id
@@ -76,8 +79,10 @@ export const GET = withAuth(async (
       ...user,
       permissions,
     })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Users API GET [id] failed', { error: error instanceof Error ? error.message : String(error) })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Sunucu hatası' }, { status: 500 })
   }
 }, ['admin'])
 
@@ -96,7 +101,7 @@ export const PATCH = withAuth(async (
     }
     const userId = resolvedParams.id
     const body = await parseJsonBody(request)
-    const { is_approved, approved_by, permissions, password, full_name, job_title, role, position, email, is_locked, dealer_name } = body
+    const { is_approved, approved_by, permissions, password, full_name, job_title, role, position, email, is_locked, dealer_name, can_export, max_export_rows, view_only } = body
 
     // Şifre değiştirme / görme sadece admin rolüne (yönetici değil)
     if (password != null && String(password).trim() !== '') {
@@ -120,10 +125,22 @@ export const PATCH = withAuth(async (
 
     db.transaction(() => {
       // Kullanıcı bilgilerini güncelle
-      if (is_approved !== undefined || approved_by || full_name !== undefined || job_title !== undefined || role !== undefined || position !== undefined || email !== undefined || is_locked !== undefined || dealer_name !== undefined) {
+      if (is_approved !== undefined || approved_by || full_name !== undefined || job_title !== undefined || role !== undefined || position !== undefined || email !== undefined || is_locked !== undefined || dealer_name !== undefined || can_export !== undefined || max_export_rows !== undefined || view_only !== undefined) {
         let updateQuery = 'UPDATE users SET updated_at = CURRENT_TIMESTAMP'
         const updateParams: any[] = []
 
+        if (can_export !== undefined) {
+          updateQuery += ', can_export = ?'
+          updateParams.push(can_export ? 1 : 0)
+        }
+        if (max_export_rows !== undefined) {
+          updateQuery += ', max_export_rows = ?'
+          updateParams.push(max_export_rows == null || max_export_rows === '' ? null : Math.max(0, parseInt(String(max_export_rows), 10) || 0))
+        }
+        if (view_only !== undefined) {
+          updateQuery += ', view_only = ?'
+          updateParams.push(view_only ? 1 : 0)
+        }
         if (is_locked !== undefined) {
           updateQuery += ', is_locked = ?'
           updateParams.push(is_locked ? 1 : 0)
@@ -189,6 +206,7 @@ export const PATCH = withAuth(async (
         for (const perm of permissions) {
           if (perm.page_path) {
             const permId = randomUUID()
+            const viewOnly = view_only === true || view_only === 1
             db.prepare(`
               INSERT INTO user_permissions (id, user_id, page_path, can_view, can_create, can_edit, can_delete, company_id, branch_id)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -197,13 +215,17 @@ export const PATCH = withAuth(async (
               userId,
               perm.page_path,
               perm.can_view ? 1 : 0,
-              perm.can_create ? 1 : 0,
-              perm.can_edit ? 1 : 0,
-              perm.can_delete ? 1 : 0,
+              viewOnly ? 0 : (perm.can_create ? 1 : 0),
+              viewOnly ? 0 : (perm.can_edit ? 1 : 0),
+              viewOnly ? 0 : (perm.can_delete ? 1 : 0),
               DEFAULT_COMPANY_ID,
               DEFAULT_BRANCH_ID
             )
           }
+        }
+        // Sadece görüntüleme açıksa tüm ekleme/düzenleme/silme izinlerini kapat
+        if (view_only === true || view_only === 1) {
+          db.prepare('UPDATE user_permissions SET can_create = 0, can_edit = 0, can_delete = 0 WHERE user_id = ?').run(userId)
         }
       }
 
@@ -252,8 +274,10 @@ export const PATCH = withAuth(async (
       success: true,
       message: 'Kullanıcı başarıyla güncellendi',
     })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Users API PUT [id] failed', { error: error instanceof Error ? error.message : String(error) })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Sunucu hatası' }, { status: 500 })
   }
 }, ['admin'])
 
@@ -272,12 +296,12 @@ export const DELETE = withAuth(async (
     const userId = resolvedParams.id
     const db = getDatabase()
 
-    // Admin kullanıcıyı silme
+    // Sadece sistem admin hesabı (username: admin) silinemez
     const user = db.prepare('SELECT role, username, email, is_approved FROM users WHERE id = ? AND company_id = ? AND branch_id = ? AND deleted_at IS NULL')
       .get(userId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as any
-    if (user && user.role === 'admin') {
+    if (user && String(user.username || '').toLowerCase() === 'admin') {
       return NextResponse.json(
-        { error: 'Admin kullanıcı silinemez' },
+        { error: 'Sistem admin kullanıcısı silinemez' },
         { status: 400 }
       )
     }
@@ -302,7 +326,9 @@ export const DELETE = withAuth(async (
       success: true,
       message: 'Kullanıcı başarıyla silindi',
     })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Users API DELETE [id] failed', { error: error instanceof Error ? error.message : String(error) })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Sunucu hatası' }, { status: 500 })
   }
 }, ['admin'])

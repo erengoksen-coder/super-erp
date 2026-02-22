@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
-import { getDatabase } from '@/lib/database/db'
+import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
+import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { generateNextCode } from '@/lib/utils/codeGenerator'
 import { resolveUnitFactor } from '@/lib/units'
 import { apiLogger } from '@/lib/api/logger'
 import { ok } from '@/lib/api/response'
 import { PAGINATION } from '@/lib/constants'
+import { getInvoicePrefixSale, getInvoicePrefixPurchase } from '@/lib/numberFormat'
 
 type InvoiceRow = {
   id: string
@@ -32,6 +34,13 @@ type InvoiceCreateInput = {
   invoice_date?: string
   type?: 'sale' | 'purchase'
   notes?: string
+  /** Alış faturası için: tedarikçi cari id */
+  customer_id?: string
+  /** Alış faturası kalemleri: açıklama, miktar, birim fiyat; material_id varsa hammadde depoya stok girişi yapılır */
+  items?: Array<{ description: string; quantity: number; unit_price: number; material_id?: string }>
+  tax_rate?: number
+  /** Alış için belge türü: 'invoice' (Fatura) veya 'slip' (Fiş) */
+  document_kind?: 'invoice' | 'slip'
 }
 
 // GET: Faturaları listele (limit/offset ile sayfalama)
@@ -105,17 +114,109 @@ export const GET = withAuth(async (request: NextRequest) => {
   }
 })
 
-// POST: Sevkiyattan fatura oluştur
+// POST: Sevkiyattan fatura veya alış (tedarikçi) faturası oluştur
 export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await parseJsonBody(request) as InvoiceCreateInput
-    const { shipment_id, invoice_date, type = 'sale', notes } = body
-
-    if (!shipment_id) {
-      return NextResponse.json({ error: 'shipment_id gerekli' }, { status: 400 })
-    }
+    const { shipment_id, invoice_date, type = 'sale', notes, customer_id, items = [], tax_rate: bodyTaxRate, document_kind: documentKind } = body
 
     const db = getDatabase()
+
+    // —— Alış faturası (tedarikçiden gelen fiş/fatura) ——
+    if (type === 'purchase' && customer_id && Array.isArray(items) && items.length > 0 && !shipment_id) {
+      const supplier = db.prepare("SELECT id FROM accounts WHERE id = ? AND type = 'supplier' AND (deleted_at IS NULL OR deleted_at = '')")
+        .get(customer_id) as { id: string } | undefined
+      if (!supplier) {
+        return NextResponse.json({ error: 'Tedarikçi cari hesabı bulunamadı veya geçersiz' }, { status: 400 })
+      }
+      const invoiceDate = (invoice_date || new Date().toISOString().split('T')[0]).toString().slice(0, 10)
+      const taxRate = typeof bodyTaxRate === 'number' && bodyTaxRate >= 0 ? bodyTaxRate : 0
+      const placeholders = db.prepare("SELECT id FROM products WHERE id = 'SYS-PURCHASE-LINE'").get() as { id: string } | undefined
+      if (!placeholders) {
+        return NextResponse.json({ error: 'Sistem ürünü bulunamadı (alış kalemi). Veritabanı güncel değil olabilir.' }, { status: 500 })
+      }
+      const placeholderProductId = placeholders.id
+      let totalAmount = 0
+      const validItems = items
+        .filter((i) => i != null && Number(i.quantity) > 0 && Number(i.unit_price) >= 0)
+        .map((i) => {
+          const q = Number(i.quantity)
+          const up = Number(i.unit_price)
+          const lineTotal = q * up
+          totalAmount += lineTotal
+          const materialId = typeof (i as any).material_id === 'string' && (i as any).material_id.trim() !== '' ? (i as any).material_id.trim() : undefined
+          return { description: String(i.description || '').trim() || 'Kalem', quantity: q, unit_price: up, total_price: lineTotal, material_id: materialId }
+        })
+      if (validItems.length === 0) {
+        return NextResponse.json({ error: 'En az bir geçerli kalem girin (açıklama, miktar > 0, birim fiyat >= 0)' }, { status: 400 })
+      }
+      const taxAmount = (totalAmount * taxRate) / 100
+      const finalAmount = totalAmount + taxAmount
+      const year = new Date().getFullYear()
+      const prefixWithYear = `${getInvoicePrefixPurchase()}-${year}`
+      const lastRow = db.prepare(
+        `SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY invoice_number DESC LIMIT 1`
+      ).get(`${prefixWithYear}-%`) as { invoice_number?: string } | undefined
+      const nextNum = generateNextCode(lastRow?.invoice_number ?? null, { prefix: prefixWithYear, padding: 3 })
+      const documentKindVal = documentKind === 'slip' || documentKind === 'invoice' ? documentKind : 'invoice'
+      const invoiceId = randomUUID()
+      db.transaction(() => {
+        db.prepare(`
+          INSERT INTO invoices
+          (id, invoice_number, shipment_id, customer_id, invoice_date, type, status, total_amount, discount_rate, discount_amount, tax_rate, tax_amount, final_amount, notes, document_kind)
+          VALUES (?, ?, NULL, ?, ?, 'purchase', 'issued', ?, 0, 0, ?, ?, ?, ?, ?, ?)
+        `).run(invoiceId, nextNum, customer_id, invoiceDate, totalAmount, taxRate, taxAmount, finalAmount, notes ?? null, documentKindVal)
+        const insertItem = db.prepare(`
+          INSERT INTO invoice_items (id, invoice_id, product_id, quantity, unit_price, total_price, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        const warehouseId = DEFAULT_WAREHOUSE_ID
+        for (const item of validItems) {
+          const itemId = randomUUID()
+          insertItem.run(itemId, invoiceId, placeholderProductId, item.quantity, item.unit_price, item.total_price, item.description)
+          if (item.material_id) {
+            const material = db.prepare('SELECT id FROM materials WHERE id = ? AND deleted_at IS NULL').get(item.material_id) as { id: string } | undefined
+            if (material) {
+              const qty = item.quantity
+              applyMaterialStockChange(db, item.material_id, qty)
+              db.prepare(`
+                INSERT INTO material_stocks (id, material_id, warehouse_id, quantity)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(material_id, warehouse_id)
+                DO UPDATE SET quantity = quantity + excluded.quantity, updated_at = CURRENT_TIMESTAMP
+              `).run(`ms_${item.material_id}_${warehouseId}`, item.material_id, warehouseId, qty)
+              const movementId = randomUUID()
+              db.prepare(`
+                INSERT INTO stock_movements
+                (id, material_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, user_id, warehouse_id, to_warehouse_id, created_at)
+                VALUES (?, ?, 'in', ?, 'purchase_invoice', ?, ?, NULL, ?, NULL, ?, ?, CURRENT_TIMESTAMP)
+              `).run(movementId, item.material_id, qty, itemId, nextNum, `Alış ${documentKindVal === 'slip' ? 'fişi' : 'faturası'} ${nextNum}`, warehouseId, warehouseId)
+              db.prepare('UPDATE materials SET purchase_price = ?, last_purchase_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(item.unit_price, invoiceDate, item.material_id)
+            }
+          }
+        }
+        const txId = randomUUID()
+        db.prepare(`
+          INSERT INTO account_transactions
+          (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
+          VALUES (?, ?, 'credit', ?, 'purchase_invoice', ?, ?, CURRENT_TIMESTAMP)
+        `).run(txId, customer_id, finalAmount, invoiceId, documentKindVal === 'slip' ? `Alış fişi ${nextNum} (alacak)` : `Alış faturası ${nextNum} (alacak)`)
+        const balanceRow = db.prepare(`
+          SELECT COALESCE(SUM(CASE WHEN transaction_type = 'debit' THEN amount ELSE 0 END), 0) -
+                 COALESCE(SUM(CASE WHEN transaction_type = 'credit' THEN amount ELSE 0 END), 0) AS balance
+          FROM account_transactions WHERE account_id = ?
+        `).get(customer_id) as { balance: number }
+        db.prepare('UPDATE accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(balanceRow.balance, customer_id)
+      })()
+      return NextResponse.json({
+        success: true,
+        invoice: { id: invoiceId, invoice_number: nextNum, customer_id, final_amount: finalAmount },
+      }, { status: 201 })
+    }
+
+    if (!shipment_id) {
+      return NextResponse.json({ error: 'Satış için shipment_id veya alış için type=purchase, customer_id ve items gerekli' }, { status: 400 })
+    }
 
     const shipment = db.prepare(`
       SELECT * FROM shipments
@@ -128,7 +229,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       return NextResponse.json({ error: 'Bu sevkiyat zaten faturalanmış' }, { status: 400 })
     }
 
-    const items = db.prepare(`
+    const shipmentItems = db.prepare(`
       SELECT si.*, p.name as product_name, p.sku as product_sku
       FROM shipment_items si
       JOIN active_products p ON si.product_id = p.id
@@ -136,7 +237,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       ORDER BY si.created_at
     `).all(shipment_id) as any[]
 
-    if (items.length === 0) {
+    if (shipmentItems.length === 0) {
       return NextResponse.json({ error: 'Sevkiyat kalemi bulunamadı' }, { status: 400 })
     }
 
@@ -181,7 +282,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       notes?: string | null
     }> = []
 
-    for (const item of items) {
+    for (const item of shipmentItems) {
       // Her zaman BOM'dan fiyat hesapla
       let bomItems = db.prepare(`
         SELECT 
@@ -346,7 +447,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const finalAmount = amountAfterDiscount + taxAmount
 
     const getNextInvoiceNumber = () => {
-      const prefix = type === 'sale' ? 'SAT' : 'ALI'
+      const prefix = type === 'sale' ? getInvoicePrefixSale() : getInvoicePrefixPurchase()
       const year = new Date().getFullYear()
       const prefixWithYear = `${prefix}-${year}`
       const row = db.prepare(`

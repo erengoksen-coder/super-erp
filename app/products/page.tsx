@@ -43,7 +43,7 @@ export default function ProductsPage() {
         is_active: true,
       })))
     } catch (err: any) {
-      console.error('Error loading products:', err)
+      console.error('Ürünler yüklenirken hata:', err)
       setError(err.message || 'Ürünler yüklenirken bir hata oluştu')
     } finally {
       setLoading(false)

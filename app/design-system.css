@@ -308,6 +308,15 @@ p {
   margin: 0;
 }
 
+/* Tablo satırı hover vurgusu */
+[role="row"]:hover .table-row-hover,
+tr.table-row-hover:hover {
+  background-color: rgba(55, 65, 81, 0.5);
+}
+:root[data-theme="dark"] tr.table-row-hover:hover {
+  background-color: rgba(31, 41, 55, 0.8);
+}
+
 /* Print styles */
 @media print {
   .no-print {

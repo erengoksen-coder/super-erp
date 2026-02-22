@@ -43,16 +43,21 @@ export const GET = withAuth(async (
     return fail('Bayi kullanıcıları cari düzenleme sayfasına erişemez. Cari Hesabım sayfasında sadece bilgi görüntüleyebilirsiniz.', { status: 403 })
   }
   try {
-    const resolvedParams = await Promise.resolve(
-      (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
-    )
-    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    const rawParams = (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
+    const resolvedParams = rawParams && typeof (rawParams as Promise<{ id?: string }>).then === 'function'
+      ? await (rawParams as Promise<{ id?: string }>)
+      : (rawParams as { id?: string } | undefined)
+    let accountId = (resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop())?.trim() ?? ''
+    try {
+      accountId = decodeURIComponent(accountId)
+    } catch {
+      // ID zaten decode edilmiş veya geçersiz; olduğu gibi kullan
+    }
     if (!accountId) {
       return fail('ID gerekli', { status: 400 })
     }
 
     const account = accountsRepo.getById(accountId)
-
     if (!account) {
       return fail('Cari hesap bulunamadı', { status: 404 })
     }
@@ -81,10 +86,16 @@ export const PUT = withAuth(async (
     return fail('Bayi kullanıcıları cari düzenleyemez', { status: 403 })
   }
   try {
-    const resolvedParams = await Promise.resolve(
-      (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
-    )
-    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    const rawParams = (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
+    const resolvedParams = rawParams && typeof (rawParams as Promise<{ id?: string }>).then === 'function'
+      ? await (rawParams as Promise<{ id?: string }>)
+      : (rawParams as { id?: string } | undefined)
+    let accountId = (resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop())?.trim() ?? ''
+    try {
+      accountId = decodeURIComponent(accountId)
+    } catch {
+      // ID olduğu gibi kullan
+    }
     if (!accountId) {
       return fail('ID gerekli', { status: 400 })
     }
@@ -114,7 +125,10 @@ export const PUT = withAuth(async (
       return fail('Müşteri/Tedarikçi adı gerekli', { status: 400 })
     }
 
-    // Kaydedildiğinde gönderilen tüm alanlar güncel haliyle kabul edilir; alanlar birbirine bağlı değildir, zorunlu birlikte güncelleme yok
+    // Kaydedildiğinde gönderilen tüm alanlar güncel haliyle kabul edilir. discount_rate gönderilmezse mevcut değer korunur (iskonto silinmesin).
+    const finalDiscountRate = Object.prototype.hasOwnProperty.call(body, 'discount_rate')
+      ? (discountRateValue ?? null)
+      : (existingAccount.discount_rate ?? null)
     accountsRepo.update(accountId, {
       name,
       type: type || existingAccount.type || null,
@@ -123,7 +137,7 @@ export const PUT = withAuth(async (
       email: email ?? null,
       address: address ?? null,
       risk_limit: risk_limit ?? null,
-      discount_rate: discountRateValue ?? null,
+      discount_rate: finalDiscountRate,
       authorized_person_name: authorized_person_name ?? null,
       authorized_person_phone: authorized_person_phone ?? null,
       updated_by,
@@ -226,10 +240,16 @@ export const DELETE = withAuth(async (
     return fail('Bayi kullanıcıları cari silemez', { status: 403 })
   }
   try {
-    const resolvedParams = await Promise.resolve(
-      (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
-    )
-    const accountId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
+    const rawParams = (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
+    const resolvedParams = rawParams && typeof (rawParams as Promise<{ id?: string }>).then === 'function'
+      ? await (rawParams as Promise<{ id?: string }>)
+      : (rawParams as { id?: string } | undefined)
+    let accountId = (resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop())?.trim() ?? ''
+    try {
+      accountId = decodeURIComponent(accountId)
+    } catch {
+      // ID olduğu gibi kullan
+    }
     if (!accountId) {
       return fail('ID gerekli', { status: 400 })
     }
@@ -240,10 +260,12 @@ export const DELETE = withAuth(async (
       return fail('Cari hesap bulunamadı', { status: 404 })
     }
 
+    const usage = accountsRepo.getUsageCounts(accountId, existingAccount.name)
+    if (usage.usedInChecksAndNotes > 0) {
+      return fail('Bu cari hesaba bağlı çek/senet kaydı var, silinemez. Önce ilgili çek/senet kayıtlarını kaldırın.', { status: 400 })
+    }
     const isAdmin = ['admin', 'yönetici', 'yonetici'].includes((user.role || '').toString().trim().toLowerCase())
     if (!isAdmin) {
-      // Admin değilse: cari hesabın kullanılıp kullanılmadığını kontrol et
-      const usage = accountsRepo.getUsageCounts(accountId, existingAccount.name)
       if (usage.usedInMaterials > 0 || usage.usedInOrders > 0) {
         return fail('Bu cari hesap kullanılıyor, silinemez', { status: 400 })
       }

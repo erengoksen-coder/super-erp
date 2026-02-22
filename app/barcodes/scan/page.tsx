@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Html5QrcodeScanner } from 'html5-qrcode'
 import { ArrowLeft, Package, Usb, Keyboard } from 'lucide-react'
 import Link from 'next/link'
 
@@ -43,7 +42,6 @@ type ScanMode = 'barcode' | 'shipment'
 
 export default function ScanBarcodePage() {
   const router = useRouter()
-  const [scanner, setScanner] = useState<Html5QrcodeScanner | null>(null)
   const [scannedData, setScannedData] = useState<BarcodeDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hardwareMode, setHardwareMode] = useState(true)
@@ -56,50 +54,163 @@ export default function ScanBarcodePage() {
   const [shipmentMatch, setShipmentMatch] = useState<BarcodeDetails | null>(null)
   const [markingReady, setMarkingReady] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
+  const [barcodeOkModalMessage, setBarcodeOkModalMessage] = useState<string | null>(null)
+  const [cameraScanning, setCameraScanning] = useState(false)
+  const [cameraError, setCameraError] = useState<string>('')
   const scanBufferRef = useRef('')
   const scanTimerRef = useRef<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const html5QrCodeRef = useRef<any>(null)
+  const handleDecodedTextRef = useRef<(text: string) => Promise<void>>(() => Promise.resolve())
 
+  // Unmount: kamera kapat
   useEffect(() => {
-    // QR kod tarayıcıyı başlat (container hazır değilse çık)
-    const container = document.getElementById('qr-reader')
-    if (!container) {
-      console.error('QR reader container bulunamadı.')
-      return
-    }
-
-    let html5QrcodeScanner: Html5QrcodeScanner | null = null
-    try {
-      html5QrcodeScanner = new Html5QrcodeScanner(
-        'qr-reader',
-        {
-          qrbox: { width: 250, height: 250 },
-          fps: 10,
-          aspectRatio: 1.0
-        },
-        false // verbose
-      )
-
-      html5QrcodeScanner.render(
-        (decodedText) => {
-          handleDecodedText(decodedText)
-        },
-        () => {
-          // Hata mesajlarını görmezden gel (sürekli tarama yapıyor)
-        }
-      )
-
-      setScanner(html5QrcodeScanner)
-    } catch (error) {
-      console.error('QR reader başlatılamadı:', error)
-    }
-
     return () => {
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear()
+      const q = html5QrCodeRef.current
+      if (q) {
+        q.stop().catch(() => {})
+        q.clear().catch(() => {})
+        html5QrCodeRef.current = null
       }
     }
   }, [])
+
+  async function stopCameraScanner() {
+    const q = html5QrCodeRef.current
+    if (q) {
+      try {
+        await q.stop()
+        await q.clear()
+      } catch (_) {}
+      html5QrCodeRef.current = null
+    }
+    setCameraScanning(false)
+  }
+
+  // Kamerayı doğrudan açar (Hızlı İşlem gibi; dosyadan tarama yok)
+  useEffect(() => {
+    if (!cameraScanning) return
+
+    let cancelled = false
+    const container = document.getElementById('qr-reader')
+    if (!container) return
+
+    const startCamera = async () => {
+      await new Promise((r) => setTimeout(r, 400))
+      if (cancelled) return
+
+      if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setCameraError('Kamera desteklenmiyor. USB okuyucu veya manuel giriş kullanın.')
+        setCameraScanning(false)
+        return
+      }
+
+      try {
+        const html5QrcodeModule = await import('html5-qrcode')
+        const Html5Qrcode = html5QrcodeModule.Html5Qrcode || html5QrcodeModule.default?.Html5Qrcode
+        if (!Html5Qrcode) throw new Error('Html5Qrcode bulunamadı')
+
+        const html5QrCode = new Html5Qrcode('qr-reader')
+        html5QrCodeRef.current = html5QrCode
+
+        let cameras: { id: string; label?: string }[] = []
+        try {
+          cameras = await Html5Qrcode.getCameras()
+        } catch (_) {}
+
+        const qrbox = (w: number, h: number) => {
+          const s = Math.floor(Math.min(w, h) * 0.7)
+          return { width: s, height: s }
+        }
+        const onScan = (decodedText: string) => {
+          handleDecodedTextRef.current?.(decodedText)
+        }
+        const noop = () => {}
+
+        let started = false
+
+        try {
+          await html5QrCode.start({ facingMode: 'environment' }, { fps: 5, qrbox }, onScan, noop)
+          started = true
+        } catch (_) {}
+
+        if (!started && cameras.length > 0) {
+          let cameraId: string | null = null
+          for (const d of cameras) {
+            const l = (d.label || '').toLowerCase()
+            if (l.includes('back') || l.includes('rear') || l.includes('environment')) {
+              cameraId = d.id
+              break
+            }
+          }
+          if (!cameraId) cameraId = cameras[cameras.length - 1]?.id ?? cameras[0]?.id
+          if (cameraId) {
+            try {
+              await html5QrCode.start(cameraId, { fps: 5, qrbox }, onScan, noop)
+              started = true
+            } catch (_) {}
+          }
+        }
+
+        if (!started && cameras.length > 0) {
+          try {
+            await html5QrCode.start(cameras[0].id, { fps: 5, qrbox }, onScan, noop)
+            started = true
+          } catch (_) {}
+        }
+
+        if (!started) {
+          try {
+            await html5QrCode.start({ facingMode: 'user' }, { fps: 5, qrbox }, onScan, noop)
+            started = true
+          } catch (_) {}
+        }
+
+        if (cancelled) {
+          try {
+            await html5QrCode.stop()
+            await html5QrCode.clear()
+          } catch (_) {}
+          html5QrCodeRef.current = null
+          return
+        }
+        if (!started) {
+          const msg = 'Kamera açılamadı. USB okuyucu veya manuel giriş kullanın.'
+          setCameraError(msg)
+          setCameraScanning(false)
+          try {
+            await html5QrCode.clear()
+          } catch (_) {}
+          html5QrCodeRef.current = null
+        } else {
+          setCameraError('')
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setCameraError(e?.message || 'Kamera açılamadı.')
+          setCameraScanning(false)
+        }
+        const q = html5QrCodeRef.current
+        if (q) {
+          try {
+            await q.clear()
+          } catch (_) {}
+          html5QrCodeRef.current = null
+        }
+      }
+    }
+
+    startCamera()
+    return () => {
+      cancelled = true
+      const q = html5QrCodeRef.current
+      if (q) {
+        q.stop().catch(() => {})
+        q.clear().catch(() => {})
+        html5QrCodeRef.current = null
+      }
+    }
+  }, [cameraScanning])
 
   useEffect(() => {
     let active = true
@@ -238,7 +349,6 @@ export default function ScanBarcodePage() {
     if (!raw) return
 
     try {
-      // QR kod içeriği JSON olabilir, barcode alanını al
       let barcodeValue = raw
       try {
         const parsed = JSON.parse(raw)
@@ -246,12 +356,17 @@ export default function ScanBarcodePage() {
       } catch {
         // raw barcode
       }
-
       await lookupBarcode(barcodeValue)
     } catch (e: any) {
       setError(e?.message || 'Barkod okunamadı')
+    } finally {
+      await stopCameraScanner()
     }
   }
+
+  useEffect(() => {
+    handleDecodedTextRef.current = handleDecodedText
+  })
 
   async function lookupBarcode(barcodeValue: string) {
     const cleaned = barcodeValue.trim()
@@ -326,10 +441,7 @@ export default function ScanBarcodePage() {
       if (Array.isArray(data) && data.length > 0) {
         const item = data[0] as BarcodeDetails
         setScannedData(item)
-        if (scanner) {
-          scanner.clear()
-          setScanner(null)
-        }
+        setBarcodeOkModalMessage('Barkod okundu: ' + (item.product_name || item.sku || item.barcode))
         return
       }
 
@@ -367,6 +479,22 @@ export default function ScanBarcodePage() {
 
   return (
     <div className="min-h-screen bg-gray-900 p-4">
+      {/* Okunan barkod mesajı - Tamam'a basılana kadar ekranda kalır */}
+      {barcodeOkModalMessage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70">
+          <div className="rounded-xl border-2 border-green-600 bg-green-900/95 p-6 max-w-md w-full shadow-xl">
+            <p className="text-lg font-semibold text-green-100 mb-4">{barcodeOkModalMessage}</p>
+            <button
+              type="button"
+              onClick={() => setBarcodeOkModalMessage(null)}
+              className="w-full py-3 bg-white text-gray-900 rounded-lg font-bold text-lg hover:bg-gray-100 transition"
+            >
+              Tamam
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
@@ -379,6 +507,16 @@ export default function ScanBarcodePage() {
           </Link>
           <h1 className="text-2xl font-bold text-white">Barkod/QR Kod Okut</h1>
           <div className="w-24"></div> {/* Spacer */}
+        </div>
+
+        {/* Telefon / Cloudflare ile kullanım kılavuzu */}
+        <div className="mb-4 rounded-lg border border-blue-800 bg-blue-900/20 p-3 text-sm text-blue-200">
+          <p className="font-semibold mb-1">Telefonda barkod okutma (Cloudflare / ngrok üzerinden)</p>
+          <ol className="list-decimal list-inside space-y-0.5 text-xs opacity-95">
+            <li>Telefonda bu sayfayı açın (giriş yaptıktan sonra).</li>
+            <li>Tarayıcı kamera izni isterse &quot;İzin Ver&quot; deyin.</li>
+            <li>Barkodu veya QR kodu kameraya tutun; kare içine alındığında otomatik okunur.</li>
+          </ol>
         </div>
 
         {(scannedData || shipmentMatch) ? (
@@ -493,6 +631,7 @@ export default function ScanBarcodePage() {
                 setScannedData(null)
                 setShipmentMatch(null)
                 setError(null)
+                setBarcodeOkModalMessage(null)
                 // Tarayıcıyı yeniden başlat
                 window.location.reload()
               }}
@@ -610,14 +749,48 @@ export default function ScanBarcodePage() {
               )}
             </div>
 
-            <div id="qr-reader" className="mb-4"></div>
+            {/* Hızlı İşlemdeki gibi doğrudan kamera; dosyadan tarama yok */}
+            {!cameraScanning ? (
+              <div className="space-y-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCameraError('')
+                    setCameraScanning(true)
+                  }}
+                  className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold"
+                >
+                  📷 Kamerayı Aç
+                </button>
+                {cameraError && (
+                  <div className="p-3 bg-amber-900/30 border border-amber-700 rounded-lg text-amber-200 text-sm">
+                    {cameraError}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mb-4 space-y-2">
+                <div
+                  id="qr-reader"
+                  className="w-full bg-black rounded-lg overflow-hidden"
+                  style={{ minHeight: '250px', maxHeight: '400px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => stopCameraScanner()}
+                  className="w-full py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold"
+                >
+                  Durdur
+                </button>
+              </div>
+            )}
             {error && (
               <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-300">
                 {error}
               </div>
             )}
             <p className="text-gray-400 text-center text-sm mt-4">
-              QR kodu kameraya gösterin veya USB tarayıcı ile okutun
+              Kamerayı açın veya USB tarayıcı ile okutun
             </p>
           </div>
         )}

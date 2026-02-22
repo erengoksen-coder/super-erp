@@ -2,8 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
+import type Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 import { logger } from '@/lib/utils/logger'
+import { userWantsNotification } from '@/lib/notifications/preferences'
+
+/** Admin, yönetici ve satın alma ile ilgili rol/unvanı olan kullanıcı ID'lerini döndürür (bildirim için). Tercih açık olanlar filtrelenir. */
+function getPurchaseNotificationUserIds(db: Database.Database): string[] {
+  const rows = db.prepare(`
+    SELECT id FROM users
+    WHERE deleted_at IS NULL AND is_approved = 1
+      AND (
+        LOWER(TRIM(COALESCE(role, ''))) IN ('admin', 'manager', 'yönetici', 'yonetici', 'muhasebe')
+        OR LOWER(TRIM(COALESCE(job_title, ''))) LIKE '%satın%'
+        OR LOWER(TRIM(COALESCE(job_title, ''))) LIKE '%tedarik%'
+        OR LOWER(TRIM(COALESCE(position, ''))) LIKE '%satın%'
+        OR LOWER(TRIM(COALESCE(position, ''))) LIKE '%tedarik%'
+      )
+  `).all() as Array<{ id: string }>
+  const ids = [...new Set(rows.map((r) => r.id))]
+  return ids.filter((id) => userWantsNotification(db, id, 'purchase_request'))
+}
 
 // GET: Tüm satın alma taleplerini getir
 export const GET = withAuth(async (request: NextRequest) => {
@@ -25,7 +44,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         m.supplier_id,
         s.name as material_supplier_name
       FROM purchase_requests pr
-      JOIN materials m ON pr.material_id = m.id
+      LEFT JOIN materials m ON pr.material_id = m.id AND m.deleted_at IS NULL
       LEFT JOIN accounts s ON m.supplier_id = s.id
       WHERE pr.deleted_at IS NULL
     `
@@ -114,6 +133,20 @@ export const POST = withAuth(async (request: NextRequest) => {
     const price = unit_price || 0
     const totalAmount = requested_quantity * price
 
+    const insertNotificationForPurchaseRequest = (requestId: string, reqNumber: string, materialName: string) => {
+      const userIds = getPurchaseNotificationUserIds(db)
+      const title = 'Yeni satın alma talebi'
+      const message = `${reqNumber} - ${materialName || 'Malzeme'} için satın alma talebi oluşturuldu.`
+      const insertNotif = db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, read, created_at)
+        VALUES (?, ?, ?, ?, 'info', 'purchase_request', ?, 0, ?)
+      `)
+      const now = new Date().toISOString()
+      for (const uid of userIds) {
+        insertNotif.run(randomUUID(), uid, title, message, requestId, now)
+      }
+    }
+
     try {
       db.prepare(`
         INSERT INTO purchase_requests 
@@ -121,7 +154,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
       `).run(id, requestNumber, material_id, requested_quantity, price, totalAmount, supplier_name || null, notes || null)
 
-      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(id)
+      const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(id) as any
+      insertNotificationForPurchaseRequest(id, requestNumber, material?.name ?? '')
 
       return NextResponse.json({
         success: true,
@@ -140,7 +174,8 @@ export const POST = withAuth(async (request: NextRequest) => {
           VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
         `).run(id, requestNumber, material_id, requested_quantity, price, totalAmount, supplier_name || null, notes || null)
 
-        const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(id)
+        const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(id) as any
+        insertNotificationForPurchaseRequest(id, requestNumber, material?.name ?? '')
 
         return NextResponse.json({
           success: true,

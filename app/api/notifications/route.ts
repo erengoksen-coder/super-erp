@@ -29,8 +29,9 @@ export async function GET(request: NextRequest) {
       LIMIT 50
     `).all(userId) as any[]
     return NextResponse.json(list)
-  } catch (e: any) {
-    console.warn('[notifications] GET error:', e?.message)
+  } catch (e: unknown) {
+    const { apiLogger } = await import('@/lib/api/logger')
+    apiLogger.error('Notifications GET failed', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json([])
   }
 }

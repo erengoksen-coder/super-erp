@@ -27,3 +27,10 @@ const backupPath = path.join(backupDir, `erp_${stamp}.db`)
 
 fs.copyFileSync(dbPath, backupPath)
 console.log('Yedek oluşturuldu:', backupPath)
+
+// Eski yedekleri rotasyonla temizle (son 7 gün sakla)
+try {
+  require('./rotate-backups.js')
+} catch (_) {
+  // Rotasyon atlandı (klasör yok veya hata)
+}

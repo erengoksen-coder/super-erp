@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download, FileText } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface PurchaseRequest {
   id: string
@@ -26,6 +28,8 @@ interface PurchaseRequest {
 }
 
 export default function PurchaseRequestsPage() {
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -34,10 +38,23 @@ export default function PurchaseRequestsPage() {
   const [editUnitPrice, setEditUnitPrice] = useState<number>(0)
   const [editSupplierName, setEditSupplierName] = useState<string>('')
   const [exporting, setExporting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [creatingOrder, setCreatingOrder] = useState(false)
+  const searchParams = useSearchParams()
+  const highlightId = searchParams.get('highlight') ?? null
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
 
   useEffect(() => {
     loadRequests()
   }, [filterStatus])
+
+  useEffect(() => {
+    if (!highlightId || !requests.length) return
+    const found = requests.some((r) => r.id === highlightId)
+    if (found && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [highlightId, requests])
 
   async function loadRequests() {
     setLoading(true)
@@ -125,6 +142,45 @@ export default function PurchaseRequestsPage() {
       loadRequests()
     } catch (error: any) {
       toast.error('Hata: ' + error.message)
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAllDraft() {
+    const draftIds = requests.filter((r) => r.status === 'draft').map((r) => r.id)
+    if (selectedIds.size >= draftIds.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(draftIds))
+  }
+
+  async function createOrderFromSelected() {
+    if (selectedIds.size === 0) {
+      toast.warning('Lütfen en az bir talep seçin (taslak olanlar)')
+      return
+    }
+    setCreatingOrder(true)
+    try {
+      const res = await fetch('/api/purchase-requests/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_ids: Array.from(selectedIds) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sipariş oluşturulamadı')
+      toast.success(data.message || 'Satın alma siparişi oluşturuldu')
+      setSelectedIds(new Set())
+      loadRequests()
+    } catch (e: any) {
+      toast.error(e.message || 'Sipariş oluşturulamadı')
+    } finally {
+      setCreatingOrder(false)
     }
   }
 
@@ -317,7 +373,7 @@ export default function PurchaseRequestsPage() {
       
       toast.success(`PDF başarıyla oluşturuldu. ${orderedRequests.length} adet sipariş edilmiş talep PDF'e aktarıldı.`)
     } catch (error) {
-      console.error('PDF export error:', error)
+      console.error('PDF dışa aktarma hatası:', error)
       toast.error('PDF oluşturulurken hata oluştu')
     } finally {
       setExporting(false)
@@ -371,7 +427,21 @@ export default function PurchaseRequestsPage() {
           </div>
           <p className="text-gray-400">Satın alma talepleri ve sipariş takibi</p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 flex-wrap gap-2">
+          <button
+            onClick={createOrderFromSelected}
+            disabled={creatingOrder || selectedIds.size === 0}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            title="Seçili taslak taleplerden satın alma siparişi oluşturur (tedarikçiye göre gruplanır)"
+          >
+            {creatingOrder ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <FileText className="w-4 h-4" />
+            )}
+            <span>{creatingOrder ? 'Oluşturuluyor...' : `Seçilenlerden sipariş (${selectedIds.size})`}</span>
+          </button>
+          {canExport && (
           <button
             onClick={exportToPDF}
             disabled={exporting || requests.filter(r => r.status === 'ordered').length === 0}
@@ -381,6 +451,7 @@ export default function PurchaseRequestsPage() {
             <Download className="w-4 h-4" />
             <span>{exporting ? 'Oluşturuluyor...' : 'PDF İndir'}</span>
           </button>
+          )}
           <button
             onClick={loadRequests}
             disabled={loading}
@@ -423,6 +494,17 @@ export default function PurchaseRequestsPage() {
           <table className="min-w-full divide-y divide-gray-800">
             <thead className="bg-gray-800">
               <tr>
+                <th className="px-2 py-3 text-left">
+                  {requests.some((r) => r.status === 'draft') && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size > 0 && selectedIds.size >= requests.filter((r) => r.status === 'draft').length}
+                      onChange={toggleSelectAllDraft}
+                      className="w-4 h-4 rounded border-gray-600 text-emerald-600 focus:ring-emerald-500"
+                      title="Tüm taslakları seç / kaldır"
+                    />
+                  )}
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Talep No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Malzeme</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Tedarikçi</th>
@@ -441,12 +523,14 @@ export default function PurchaseRequestsPage() {
                 const received = request.received_quantity || 0
                 const remaining = Math.max(0, request.requested_quantity - received)
                 const isIncomplete = remaining > 0 && request.status === 'ordered'
+                const isHighlighted = highlightId === request.id
                 return (
                 <tr 
-                  key={request.id} 
+                  key={request.id}
+                  ref={isHighlighted ? (el) => { highlightRowRef.current = el } : undefined}
                   className={`hover:bg-gray-800/50 cursor-pointer ${
                     isIncomplete ? 'bg-red-900/20 border-l-4 border-red-500' : ''
-                  }`}
+                  } ${isHighlighted ? 'bg-amber-900/40 border-l-4 border-amber-500' : ''}`}
                   onDoubleClick={(e) => {
                     // İşlemler kolonuna tıklanırsa modal açılmasın
                     const target = e.target as HTMLElement
@@ -457,6 +541,16 @@ export default function PurchaseRequestsPage() {
                   }}
                   title={isIncomplete ? `Eksik gelen: ${remaining.toFixed(2)} ${request.material_unit}` : "Çift tıklayarak miktarı düzenleyin"}
                 >
+                  <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                    {request.status === 'draft' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(request.id)}
+                        onChange={() => toggleSelect(request.id)}
+                        className="w-4 h-4 rounded border-gray-600 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-white font-medium text-xs">
                     {request.request_number}
                   </td>

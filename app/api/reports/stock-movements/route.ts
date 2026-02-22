@@ -77,11 +77,18 @@ export const GET = withAuth(async (request: NextRequest) => {
       acc[r.movement_type] = (acc[r.movement_type] ?? 0) + 1
       return acc
     }, {})
+    const totalInQty = rows.filter((r) => r.movement_type === 'in').reduce((s, r) => s + Number(r.quantity), 0)
+    const totalOutQty = rows.filter((r) => r.movement_type === 'out').reduce((s, r) => s + Number(r.quantity), 0)
 
     return ok({
       from: from || null,
       to: to || null,
-      summary: { total: rows.length, byType },
+      summary: {
+        total: rows.length,
+        byType,
+        totalInQty,
+        totalOutQty,
+      },
       items: rows,
     })
   }, { status: 500 })

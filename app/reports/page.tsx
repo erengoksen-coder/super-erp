@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Download, TrendingUp, Package, Receipt, Factory } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useApi } from '@/lib/api/client'
+import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
@@ -12,12 +13,13 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 const REPORT_LINKS = [
   { href: '/reports#stok', label: 'Stok Özeti', icon: Package, desc: 'Malzeme ve ürün stok durumu' },
+  { href: '/reports/order-summary', label: 'Sipariş / Üretim Özeti', icon: Factory, desc: 'Tarih aralığına göre sipariş, üretim ve sevkiyat özeti' },
   { href: '/reports/sales-summary', label: 'Satış Özeti', icon: TrendingUp, desc: 'Tarih aralığına göre satışlar' },
   { href: '/reports/stock-movements', label: 'Stok Hareketleri', icon: Package, desc: 'Giriş/çıkış hareketleri' },
   { href: '/reports/aging', label: 'Cari Yaşlandırma', icon: Receipt, desc: 'Alacak yaşlandırma raporu' },
   { href: '/reports/production', label: 'Üretim Verimliliği', icon: Factory, desc: 'Üretim emirleri özeti' },
   { href: '/reports/costs', label: 'Maliyet', icon: Receipt, desc: 'Maliyet raporları' },
-  { href: '/reports/fire', label: 'Fire', icon: Package, desc: 'Fire analizi' },
+  { href: '/reports/fire', label: 'Fire Analizi', icon: Package, desc: 'Fire analizi' },
 ]
 
 type StockSummary = {
@@ -45,6 +47,8 @@ type StockSummary = {
 }
 
 export default function ReportsPage() {
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
   const { data, isLoading } = useApi<StockSummary>('/api/reports/stock-summary')
 
   const criticalMaterials = useMemo(() => {
@@ -146,6 +150,7 @@ export default function ReportsPage() {
           </div>
           <p className="text-gray-400 mt-1">Rapor türünü seçin. Tarih aralığı kullanan raporlarda ilgili sayfadaki filtreyi kullanın; Excel/PDF indir seçenekleri rapor sayfalarında sunulur.</p>
         </div>
+        {canExport && (
         <div className="flex gap-2">
           <button
             onClick={downloadPdf}
@@ -164,6 +169,7 @@ export default function ReportsPage() {
             <span>Excel</span>
           </button>
         </div>
+        )}
       </div>
 
       {isLoading ? (

@@ -12,7 +12,9 @@ type ProductionRealtimeProps = {
 
 export default function ProductionRealtime({ onUpdate, pollIntervalMs = REALTIME_POLL_INTERVAL_MS }: ProductionRealtimeProps) {
   const onUpdateRef = useRef(onUpdate)
-  onUpdateRef.current = onUpdate
+  useEffect(() => {
+    onUpdateRef.current = onUpdate
+  }, [onUpdate])
 
   useEffect(() => {
     const supabase = createClient()

@@ -14,7 +14,7 @@ export default function NewInventoryPage() {
         const newCode = await generateInventoryCode()
         setCode(newCode)
       } catch (error) {
-        console.error('Error generating code:', error)
+        console.error('Kod oluşturulurken hata:', error)
         setCode('STK-001')
       } finally {
         setCodeLoading(false)

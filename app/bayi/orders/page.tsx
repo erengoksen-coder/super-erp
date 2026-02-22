@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Package, Clock, CheckCircle, XCircle, Search } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Order = {
   id: string
@@ -151,8 +152,12 @@ export default function BayiOrdersPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
         </div>
       ) : filteredOrders.length === 0 ? (
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-8 text-center text-slate-400">
-          {orders.length === 0 ? 'Henüz sipariş bulunmuyor.' : 'Arama veya filtreye uygun sipariş yok.'}
+        <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-6">
+          <EmptyState
+            title={orders.length === 0 ? 'Henüz sipariş bulunmuyor' : 'Sonuç bulunamadı'}
+            description={orders.length === 0 ? 'Siparişleriniz burada listelenir.' : 'Arama veya filtreye uygun sipariş yok.'}
+            icon={Package}
+          />
         </div>
       ) : (
         <>

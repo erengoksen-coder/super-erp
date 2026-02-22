@@ -46,6 +46,7 @@ const stationNames: Record<string, string> = {
   döseme: 'Döşeme',
   montaj: 'Montaj',
   sevkiyat: 'Sevkiyat',
+  completed: 'Tamamlandı',
 }
 
 export default function StationPage() {
@@ -80,7 +81,7 @@ export default function StationPage() {
       }
       setOrders(ordersData)
     } catch (error) {
-      console.error('Error loading orders:', error)
+      console.error('Siparişler yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }
@@ -171,7 +172,9 @@ export default function StationPage() {
       if (result.all_completed === false) {
         toast.success(result.message || 'Kart tamamlandı!')
       } else {
-        toast.success('Üretim emri başarıyla bir sonraki istasyona geçirildi!')
+        const nextStationKey = result.next_station || ''
+        const nextStationLabel = stationNames[nextStationKey] || nextStationKey || 'sonraki'
+        toast.success(`Üretim emri başarıyla ${nextStationLabel} istasyonuna geçirildi!`)
       }
       
       loadOrders()

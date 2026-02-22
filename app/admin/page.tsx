@@ -11,13 +11,17 @@ import {
   Activity,
   ChevronRight,
   AlertTriangle,
+  Trash2,
+  FileDown,
 } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { formatDateTime } from '@/lib/utils/dateFormat'
 import { useAuthStore } from '@/lib/store/authStore'
 import { isAdminRole } from '@/lib/auth/permissions-check'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type AuditEntry = {
   id: string
@@ -34,9 +38,14 @@ export default function AdminDashboardPage() {
   const user = useAuthStore((s) => s.user)
   const [auditList, setAuditList] = useState<AuditEntry[]>([])
   const [pendingCount, setPendingCount] = useState<number | null>(null)
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [clearingData, setClearingData] = useState(false)
+  const [markingBackup, setMarkingBackup] = useState(false)
+  const [exportingAudit, setExportingAudit] = useState(false)
 
   const isAdmin = isAdminRole(user?.role)
+  const canExport = user?.can_export !== 0
 
   useEffect(() => {
     if (!user) return
@@ -50,17 +59,60 @@ export default function AdminDashboardPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [audit, pending] = await Promise.all([
+      const [audit, pending, backup] = await Promise.all([
         fetchApi<AuditEntry[]>('/api/admin/audit-log?limit=20'),
         fetchApi<{ count: number }>('/api/users/pending-count').catch(() => ({ count: 0 })),
+        fetchApi<{ lastBackupAt: string | null }>('/api/admin/backup-status').catch(() => ({ lastBackupAt: null })),
       ])
       setAuditList(Array.isArray(audit) ? audit : [])
       setPendingCount(typeof pending?.count === 'number' ? pending.count : 0)
+      setLastBackupAt(backup?.lastBackupAt ?? null)
     } catch {
       setAuditList([])
       setPendingCount(0)
+      setLastBackupAt(null)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function clearAllDataExceptBom() {
+    if (!confirm('BOM ve ayarlar hariç TÜM veriler silinecek (ödeme kayıtları, faturalar, cari hareketler, siparişler, üretim emirleri, stok hareketleri, sevkiyatlar vb.). Ayarlar ve BOM korunacak. Bu işlem geri alınamaz. Emin misiniz?')) return
+    if (!confirm('Son kez onaylıyor musunuz? Tüm işlem verileri silinecek.')) return
+    setClearingData(true)
+    try {
+      const res = await fetchApi<{ message?: string; total_deleted?: number; error?: string }>('/api/admin/clear-all-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const msg = (res as any)?.message ?? (res as any)?.error ?? 'İşlem tamamlandı.'
+      toast.success(msg)
+      loadData()
+    } catch (e: any) {
+      toast.error('Hata: ' + (e?.message ?? 'Veriler silinemedi'))
+    } finally {
+      setClearingData(false)
+    }
+  }
+
+  async function exportAuditLog() {
+    setExportingAudit(true)
+    try {
+      const res = await fetch('/api/admin/audit-log/export?limit=5000', { credentials: 'include' })
+      if (!res.ok) throw new Error('Dışa aktarma başarısız')
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Denetim_Kaydi_${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      window.URL.revokeObjectURL(url)
+      toast.success('Denetim kaydı indirildi')
+    } catch {
+      toast.error('Denetim kaydı dışa aktarılamadı')
+    } finally {
+      setExportingAudit(false)
     }
   }
 
@@ -123,36 +175,115 @@ export default function AdminDashboardPage() {
             </CardBody>
           </Card>
 
-          <Card className="border-amber-200 dark:border-amber-700 dark:bg-slate-800/50">
-            <CardBody className="flex flex-row items-center gap-4">
-              <AlertTriangle className="h-6 w-6 text-amber-500 dark:text-amber-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-lg font-semibold text-slate-900 dark:text-white">Güvenlik</p>
-                <p className="text-base font-medium text-slate-500 dark:text-white">Tüm admin işlemleri kayıt altında</p>
+          <Card className={!lastBackupAt ? 'border-amber-200 dark:border-amber-700' : ''}>
+            <CardBody className="flex flex-row items-center gap-4 flex-wrap">
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800">
+                <Database className="h-6 w-6 text-slate-600 dark:text-slate-300" />
               </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-lg font-semibold text-slate-900 dark:text-white">Yedekleme</p>
+                <p className="text-base font-medium text-slate-500 dark:text-white">
+                  {lastBackupAt
+                    ? `Son yedek: ${formatDateTime(lastBackupAt)}`
+                    : 'Son yedek kaydı yok — düzenli yedek almayı unutmayın.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={markingBackup}
+                onClick={async () => {
+                  setMarkingBackup(true)
+                  try {
+                    const res = await fetchApi<{ lastBackupAt?: string }>('/api/admin/backup-status', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({}),
+                    })
+                    setLastBackupAt(res?.lastBackupAt ?? null)
+                    toast.success('Son yedekleme tarihi güncellendi')
+                  } catch (e: any) {
+                    toast.error(e?.message ?? 'Güncellenemedi')
+                  } finally {
+                    setMarkingBackup(false)
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-slate-600 hover:bg-slate-500 text-white text-sm disabled:opacity-50"
+              >
+                {markingBackup ? '...' : 'Yedek alındı olarak işaretle'}
+              </button>
             </CardBody>
           </Card>
+
+          <Link href="/admin/activity">
+            <Card className="border-amber-200 dark:border-amber-700 dark:bg-slate-800/50 hover:shadow-md transition cursor-pointer h-full">
+              <CardBody className="flex flex-row items-center gap-4">
+                <div className="p-3 rounded-xl bg-amber-100 dark:bg-amber-900/30">
+                  <Activity className="h-6 w-6 text-amber-600 dark:text-amber-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-lg font-semibold text-slate-900 dark:text-white">İşlem geçmişi</p>
+                  <p className="text-base font-medium text-slate-500 dark:text-white">Tüm aktivite kayıtları</p>
+                </div>
+                <ChevronRight className="h-6 w-6 text-slate-500 dark:text-white shrink-0" />
+              </CardBody>
+            </Card>
+          </Link>
         </div>
+
+        <Card className="border-red-800 dark:border-red-900 bg-red-950/20">
+          <CardHeader
+            title="Veri temizleme"
+            subtitle="BOM ve ayarlar korunur; ödeme, fatura, sipariş, üretim, stok, sevkiyat vb. tüm veriler silinir"
+          />
+          <CardBody>
+            <button
+              type="button"
+              disabled={clearingData}
+              onClick={clearAllDataExceptBom}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-red-700 hover:bg-red-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              <Trash2 className="w-4 h-4" />
+              {clearingData ? 'Siliniyor...' : 'BOM ve ayarlar hariç tüm verileri sil'}
+            </button>
+          </CardBody>
+        </Card>
 
         <Card>
           <CardHeader
             title="Son admin işlemleri"
             subtitle="Denetim kaydı (son 20)"
             actions={
-              <button
-                type="button"
-                onClick={loadData}
-                className="text-base font-medium text-indigo-500 dark:text-white hover:text-indigo-400 dark:hover:text-indigo-200 hover:underline"
-              >
-                Yenile
-              </button>
+              <div className="flex items-center gap-2">
+                {canExport && (
+                <button
+                  type="button"
+                  onClick={exportAuditLog}
+                  disabled={exportingAudit}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-600 hover:bg-slate-500 text-white disabled:opacity-50"
+                >
+                  <FileDown className="w-4 h-4" />
+                  {exportingAudit ? 'İndiriliyor...' : 'Excel İndir'}
+                </button>
+                )}
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="text-base font-medium text-indigo-500 dark:text-white hover:text-indigo-400 dark:hover:text-indigo-200 hover:underline"
+                >
+                  Yenile
+                </button>
+              </div>
             }
           />
           <CardBody>
             {loading ? (
               <p className="text-base font-medium text-slate-400 dark:text-white py-4">Yükleniyor...</p>
             ) : auditList.length === 0 ? (
-              <p className="text-base font-medium text-slate-400 dark:text-white py-4">Henüz admin işlemi kaydı yok.</p>
+              <EmptyState
+                title="Henüz admin işlemi kaydı yok"
+                description="Sistemde henüz denetim kaydı oluşmamış."
+                icon={Activity}
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-base">

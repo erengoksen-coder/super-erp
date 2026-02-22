@@ -10,17 +10,20 @@ export const GET = withAuth(async () => {
     const rows = materialsRepo.getAll().slice(0, EXPORT_MAX_LIMIT)
     const exportRows = rows.map((m) => ({
       'Kod': m.code ?? '',
-      'Ad': m.name,
+      'Hammadde Adı': m.name,
       'Kategori': m.category ?? '',
       'Birim': m.unit,
-      'Stok Miktarı': m.stock_amount,
+      'Toplam Giriş': (m as { total_in?: number }).total_in ?? 0,
+      'Toplam Çıkış': (m as { total_out?: number }).total_out ?? 0,
+      'Mevcut Stok': m.stock_amount,
       'Min. Stok': m.min_stock_level,
       'Birim Fiyat': m.unit_price,
-      'Giriş Toplam': (m as { total_in?: number }).total_in ?? 0,
-      'Çıkış Toplam': (m as { total_out?: number }).total_out ?? 0,
     }))
     const workbook = XLSX.utils.book_new()
     const sheet = XLSX.utils.json_to_sheet(exportRows)
+    sheet['!cols'] = [
+      { wch: 14 }, { wch: 28 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    ]
     XLSX.utils.book_append_sheet(workbook, sheet, 'Malzemeler')
     const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
     return new NextResponse(buf, {

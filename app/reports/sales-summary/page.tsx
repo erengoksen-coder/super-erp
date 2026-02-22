@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { TrendingUp, RefreshCw, ArrowLeft } from 'lucide-react'
+import { TrendingUp, RefreshCw, ArrowLeft, Printer, FileDown } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 import { fetchApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
+import { ReportFilters, getDefaultReportFilters } from '@/components/filters/ReportFilters'
+import { useAuthStore } from '@/lib/store/authStore'
 
 type SalesSummaryRes = {
   from: string | null
@@ -23,19 +26,30 @@ type SalesSummaryRes = {
   }>
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Beklemede',
+  in_transit: 'Yolda',
+  delivered: 'Teslim Edildi',
+  shipped: 'Sevk Edildi',
+  cancelled: 'İptal',
+  ready: 'Hazır',
+  preparing: 'Hazırlanıyor',
+}
+
+function getStatusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status
+}
+
 export default function SalesSummaryReportPage() {
-  const [from, setFrom] = useState(() => {
-    const d = new Date()
-    d.setMonth(d.getMonth() - 1)
-    return d.toISOString().split('T')[0]
-  })
-  const [to, setTo] = useState(() => new Date().toISOString().split('T')[0])
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
+  const [filters, setFilters] = useState(getDefaultReportFilters)
   const [data, setData] = useState<SalesSummaryRes | null>(null)
   const [loading, setLoading] = useState(true)
 
   function load() {
     setLoading(true)
-    fetchApi<SalesSummaryRes>(`/api/reports/sales-summary?from=${from}&to=${to}`)
+    fetchApi<SalesSummaryRes>(`/api/reports/sales-summary?from=${filters.from}&to=${filters.to}`)
       .then((res: any) => {
         const d = res?.data ?? res
         setData(d)
@@ -47,6 +61,27 @@ export default function SalesSummaryReportPage() {
   useEffect(() => {
     load()
   }, [])
+
+  function downloadPdf() {
+    if (!data) return
+    const doc = new jsPDF()
+    doc.setFontSize(14)
+    doc.text('Satis Ozet Raporu', 14, 16)
+    doc.setFontSize(10)
+    doc.text(`Donem: ${filters.from ?? ''} - ${filters.to ?? ''}`, 14, 24)
+    doc.text(`Sevkiyat: ${data.summary?.count ?? 0}  |  Toplam Tutar: ${(data.summary?.totalAmount ?? 0).toLocaleString('tr-TR')} TL  |  Miktar: ${data.summary?.totalQuantity ?? 0}`, 14, 32)
+    let y = 42
+    doc.setFontSize(9)
+    ;(data.items ?? []).slice(0, 40).forEach((row) => {
+      doc.text(`${row.shipment_number} | ${formatDate(row.shipment_date)} | ${(row.customer_name ?? row.customer_code ?? '').slice(0, 20)} | ${(row.final_amount ?? 0).toLocaleString('tr-TR')}`, 14, y)
+      y += 5
+      if (y > 275) {
+        doc.addPage()
+        y = 16
+      }
+    })
+    doc.save(`satis_ozet_${filters.from ?? 'tarih'}_${filters.to ?? ''}.pdf`)
+  }
 
   return (
     <div>
@@ -64,19 +99,7 @@ export default function SalesSummaryReportPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
-          <span className="text-gray-500">–</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
+          <ReportFilters value={filters} onChange={setFilters} />
           <button
             onClick={load}
             disabled={loading}
@@ -85,6 +108,21 @@ export default function SalesSummaryReportPage() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Güncelle
           </button>
+          <button type="button" onClick={() => window.print()} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 flex items-center gap-2">
+            <Printer className="w-4 h-4" />
+            Yazdır
+          </button>
+          {canExport && (
+          <button
+            type="button"
+            onClick={downloadPdf}
+            disabled={!data}
+            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 flex items-center gap-2"
+          >
+            <FileDown className="w-4 h-4" />
+            PDF İndir
+          </button>
+          )}
         </div>
       </div>
 
@@ -129,7 +167,7 @@ export default function SalesSummaryReportPage() {
                       <td className="py-2 px-4">{row.customer_name ?? row.customer_code ?? '–'}</td>
                       <td className="py-2 px-4 text-right">{row.total_quantity ?? 0}</td>
                       <td className="py-2 px-4 text-right">{(row.final_amount ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                      <td className="py-2 px-4">{row.status}</td>
+                      <td className="py-2 px-4">{getStatusLabel(row.status)}</td>
                     </tr>
                   ))}
                 </tbody>

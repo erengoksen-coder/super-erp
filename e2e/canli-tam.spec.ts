@@ -109,13 +109,7 @@ test.describe('Canlı tam test – tüm modüllere veri gir', () => {
     await expect(page).toHaveURL(/\/notifications/)
     await delay(1500)
 
-    // —— 11. HR Devam (puantaj sayfası) ——
-    await go('/hr/attendance')
-    await expect(page).toHaveURL(/\/hr\/attendance/)
-    await expect(page.getByText(/devam|puantaj|giriş|çıkış/i).first()).toBeVisible({ timeout: 10_000 }).catch(() => null)
-    await delay(1500)
-
-    // —— 12. Satın alma talepleri ——
+    // —— 11. Satın alma talepleri ——
     await go('/purchase-requests')
     await expect(page).toHaveURL(/\/purchase-requests/)
     await delay(1500)

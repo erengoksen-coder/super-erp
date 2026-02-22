@@ -63,6 +63,9 @@ export const GET = withAuth(async (request: NextRequest) => {
     const rows = db.prepare(query).all(...params) as Record<string, unknown>[]
     const workbook = XLSX.utils.book_new()
     const sheet = XLSX.utils.json_to_sheet(rows)
+    sheet['!cols'] = [
+      { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 35 }, { wch: 18 },
+    ]
     XLSX.utils.book_append_sheet(workbook, sheet, 'Faturalar')
     const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
     return new NextResponse(buf, {

@@ -1,10 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Download, ShoppingCart, RefreshCw, Package } from 'lucide-react'
+import { AlertTriangle, Download, ShoppingCart, RefreshCw, Package, Info } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
+import { useAuthStore } from '@/lib/store/authStore'
+
+/** Tam sayıları 100, ondalıklıları 26.5 gibi gösterir (100.00 yerine 100) */
+function formatQuantity(n: number): string {
+  const rounded = Math.round(n * 100) / 100
+  if (Number.isInteger(rounded)) return String(Math.round(rounded))
+  return rounded.toFixed(2).replace(/\.?0+$/, '')
+}
 
 interface CriticalMaterial {
   id: string
@@ -26,9 +34,14 @@ interface CriticalMaterial {
 }
 
 export default function CriticalStockPage() {
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
   const [materials, setMaterials] = useState<CriticalMaterial[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [exportingExcel, setExportingExcel] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [creatingRequests, setCreatingRequests] = useState(false)
 
   useEffect(() => {
     loadCriticalMaterials()
@@ -41,11 +54,86 @@ export default function CriticalStockPage() {
       if (!response.ok) throw new Error('Kritik stok listesi yüklenemedi')
       const data = await response.json()
       setMaterials(data)
+      setSelectedIds(new Set())
     } catch (error) {
-      console.error('Error loading critical materials:', error)
+      console.error('Kritik malzemeler yüklenirken hata:', error)
       toast.error('Kritik stok listesi yüklenirken hata oluştu')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === materials.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(materials.map((m) => m.id)))
+  }
+
+  async function createPurchaseRequestsForSelected() {
+    if (selectedIds.size === 0) {
+      toast.warning('Lütfen en az bir malzeme seçin')
+      return
+    }
+    setCreatingRequests(true)
+    const selected = materials.filter((m) => selectedIds.has(m.id))
+    let created = 0
+    let failed = 0
+    try {
+      for (const m of selected) {
+        const requested_quantity = Math.ceil(m.suggested_quantity)
+        if (requested_quantity <= 0) continue
+        const res = await fetch('/api/purchase-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            material_id: m.id,
+            requested_quantity,
+            unit_price: m.purchase_price ?? 0,
+            supplier_name: m.supplier_name ?? undefined,
+            notes: `Kritik stok - BOM ve siparişlere göre öneri (mevcut: ${formatQuantity(m.stock_amount)} ${m.unit})`,
+          }),
+        })
+        if (res.ok) created++
+        else failed++
+      }
+      if (created > 0) {
+        toast.success(`${created} satın alma talebi oluşturuldu.${failed ? ` ${failed} başarısız.` : ''}`)
+        setSelectedIds(new Set())
+        loadCriticalMaterials()
+      }
+      if (failed > 0 && created === 0) toast.error('Satın alma talepleri oluşturulamadı')
+    } catch (e) {
+      toast.error('Satın alma talepleri oluşturulurken hata oluştu')
+    } finally {
+      setCreatingRequests(false)
+    }
+  }
+
+  async function exportToExcel() {
+    setExportingExcel(true)
+    try {
+      const res = await fetch('/api/purchase/critical-stock/export', { credentials: 'include' })
+      if (!res.ok) throw new Error('Excel alınamadı')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Kritik_Stok_${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Excel indirildi')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Excel indirilemedi')
+    } finally {
+      setExportingExcel(false)
     }
   }
 
@@ -82,6 +170,11 @@ export default function CriticalStockPage() {
       doc.setFont('helvetica', 'normal')
       const dateStr = formatDate(new Date())
       doc.text(`Tarih: ${dateStr}`, margin, yPos)
+      yPos += 6
+      doc.setFontSize(8)
+      doc.setTextColor(100, 100, 100)
+      doc.text('Onerilen miktarlar BOM (recete) ve acik siparislere (bekleyen + uretimde) gore hesaplanmistir.', margin, yPos)
+      doc.setTextColor(0, 0, 0)
       yPos += 8
 
       // Tablo başlıkları - Türkçe karakterleri ASCII'ye çevir
@@ -129,10 +222,10 @@ export default function CriticalStockPage() {
         doc.text(materialName, xPos, yPos)
         xPos += colWidths[1]
 
-        doc.text(material.stock_amount.toFixed(2), xPos, yPos, { align: 'right' })
+        doc.text(formatQuantity(material.stock_amount), xPos, yPos, { align: 'right' })
         xPos += colWidths[2]
 
-        doc.text(material.min_stock_level.toFixed(2), xPos, yPos, { align: 'right' })
+        doc.text(formatQuantity(material.min_stock_level), xPos, yPos, { align: 'right' })
         xPos += colWidths[3]
 
         doc.text(suggestedQty.toFixed(0), xPos, yPos, { align: 'right' })
@@ -174,7 +267,7 @@ export default function CriticalStockPage() {
       const fileName = `Satın_Alma_Formu_${new Date().toISOString().split('T')[0]}.pdf`
       doc.save(fileName)
     } catch (error) {
-      console.error('PDF export error:', error)
+      console.error('PDF dışa aktarma hatası:', error)
       toast.error('PDF oluşturulurken hata oluştu')
     } finally {
       setExporting(false)
@@ -209,6 +302,24 @@ export default function CriticalStockPage() {
             <span>Yenile</span>
           </button>
           <button
+            onClick={createPurchaseRequestsForSelected}
+            disabled={creatingRequests || materials.length === 0 || selectedIds.size === 0}
+            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            <span>{creatingRequests ? 'Oluşturuluyor...' : `Seçilenler için talep (${selectedIds.size})`}</span>
+          </button>
+          {canExport && (
+          <>
+          <button
+            onClick={exportToExcel}
+            disabled={exportingExcel || materials.length === 0}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+          >
+            <Download className="w-4 h-4" />
+            <span>{exportingExcel ? 'İndiriliyor...' : 'Excel İndir'}</span>
+          </button>
+          <button
             onClick={exportToPDF}
             disabled={exporting || materials.length === 0}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
@@ -216,6 +327,8 @@ export default function CriticalStockPage() {
             <Download className="w-4 h-4" />
             <span>{exporting ? 'Oluşturuluyor...' : 'PDF İndir'}</span>
           </button>
+          </>
+          )}
         </div>
       </div>
 
@@ -228,7 +341,7 @@ export default function CriticalStockPage() {
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
           <div className="text-sm text-gray-400 mb-1">Toplam Eksik Miktar</div>
           <div className="text-2xl font-bold text-orange-400">
-            {materials.reduce((sum, m) => sum + m.shortage, 0).toFixed(2)}
+            {formatQuantity(materials.reduce((sum, m) => sum + m.shortage, 0))}
           </div>
         </div>
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
@@ -261,13 +374,28 @@ export default function CriticalStockPage() {
           <table className="min-w-full divide-y divide-gray-800">
             <thead className="bg-gray-800">
               <tr>
+                <th className="px-2 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={materials.length > 0 && selectedIds.size === materials.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-500 bg-gray-700 text-amber-500 focus:ring-amber-500"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Kod</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Malzeme</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Kategori</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Mevcut Stok</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Min. Seviye</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Eksik</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Önerilen Miktar</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">
+                <span className="inline-flex items-center gap-1">
+                  Önerilen Miktar
+                  <span title="BOM (reçete) ve açık siparişlere (bekleyen + üretimde) göre hesaplanır." className="text-gray-500 cursor-help">
+                    <Info className="w-3.5 h-3.5" />
+                  </span>
+                </span>
+              </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Birim Fiyat</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Toplam Tutar</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Tedarikçi</th>
@@ -281,6 +409,14 @@ export default function CriticalStockPage() {
                 
                 return (
                   <tr key={material.id} className="hover:bg-gray-800/50">
+                    <td className="px-2 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(material.id)}
+                        onChange={() => toggleSelect(material.id)}
+                        className="rounded border-gray-500 bg-gray-700 text-amber-500 focus:ring-amber-500"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-white font-medium text-xs">
                       {material.code || material.id.substring(0, 8)}
                     </td>
@@ -289,15 +425,15 @@ export default function CriticalStockPage() {
                     <td className={`px-4 py-3 text-right font-semibold text-xs ${
                       material.stock_amount <= 0 ? 'text-red-400' : 'text-yellow-400'
                     }`}>
-                      {material.stock_amount.toFixed(2)} {material.unit}
+                      {formatQuantity(material.stock_amount)} {material.unit}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-300 text-xs">
-                      {material.min_stock_level.toFixed(2)} {material.unit}
+                      {formatQuantity(material.min_stock_level)} {material.unit}
                     </td>
                     <td className="px-4 py-3 text-right text-red-400 font-semibold text-xs">
-                      {material.shortage.toFixed(2)} {material.unit}
+                      {formatQuantity(material.shortage)} {material.unit}
                     </td>
-                    <td className="px-4 py-3 text-right text-blue-400 font-semibold text-xs">
+                    <td className="px-4 py-3 text-right text-blue-400 font-semibold text-xs" title="BOM ve açık siparişlere göre öneri">
                       {suggestedQty} {material.unit}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-300 text-xs">
@@ -327,7 +463,7 @@ export default function CriticalStockPage() {
             </tbody>
             <tfoot className="bg-gray-800">
               <tr>
-                <td colSpan={8} className="px-4 py-3 text-right text-sm font-semibold text-white">
+                <td colSpan={9} className="px-4 py-3 text-right text-sm font-semibold text-white">
                   TOPLAM TUTAR:
                 </td>
                 <td className="px-4 py-3 text-right text-lg font-bold text-green-400">

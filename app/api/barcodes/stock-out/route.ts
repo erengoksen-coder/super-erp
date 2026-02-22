@@ -52,25 +52,32 @@ export const POST = withAuth(async (request: NextRequest) => {
       )
     }
 
-    // Müşteriyi kontrol et (cari hesaplarda olmalı)
-    const customer = db.prepare(`
+    // Müşteriyi kontrol et (önce id, yoksa kod MUS-001 ile ara)
+    const customerIdTrimmed = String(customer_id || '').trim()
+    let customer = db.prepare(`
       SELECT id, name, type FROM accounts 
-      WHERE id = ? AND type = 'customer'
-    `).get(customer_id) as any
-
+      WHERE id = ? AND (type = 'customer' OR type = 'musteri') AND deleted_at IS NULL
+    `).get(customerIdTrimmed) as any
+    if (!customer && /^[A-Za-z]+-\d+$/.test(customerIdTrimmed)) {
+      customer = db.prepare(`
+        SELECT id, name, type FROM accounts 
+        WHERE code = ? AND (type = 'customer' OR type = 'musteri') AND deleted_at IS NULL
+      `).get(customerIdTrimmed) as any
+    }
     if (!customer) {
       return NextResponse.json(
-        { error: 'Seçilen müşteri cari hesaplarda bulunamadı' },
+        { error: 'Seçilen müşteri cari hesaplarda bulunamadı. Cari kodu (MUS-001 vb.) veya ID doğru olmalı.' },
         { status: 400 }
       )
     }
 
-    // Barkod durumunu güncelle (müşteri bilgisi ile)
+    // Barkod durumunu güncelle (müşteri bilgisi ile; çözümlenmiş id kullan)
+    const resolvedCustomerId = customer.id
     db.prepare(`
       UPDATE product_serial_numbers
       SET status = 'sold', sold_at = CURRENT_TIMESTAMP, customer_id = ?
       WHERE id = ?
-    `).run(customer_id, barcodeData.id)
+    `).run(resolvedCustomerId, barcodeData.id)
 
     // �Srün stokunu düş (eşer stok takibi yapılıyorsa)
     if (barcodeData.stock_amount > 0) {

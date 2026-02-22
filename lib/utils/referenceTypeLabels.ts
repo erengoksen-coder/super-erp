@@ -6,11 +6,16 @@ const REFERENCE_TYPE_LABELS: Record<string, string> = {
   // Stok / üretim
   production_order: 'Üretim Emri',
   production_order_return: 'Üretim Emri İadesi',
+  production_order_cancel: 'Üretim Emri İptali',
   production: 'Üretim',
   adjustment: 'Düzeltme',
   manual: 'Manuel',
   initial: 'İlk Stok',
   transfer: 'Transfer',
+  stock_in: 'Stok Girişi',
+  stock_out: 'Stok Çıkışı',
+  warehouse_transfer: 'Depo Transferi',
+  stock_count: 'Sayım',
   // Satış / sevkiyat
   sale: 'Satış',
   shipment: 'Sevkiyat',

@@ -52,19 +52,19 @@ export const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(({
     <div ref={ref} className={cn('flex items-center justify-between mb-4', className)} {...props}>
       <div className="flex-1">
         {title && (
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white dark:group-hover:text-white transition-colors">
             {title}
           </h3>
         )}
         {subtitle && (
-          <p className="text-sm text-gray-600 dark:text-slate-400 mt-0.5">
+          <p className="text-sm text-gray-600 dark:text-slate-400 dark:group-hover:text-white mt-0.5 transition-colors">
             {subtitle}
           </p>
         )}
         {children}
       </div>
       {actions && (
-        <div className="flex items-center space-x-2 ml-4">
+        <div className="flex items-center space-x-2 ml-4 [&>*]:transition-colors group-hover:[&>*]:text-gray-700 dark:group-hover:[&>*]:text-white">
           {actions}
         </div>
       )}

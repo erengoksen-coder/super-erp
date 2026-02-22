@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Factory, RefreshCw, ArrowLeft } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { LogoWithBackground } from '@/components/Logo'
+import { ReportFilters, getDefaultReportFilters } from '@/components/filters/ReportFilters'
 
 type ProductionRes = {
   from: string | null
@@ -24,18 +25,13 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 export default function ProductionEfficiencyReportPage() {
-  const [from, setFrom] = useState(() => {
-    const d = new Date()
-    d.setMonth(d.getMonth() - 1)
-    return d.toISOString().split('T')[0]
-  })
-  const [to, setTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [filters, setFilters] = useState(getDefaultReportFilters)
   const [data, setData] = useState<ProductionRes | null>(null)
   const [loading, setLoading] = useState(true)
 
   function load() {
     setLoading(true)
-    fetchApi<ProductionRes>(`/api/reports/production-efficiency?from=${from}&to=${to}`)
+    fetchApi<ProductionRes>(`/api/reports/production-efficiency?from=${filters.from}&to=${filters.to}`)
       .then((res: any) => {
         const d = res?.data ?? res
         setData(d)
@@ -68,19 +64,7 @@ export default function ProductionEfficiencyReportPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
-          <span className="text-gray-500">–</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-          />
+          <ReportFilters value={filters} onChange={setFilters} />
           <button
             onClick={load}
             disabled={loading}

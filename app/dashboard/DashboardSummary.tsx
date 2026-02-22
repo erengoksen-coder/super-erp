@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Package, AlertTriangle, Factory, TrendingUp, ExternalLink } from 'lucide-react'
+import { Package, AlertTriangle, Factory, TrendingUp, ExternalLink, ClipboardList } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { Card, CardBody } from '@/components/ui/Card'
 
@@ -11,6 +11,10 @@ type DashboardStats = {
   pendingProduction: number
   criticalStock: number
   bottleneck: { station: string; station_name: string; count: number; total_quantity: number } | null
+  todayOrders?: number
+  todayInvoices?: number
+  todayShipments?: number
+  pendingPurchaseRequests?: number
 }
 
 function SkeletonCard() {
@@ -110,10 +114,40 @@ export function DashboardSummary() {
       color: 'text-emerald-400',
       bgIcon: 'bg-emerald-500/10 text-emerald-400',
     },
+    {
+      label: 'Satın Alma Talepleri',
+      value: stats.pendingPurchaseRequests ?? 0,
+      sub: 'bekleyen talep',
+      icon: ClipboardList,
+      href: '/purchase-requests',
+      color: (stats.pendingPurchaseRequests ?? 0) > 0 ? 'text-amber-400' : 'text-slate-400',
+      bgIcon: (stats.pendingPurchaseRequests ?? 0) > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400',
+    },
   ]
+
+  const todayOrders = stats.todayOrders ?? 0
+  const todayInvoices = stats.todayInvoices ?? 0
+  const todayShipments = stats.todayShipments ?? 0
+  const hasToday = todayOrders > 0 || todayInvoices > 0 || todayShipments > 0
 
   return (
     <div className="space-y-5">
+      {hasToday && (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-slate-500 font-medium">Bugünkü işlemler:</span>
+          <Link href="/orders" className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition">
+            <span className="font-semibold tabular-nums">{todayOrders}</span> sipariş
+          </Link>
+          <span className="text-slate-600">·</span>
+          <Link href="/invoices" className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition">
+            <span className="font-semibold tabular-nums">{todayInvoices}</span> fatura
+          </Link>
+          <span className="text-slate-600">·</span>
+          <Link href="/shipments" className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition">
+            <span className="font-semibold tabular-nums">{todayShipments}</span> sevkiyat
+          </Link>
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {cards.map((c) => {
           const Icon = c.icon
@@ -123,11 +157,11 @@ export function DashboardSummary() {
                 <CardBody className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium uppercase tracking-wider text-slate-400">{c.label}</p>
-                      <p className={`mt-1 text-xl md:text-2xl font-bold tabular-nums ${c.color}`}>{c.value}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">{c.sub}</p>
+                      <p className="text-xs font-medium uppercase tracking-wider text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">{c.label}</p>
+                      <p className={`mt-1 text-xl md:text-2xl font-bold tabular-nums ${c.color} group-hover:text-white dark:group-hover:text-white transition-opacity`}>{c.value}</p>
+                      <p className="mt-0.5 text-xs text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">{c.sub}</p>
                     </div>
-                    <div className={`shrink-0 rounded-xl p-2.5 ${c.bgIcon}`}>
+                    <div className={`shrink-0 rounded-xl p-2.5 ${c.bgIcon} group-hover:opacity-90 transition-opacity`}>
                       <Icon className="h-5 w-5" aria-hidden />
                     </div>
                   </div>

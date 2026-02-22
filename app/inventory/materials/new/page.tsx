@@ -77,13 +77,15 @@ export default function NewMaterialPage() {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
+    const categoryVal = formData.get('category') as string | null
     const data = {
-      name: formData.get('name'),
-      unit: formData.get('unit'),
-      category: formData.get('category') || null,
-      stock_amount: parseFloat(formData.get('stock_amount') as string) || 0,
-      min_stock_level: parseFloat(formData.get('min_stock_level') as string) || 0,
-      unit_price: parseFloat(formData.get('unit_price') as string) || 0,
+      code: (code || '').trim() || undefined,
+      name: (formData.get('name') as string)?.trim(),
+      unit: (formData.get('unit') as string)?.trim(),
+      category: categoryVal && categoryVal.trim() ? categoryVal.trim() : undefined,
+      unit_cost: parseFloat((formData.get('unit_price') as string) || '0') || 0,
+      min_stock: parseFloat((formData.get('min_stock_level') as string) || '0') || 0,
+      initial_stock: parseFloat((formData.get('stock_amount') as string) || '0') || 0,
     }
 
     try {

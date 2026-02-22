@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Plus, Package, AlertTriangle, ArrowDown, ArrowUp, ShoppingCart, Filter, Edit, Trash2, Save, X, History as HistoryIcon, Clock, RefreshCw, Download } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
@@ -9,6 +9,13 @@ import { useAuthStore } from '@/lib/store/authStore'
 import { getAuthHeaders, fetchApi } from '@/lib/api/fetch'
 import { toast } from '@/lib/notify'
 import { getReferenceTypeLabel } from '@/lib/utils/referenceTypeLabels'
+
+/** Tam sayıları 100, ondalıklıları 26.5 gibi gösterir */
+function formatQuantity(n: number): string {
+  const rounded = Math.round(n * 100) / 100
+  if (Number.isInteger(rounded)) return String(Math.round(rounded))
+  return rounded.toFixed(2).replace(/\.?0+$/, '')
+}
 
 // localDB'yi dinamik import et
 const getLocalDB = async () => {
@@ -30,6 +37,7 @@ interface Material {
 
 export default function MaterialsInventoryPage() {
   const userId = useAuthStore((state) => state.user?.id ?? null)
+  const canExport = useAuthStore((state) => state.user?.can_export !== 0)
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
   const [showStockIn, setShowStockIn] = useState(false)
@@ -46,24 +54,43 @@ export default function MaterialsInventoryPage() {
   const [quickActionMaterial, setQuickActionMaterial] = useState<Material | null>(null)
   const [quickActionType, setQuickActionType] = useState<'in' | 'out' | null>(null)
   const [editingMaterial, setEditingMaterial] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<{ stock_amount: number; min_stock_level: number }>({ stock_amount: 0, min_stock_level: 0 })
+  const [editForm, setEditForm] = useState<{ name: string; stock_amount: number; min_stock_level: number }>({ name: '', stock_amount: 0, min_stock_level: 0 })
   const [selectedMaterialForHistory, setSelectedMaterialForHistory] = useState<string | null>(null)
   const [movementHistory, setMovementHistory] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
-  const [selectedCategory, setSelectedCategory] = useState<string>('Tümü')
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const selectedCategoryRef = useRef<string | null>(null)
+  useEffect(() => {
+    selectedCategoryRef.current = selectedCategory
+  }, [selectedCategory])
   const [categorySearch, setCategorySearch] = useState<string>('')
   const [exporting, setExporting] = useState(false)
+  const [showAllCodesDetailModal, setShowAllCodesDetailModal] = useState(false)
 
   useEffect(() => {
-    loadMaterials()
-    // Sayfa yüklendiğinde stok miktarlarını stock_movements'tan yeniden hesapla
-    recalculateStocks()
+    let cancelled = false
+    ;(async () => {
+      await loadMaterials()
+      if (cancelled) return
+      // Stok miktarlarını stock_movements'tan yeniden hesapla (hata verirse sessizce devam et)
+      try {
+        await recalculateStocks(false)
+      } catch {
+        // Yetkilendirme vb. hatalarda liste zaten yüklendi, recalculate atlanır
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   async function recalculateStocks(showAlert = false) {
     try {
       setLoading(true)
-      const response = await fetch('/api/materials/recalculate-stock', { method: 'POST' })
+      const response = await fetch('/api/materials/recalculate-stock', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      })
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Stoklar yeniden hesaplanamadı')
@@ -120,10 +147,16 @@ export default function MaterialsInventoryPage() {
       
       if (result.created > 0) {
         toast.success(`${result.created} kumaş malzemesi başarıyla oluşturuldu!${result.skipped > 0 ? `\n\n${result.skipped} malzeme atlandı (zaten mevcut).` : ''}`)
-        // Malzemeleri yeniden yükle
         await loadMaterials()
       } else {
-        toast.info(`Yeni malzeme oluşturulmadı.${result.skipped > 0 ? `\n\n${result.skipped} malzeme zaten mevcut.` : ''}`)
+        // Listeyi yine de yenile ki sayı mesajla uyumlu olsun (62 diyorsa listede de 62 görünsün)
+        await loadMaterials()
+        const totalFromOrders = result.totalFound ?? result.skipped ?? 0
+        toast.info(
+          totalFromOrders > 0
+            ? `Yeni malzeme oluşturulmadı. Siparişlerdeki ${totalFromOrders} kumaş zaten depoda kayıtlı. Liste güncellendi.`
+            : 'Siparişlerde kumaş bilgisi bulunamadı.'
+        )
       }
     } catch (error: any) {
       console.error('Kumaş malzemeleri oluşturulurken hata:', error)
@@ -230,6 +263,7 @@ export default function MaterialsInventoryPage() {
   function startEdit(material: Material) {
     setEditingMaterial(material.id)
     setEditForm({
+      name: material.name || '',
       stock_amount: material.stock_amount,
       min_stock_level: material.min_stock_level,
     })
@@ -241,7 +275,7 @@ export default function MaterialsInventoryPage() {
 
   function cancelEdit() {
     setEditingMaterial(null)
-    setEditForm({ stock_amount: 0, min_stock_level: 0 })
+    setEditForm({ name: '', stock_amount: 0, min_stock_level: 0 })
   }
 
   async function saveEdit(materialId: string) {
@@ -324,6 +358,125 @@ export default function MaterialsInventoryPage() {
     }
   }
 
+  function trForPdf(s: string | null | undefined): string {
+    if (s == null || s === '') return '-'
+    return String(s)
+      .replace(/ı/g, 'i').replace(/İ/g, 'I').replace(/ş/g, 's').replace(/Ş/g, 'S')
+      .replace(/ğ/g, 'g').replace(/Ğ/g, 'G').replace(/ü/g, 'u').replace(/Ü/g, 'U')
+      .replace(/ö/g, 'o').replace(/Ö/g, 'O').replace(/ç/g, 'c').replace(/Ç/g, 'C')
+  }
+
+  async function exportMovementHistoryPdf() {
+    if (!selectedMaterialForHistory || movementHistory.length === 0) return
+    setExportingPdf(true)
+    try {
+      const jsPDFModule = await import('jspdf')
+      const jsPDF = jsPDFModule.default || jsPDFModule
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const margin = 20
+      const contentWidth = pageWidth - margin * 2
+      let y = 22
+      const rowH = 8
+      const fontSmall = 8
+      const fontNorm = 10
+      const fontTitle = 14
+
+      const materialName = materials.find(m => m.id === selectedMaterialForHistory)?.name || 'Malzeme'
+      const unit = materials.find(m => m.id === selectedMaterialForHistory)?.unit || ''
+      const reportDate = new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+      // Başlık satırı: solda başlık, sağda tarih
+      doc.setFontSize(fontTitle)
+      doc.setFont('helvetica', 'bold')
+      doc.text(trForPdf('Stok Hareket Gecmisi'), margin, y)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(fontNorm)
+      doc.text(trForPdf(materialName), margin, y + 6)
+      doc.text(reportDate, pageWidth - margin, y, { align: 'right' })
+      y += 16
+
+      doc.setDrawColor(200, 200, 200)
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 12
+
+      const outMovements = movementHistory.filter((m: any) => m.movement_type === 'out')
+      const totalOut = outMovements.reduce((s: number, m: any) => s + (m.quantity || 0), 0)
+
+      // Bölüm 1: Çıkışlar (sadece çıkış varsa)
+      if (outMovements.length > 0) {
+        doc.setFontSize(fontNorm)
+        doc.setFont('helvetica', 'bold')
+        doc.text(trForPdf('Cikislar - nerede kullanildi'), margin, y)
+        y += 5
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(fontSmall)
+        doc.text(trForPdf(`Toplam cikis: ${totalOut.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${unit}`), margin, y)
+        y += 10
+
+        const outCols = [24, 20, 22, 55, contentWidth - 24 - 20 - 22 - 55]
+        const outHeaders = ['Tarih', 'Saat', 'Miktar', 'Kullanım', 'Not']
+        let x = margin
+        doc.setFont('helvetica', 'bold')
+        outHeaders.forEach((h, i) => { doc.text(trForPdf(h), x + (i === 0 ? 0 : 2), y); x += outCols[i] })
+        y += 6
+        doc.line(margin, y, pageWidth - margin, y)
+        y += 6
+        doc.setFont('helvetica', 'normal')
+        outMovements.forEach((mov: any) => {
+          if (y > pageHeight - 28) { doc.addPage(); y = 22 }
+          x = margin
+          doc.text(trForPdf(mov.date), x, y); x += outCols[0]
+          doc.text(trForPdf(mov.time), x, y); x += outCols[1]
+          doc.text(`-${Number(mov.quantity).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, x, y); x += outCols[2]
+          const where = getReferenceTypeLabel(mov.reference_type) + (mov.reference_id ? ` (${String(mov.reference_id).slice(0, 8)}...)` : '')
+          doc.text(trForPdf(where.length > 30 ? where.slice(0, 27) + '...' : where), x, y); x += outCols[3]
+          doc.text(trForPdf((mov.notes || '-').toString().slice(0, 40)), x, y)
+          y += rowH
+        })
+        y += 14
+      }
+
+      // Bölüm 2: Tüm hareketler (sade tablo: Tarih, Saat, Tip, Miktar, Referans, Not)
+      doc.setFontSize(fontNorm)
+      doc.setFont('helvetica', 'bold')
+      doc.text(trForPdf('Tum hareketler (giris + cikis)'), margin, y)
+      y += 10
+
+      const allCols = [24, 18, 16, 20, 42, contentWidth - 24 - 18 - 16 - 20 - 42]
+      const allHeaders = ['Tarih', 'Saat', 'Tip', 'Miktar', 'Referans', 'Not']
+      let x = margin
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(fontSmall)
+      allHeaders.forEach((h, i) => { doc.text(trForPdf(h), x + (i === 0 ? 0 : 2), y); x += allCols[i] })
+      y += 6
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 6
+      doc.setFont('helvetica', 'normal')
+      movementHistory.forEach((mov: any) => {
+        if (y > pageHeight - 28) { doc.addPage(); y = 22 }
+        x = margin
+        doc.text(trForPdf(mov.date), x, y); x += allCols[0]
+        doc.text(trForPdf(mov.time), x, y); x += allCols[1]
+        doc.text(mov.movement_type === 'in' ? 'Giris' : 'Cikis', x, y); x += allCols[2]
+        const qty = (mov.movement_type === 'in' ? '+' : '-') + Number(mov.quantity).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        doc.text(qty, x, y); x += allCols[3]
+        doc.text(trForPdf(getReferenceTypeLabel(mov.reference_type).slice(0, 22)), x, y); x += allCols[4]
+        doc.text(trForPdf((mov.notes || '-').toString().slice(0, 42)), x, y)
+        y += rowH
+      })
+
+      const safeName = materialName.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 30)
+      doc.save(`stok_hareket_gecmisi_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`)
+      toast.success('PDF indirildi.')
+    } catch (err: any) {
+      toast.error('PDF oluşturulamadı: ' + (err?.message || 'Bilinmeyen hata'))
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   async function handleCreatePurchaseRequest(materialId: string) {
     if (creatingPurchase === materialId) return
 
@@ -355,7 +508,7 @@ export default function MaterialsInventoryPage() {
           material_id: materialId,
           requested_quantity: requestedQuantity,
           unit_price: 0, // Kullanıcı daha sonra güncelleyebilir
-          notes: `Otomatik oluşturuldu - Kritik stok seviyesi: ${material.stock_amount.toFixed(2)} ${material.unit} < ${material.min_stock_level.toFixed(2)} ${material.unit}`,
+          notes: `Otomatik oluşturuldu - Kritik stok seviyesi: ${formatQuantity(material.stock_amount)} ${material.unit} < ${formatQuantity(material.min_stock_level)} ${material.unit}`,
         }),
       })
 
@@ -365,7 +518,7 @@ export default function MaterialsInventoryPage() {
       }
 
       const data = await response.json()
-      toast.success(`Satın alma talebi oluşturuldu!\nTalep No: ${data.request?.request_number || 'Yok'}\nMiktar: ${requestedQuantity.toFixed(2)} ${material.unit}`)
+      toast.success(`Satın alma talebi oluşturuldu!\nTalep No: ${data.request?.request_number || 'Yok'}\nMiktar: ${formatQuantity(requestedQuantity)} ${material.unit}`)
     } catch (error: any) {
       console.error('Satın alma talebi hatası:', error)
       toast.error('Hata: ' + (error.message || 'Satın alma talebi oluşturulamadı'))
@@ -396,9 +549,27 @@ export default function MaterialsInventoryPage() {
 
   const categoryTabs = ['Tümü', ...Object.keys(materialsByCategory).sort((a, b) => a.localeCompare(b, 'tr'))]
 
+  // Sayfada görünen tüm malzemeler (seçili kategori + arama) — tek toplam satırı için
+  const allDisplayedMaterials = (() => {
+    const categoriesToShow = selectedCategory === null || selectedCategory === 'Tümü'
+      ? Object.keys(materialsByCategory)
+      : [selectedCategory]
+    const searchLower = categorySearch.trim().toLowerCase()
+    return categoriesToShow.flatMap((cat) => {
+      const categoryMaterials = materialsByCategory[cat] || []
+      if (!searchLower) return categoryMaterials
+      return categoryMaterials.filter((m) => {
+        const nameMatch = m.name.toLowerCase().includes(searchLower)
+        const codeMatch = m.code?.toLowerCase().includes(searchLower) ?? false
+        const unitMatch = m.unit.toLowerCase().includes(searchLower)
+        return nameMatch || codeMatch || unitMatch
+      })
+    })
+  })()
+
   useEffect(() => {
-    if (selectedCategory !== 'Tümü' && !materialsByCategory[selectedCategory]) {
-      setSelectedCategory('Tümü')
+    if (selectedCategory != null && selectedCategory !== 'Tümü' && !materialsByCategory[selectedCategory]) {
+      setSelectedCategory(null)
     }
   }, [materialsByCategory, selectedCategory])
 
@@ -413,12 +584,13 @@ export default function MaterialsInventoryPage() {
             <p className="text-gray-400 mt-1">Hammadde stokları ve giriş işlemleri</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {canExport && (
             <button
               onClick={async () => {
                 setExporting(true)
                 try {
                   const res = await fetch('/api/materials/export', { credentials: 'include', headers: getAuthHeaders() })
-                  if (!res.ok) throw new Error('Export başarısız')
+                  if (!res.ok) throw new Error('Dışa aktarma başarısız')
                   const blob = await res.blob()
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
@@ -440,26 +612,31 @@ export default function MaterialsInventoryPage() {
               <Download className="w-4 h-4" />
               <span className="hidden md:inline">{exporting ? 'İndiriliyor...' : 'Excel İndir'}</span>
             </button>
+            )}
             <button
               onClick={() => recalculateStocks(true)}
               disabled={loading}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Stokları stock_movements tablosundan yeniden hesapla"
+              title="Giriş ve çıkış toplamlarını stok hareketlerinden yeniden hesapla; mevcut stok = toplam giriş − toplam çıkış"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden md:inline">Stokları Yeniden Hesapla</span>
+              <span className="hidden md:inline">Giriş/Çıkışı Yeniden Hesapla</span>
             </button>
-          <button
-            onClick={() => setFilterCritical(!filterCritical)}
-            className={`px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 font-bold ${
-              filterCritical
-                ? 'bg-red-950 text-red-100 hover:bg-red-900 border-2 border-red-700 shadow-xl shadow-red-900/70'
-                : 'bg-red-900/60 text-red-200 hover:bg-red-800/80 border-2 border-red-800/50'
-            }`}
+          <Link
+            href="/purchase/critical-stock"
+            className="px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center space-x-2 font-bold bg-red-900/60 text-red-200 hover:bg-red-800/80 border-2 border-red-800/50"
           >
             <Filter size={20} />
             <span>Kritik Seviye</span>
-          </button>
+            {(() => {
+              const criticalCount = materials.filter(m => isLowStock(m)).length
+              return criticalCount > 0 ? (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-red-600 text-white font-bold tabular-nums">
+                  {criticalCount}
+                </span>
+              ) : null
+            })()}
+          </Link>
           <button
             onClick={() => {
               setActiveTab('stockIn')
@@ -699,9 +876,9 @@ export default function MaterialsInventoryPage() {
               {quickActionMaterial.name}
             </h3>
             <div className="mb-4">
-              <p className="text-sm text-gray-400">Mevcut Stok</p>
-              <p className="text-2xl font-bold text-white">
-                {quickActionMaterial.stock_amount.toFixed(2)} {quickActionMaterial.unit}
+              <p className="text-sm text-blue-300 font-medium">Mevcut Stok</p>
+              <p className="text-2xl font-bold text-blue-200">
+                {formatQuantity(quickActionMaterial.stock_amount)} {quickActionMaterial.unit}
               </p>
             </div>
             
@@ -765,26 +942,46 @@ export default function MaterialsInventoryPage() {
 
       <div className="space-y-6">
         <div className="flex flex-wrap gap-2">
-          {categoryTabs.map((category) => (
-            <button
-              key={category}
-              onClick={() => {
-                setSelectedCategory(category)
-                setShowList(true)
-                setActiveTab('list')
-                setShowStockIn(false)
-                setShowStockOut(false)
-              }}
-              className={`px-3 py-1.5 rounded-lg text-sm transition ${
-                selectedCategory === category
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-              }`}
-              type="button"
-            >
-              {category}
-            </button>
-          ))}
+          {categoryTabs.map((category) => {
+            const isActive = selectedCategory === category || (category === 'Tümü' && selectedCategory === null)
+            return (
+              <button
+                key={category}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const current = selectedCategoryRef.current
+                  if (category === 'Tümü') {
+                    setSelectedCategory(null)
+                    setShowList(true)
+                    setActiveTab('list')
+                    setShowStockIn(false)
+                    setShowStockOut(false)
+                    return
+                  }
+                  const isCurrentlyActive = current === category
+                  if (isCurrentlyActive) {
+                    setSelectedCategory(null)
+                    setShowList(false)
+                    setShowStockIn(false)
+                    setShowStockOut(false)
+                    return
+                  }
+                  setSelectedCategory(category)
+                  setShowList(true)
+                  setActiveTab('list')
+                  setShowStockIn(false)
+                  setShowStockOut(false)
+                }}
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                  isActive ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                {category}
+              </button>
+            )
+          })}
         </div>
 
         {showList && activeTab === 'list' && (
@@ -807,10 +1004,10 @@ export default function MaterialsInventoryPage() {
                 <p className="mt-2 text-gray-400">Yükleniyor...</p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {(selectedCategory === 'Tümü'
+              <div className="space-y-6" key={selectedCategory ?? 'tumu'}>
+                {(selectedCategory === null || selectedCategory === 'Tümü'
                   ? Object.entries(materialsByCategory)
-                  : Object.entries(materialsByCategory).filter(([category]) => category === selectedCategory)
+                  : Object.entries(materialsByCategory).filter(([cat]) => cat === selectedCategory)
                 ).map(([category, categoryMaterials]) => {
                   const searchLower = categorySearch.trim().toLowerCase()
                   const filteredCategoryMaterials = searchLower
@@ -848,20 +1045,20 @@ export default function MaterialsInventoryPage() {
                         <TableHead className="h-8">Kod</TableHead>
                         <TableHead className="h-8">Hammadde Adı</TableHead>
                         <TableHead className="h-8">Birim</TableHead>
-                        <TableHead className="h-8">Giriş</TableHead>
-                        <TableHead className="h-8">Çıkış</TableHead>
-                        <TableHead className="h-8">Mevcut Stok</TableHead>
+                        <TableHead className="h-8 bg-green-900/40 text-green-300 font-medium">Toplam Giriş</TableHead>
+                        <TableHead className="h-8 bg-red-900/40 text-red-300 font-medium">Toplam Çıkış</TableHead>
+                        <TableHead className="h-8 bg-blue-900/40 text-blue-300 font-medium">Mevcut Stok</TableHead>
                         <TableHead className="h-8">Min. Stok</TableHead>
                         <TableHead className="h-8">Durum</TableHead>
                         <TableHead className="h-8">İşlemler</TableHead>
-                        <TableHead className="h-8">Düzenle/Sil</TableHead>
+                        <TableHead className="h-8 bg-gray-700/60 text-gray-200">Düzenle/Sil</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {sortedMaterials.map((material, index) => {
                         const lowStock = isLowStock(material)
                         const isEditing = editingMaterial === material.id
-                        const displayCode = String(index + 1).padStart(4, '0')
+                        const displayCode = (material.code && String(material.code).trim()) ? material.code : String(index + 1).padStart(4, '0')
                         const displayName = material.name.replace(/^Kumaş\s+/i, '')
                         return (
                           <TableRow 
@@ -882,25 +1079,35 @@ export default function MaterialsInventoryPage() {
                               {displayCode}
                             </TableCell>
                             <TableCell className="font-medium text-white text-xs">
-                              {displayName}
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editForm.name}
+                                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                  className="w-full min-w-[120px] px-2 py-1 bg-gray-800 border border-gray-700 text-white rounded text-xs"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                displayName
+                              )}
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
                               {material.unit}
                             </TableCell>
-                            <TableCell className="text-gray-400 text-xs">
+                            <TableCell className="text-green-300 text-xs tabular-nums">
                               {(material.total_in || 0).toLocaleString('tr-TR', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                               })}
                             </TableCell>
-                            <TableCell className="text-gray-400 text-xs">
+                            <TableCell className="text-red-300 text-xs tabular-nums">
                               {(material.total_out || 0).toLocaleString('tr-TR', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                               })}
                             </TableCell>
-                            <TableCell className={`font-semibold text-xs ${
-                              lowStock ? 'text-red-300 font-bold' : 'text-white'
+                            <TableCell className={`font-semibold text-xs tabular-nums ${
+                              lowStock ? 'text-red-300 font-bold' : 'text-blue-300'
                             }`}>
                               {isEditing ? (
                                 <input
@@ -912,12 +1119,7 @@ export default function MaterialsInventoryPage() {
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               ) : (
-                                <span>
-                                  {material.stock_amount.toLocaleString('tr-TR', {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                  })}
-                                </span>
+                                <span>{formatQuantity(material.stock_amount)}</span>
                               )}
                             </TableCell>
                             <TableCell className="text-gray-400 text-xs">
@@ -932,7 +1134,7 @@ export default function MaterialsInventoryPage() {
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               ) : (
-                                <span>{material.min_stock_level.toLocaleString('tr-TR')}</span>
+                                <span>{formatQuantity(material.min_stock_level)}</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -975,43 +1177,51 @@ export default function MaterialsInventoryPage() {
                                 </button>
                               )}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="bg-gray-800/50">
                               {isEditing ? (
-                                <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   <button
                                     onClick={() => saveEdit(material.id)}
-                                    className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition text-xs"
+                                    type="button"
+                                    style={{ border: '2px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' }}
+                                    className="inline-flex items-center justify-center min-w-[32px] h-8 px-2 rounded-lg shadow text-xs font-medium hover:opacity-90 transition"
                                     title="Kaydet"
                                   >
-                                    <Save className="w-3 h-3" />
+                                    <Save className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={cancelEdit}
-                                    className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition text-xs"
+                                    type="button"
+                                    style={{ border: '2px solid #dc2626', backgroundColor: '#dc2626', color: '#fff' }}
+                                    className="inline-flex items-center justify-center min-w-[32px] h-8 px-2 rounded-lg shadow text-xs font-medium hover:opacity-90 transition"
                                     title="İptal"
                                   >
-                                    <X className="w-3 h-3" />
+                                    <X className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               ) : (
-                                <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   <button
                                     onClick={() => {
                                       loadMovementHistory(material.id)
                                     }}
-                                    className="px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition text-xs"
+                                    type="button"
+                                    style={{ border: '2px solid #9333ea', backgroundColor: '#9333ea', color: '#fff' }}
+                                    className="inline-flex items-center justify-center min-w-[32px] h-8 px-2 rounded-lg shadow text-xs font-medium hover:opacity-90 transition"
                                     title="Hareket Geçmişi"
                                   >
-                                    <HistoryIcon className="w-3 h-3" />
+                                    <HistoryIcon className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => {
                                       startEdit(material)
                                     }}
-                                    className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-xs"
+                                    type="button"
+                                    style={{ border: '2px solid #2563eb', backgroundColor: '#2563eb', color: '#fff' }}
+                                    className="inline-flex items-center justify-center min-w-[32px] h-8 px-2 rounded-lg shadow text-xs font-medium hover:opacity-90 transition"
                                     title="Düzenle"
                                   >
-                                    <Edit className="w-3 h-3" />
+                                    <Edit className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => {
@@ -1020,10 +1230,12 @@ export default function MaterialsInventoryPage() {
                                         window.scrollTo({ top: 0, behavior: 'smooth' })
                                       }, 100)
                                     }}
-                                    className="inline-flex items-center gap-1 px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition text-xs"
+                                    type="button"
+                                    style={{ border: '2px solid #dc2626', backgroundColor: '#dc2626', color: '#fff' }}
+                                    className="inline-flex items-center gap-1 min-w-[32px] h-8 px-2 rounded-lg shadow text-xs font-medium hover:opacity-90 transition"
                                     title="Malzemeyi sil"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                     Sil
                                   </button>
                                 </div>
@@ -1039,17 +1251,125 @@ export default function MaterialsInventoryPage() {
                     </div>
                   )
                 })}
+                {/* Sayfadaki tüm kodların tek toplam satırı - tıklanınca kod bazında detay modalı açılır */}
+                {allDisplayedMaterials.length > 0 && (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setShowAllCodesDetailModal(true)}
+                    onKeyDown={(e) => e.key === 'Enter' && setShowAllCodesDetailModal(true)}
+                    className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden cursor-pointer hover:border-gray-600 hover:bg-gray-800/80 transition"
+                  >
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableBody>
+                          <TableRow className="border-t-2 border-gray-600 bg-gray-800 font-semibold">
+                            <TableCell className="text-gray-300 text-xs" colSpan={3}>
+                              <span className="inline-flex items-center gap-1">
+                                Toplam (tüm kodlar)
+                                <span className="text-gray-500 font-normal text-[10px]">(detay için tıklayın)</span>
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-white text-xs">
+                              {formatQuantity(allDisplayedMaterials.reduce((s, m) => s + (m.total_in || 0), 0))}
+                            </TableCell>
+                            <TableCell className="text-white text-xs">
+                              {formatQuantity(allDisplayedMaterials.reduce((s, m) => s + (m.total_out || 0), 0))}
+                            </TableCell>
+                            <TableCell className="text-white text-xs">
+                              {formatQuantity(allDisplayedMaterials.reduce((s, m) => s + (m.stock_amount ?? 0), 0))}
+                            </TableCell>
+                            <TableCell colSpan={4} className="text-gray-500 text-xs">
+                              —
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
         )}
       </div>
 
+      {/* Tüm kodlar - giriş/çıkış detayı (kod kod) modal */}
+      {showAllCodesDetailModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAllCodesDetailModal(false)}>
+          <div className="bg-gray-900 rounded-lg border border-gray-800 max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gray-800 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-white">Tüm kodlar – Giriş / Çıkış detayları</h2>
+              <button type="button" onClick={() => setShowAllCodesDetailModal(false)} className="text-gray-400 hover:text-white transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-gray-800">
+                    <TableHead className="h-8">Kod</TableHead>
+                    <TableHead className="h-8">Hammadde Adı</TableHead>
+                    <TableHead className="h-8">Birim</TableHead>
+                    <TableHead className="h-8 bg-green-900/40 text-green-300 font-medium">Toplam Giriş</TableHead>
+                    <TableHead className="h-8 bg-red-900/40 text-red-300 font-medium">Toplam Çıkış</TableHead>
+                    <TableHead className="h-8 bg-blue-900/40 text-blue-300 font-medium">Mevcut Stok</TableHead>
+                    <TableHead className="h-8">İşlem</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allDisplayedMaterials.map((material, index) => (
+                    <TableRow key={material.id} className="border-gray-800">
+                      <TableCell className="text-white text-xs font-medium">
+                        {(material.code && String(material.code).trim()) ? material.code : String(index + 1).padStart(4, '0')}
+                      </TableCell>
+                      <TableCell className="text-white text-xs">
+                        <span className="inline-flex items-center gap-1.5">
+                          {material.name.replace(/^Kumaş\s+/i, '')}
+                          {isLowStock(material) && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/80 text-red-200 border border-red-600">
+                              Kritik
+                            </span>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-gray-400 text-xs">{material.unit}</TableCell>
+                      <TableCell className="text-green-300 text-xs tabular-nums">
+                        {formatQuantity(material.total_in || 0)}
+                      </TableCell>
+                      <TableCell className="text-red-300 text-xs tabular-nums">
+                        {formatQuantity(material.total_out || 0)}
+                      </TableCell>
+                      <TableCell className="text-blue-300 text-xs font-medium tabular-nums">
+                        {formatQuantity(material.stock_amount ?? 0)}
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAllCodesDetailModal(false)
+                            loadMovementHistory(material.id)
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-purple-600 text-white hover:bg-purple-700 transition"
+                        >
+                          <HistoryIcon className="w-3 h-3" />
+                          Hareket geçmişi
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hareket Geçmişi Modal */}
       {selectedMaterialForHistory && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 rounded-lg border border-gray-800 max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="bg-gray-800 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+            <div className="bg-gray-800 px-6 py-4 border-b border-gray-700 flex justify-between items-center flex-wrap gap-2">
               <div className="flex items-center space-x-2">
                 <HistoryIcon className="w-5 h-5 text-purple-400" />
                 <h2 className="text-xl font-semibold text-white">
@@ -1059,15 +1379,28 @@ export default function MaterialsInventoryPage() {
                   {materials.find(m => m.id === selectedMaterialForHistory)?.name}
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedMaterialForHistory(null)
-                  setMovementHistory([])
-                }}
-                className="text-gray-400 hover:text-white transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {movementHistory.length > 0 && canExport && (
+                  <button
+                    type="button"
+                    onClick={exportMovementHistoryPdf}
+                    disabled={exportingPdf}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    {exportingPdf ? 'PDF hazırlanıyor...' : 'Geçmişi PDF aktar'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedMaterialForHistory(null)
+                    setMovementHistory([])
+                  }}
+                  className="text-gray-400 hover:text-white transition p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               {loadingHistory ? (
@@ -1081,71 +1414,24 @@ export default function MaterialsInventoryPage() {
                   <p className="text-gray-400 mt-4">Henüz hareket kaydı bulunmuyor</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-gray-800">
-                        <TableHead className="h-8">Tarih</TableHead>
-                        <TableHead className="h-8">Saat</TableHead>
-                        <TableHead className="h-8">Tip</TableHead>
-                        <TableHead className="h-8">Miktar</TableHead>
-                        <TableHead className="h-8">Kullanıcı</TableHead>
-                        <TableHead className="h-8">Fatura No</TableHead>
-                        <TableHead className="h-8">Sevk No</TableHead>
-                        <TableHead className="h-8">Referans</TableHead>
-                        <TableHead className="h-8">Notlar</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {movementHistory.map((movement) => (
-                        <TableRow key={movement.id} className="border-gray-800">
-                          <TableCell className="text-white text-xs">
-                            {movement.date}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-xs">
-                            {movement.time}
-                          </TableCell>
-                          <TableCell>
-                            {movement.movement_type === 'in' ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300">
-                                <ArrowUp className="w-3 h-3 mr-1" />
-                                Giriş
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300">
-                                <ArrowDown className="w-3 h-3 mr-1" />
-                                Çıkış
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className={`font-semibold text-xs ${
-                            movement.movement_type === 'in' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {movement.movement_type === 'in' ? '+' : '-'}
-                            {movement.quantity.toLocaleString('tr-TR', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </TableCell>
-                          <TableCell className="text-gray-300 text-xs font-medium">
-                            {movement.user_name || movement.user_username || '-'}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-xs">
-                            {movement.invoice_number || '-'}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-xs">
-                            {movement.shipment_number || '-'}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-xs">
-                            {getReferenceTypeLabel(movement.reference_type)}
-                          </TableCell>
-                          <TableCell className="text-gray-400 text-xs max-w-xs truncate" title={movement.notes}>
-                            {movement.notes || '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                  <p className="text-gray-300 mb-2">
+                    Detaylı stok hareket geçmişi (çıkışlar – nerede kullanıldı ve tüm hareketler) PDF dosyasında yer alır.
+                  </p>
+                  <p className="text-gray-400 text-sm mb-6">
+                    Üstteki <strong className="text-amber-400">Geçmişi PDF aktar</strong> butonuna tıklayarak raporu indirin.
+                  </p>
+                  {canExport && (
+                  <button
+                    type="button"
+                    onClick={exportMovementHistoryPdf}
+                    disabled={exportingPdf}
+                    className="inline-flex items-center gap-2 px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition disabled:opacity-50"
+                  >
+                    <Download className="w-5 h-5" />
+                    {exportingPdf ? 'PDF hazırlanıyor...' : 'Geçmişi PDF aktar'}
+                  </button>
+                  )}
                 </div>
               )}
             </div>

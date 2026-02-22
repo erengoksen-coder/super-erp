@@ -118,7 +118,8 @@ export const materialSchemas = {
   create: z.object({
     code: z.string()
       .min(2, 'Malzeme kodu en az 2 karakter olmalı')
-      .max(50, 'Malzeme kodu en fazla 50 karakter olabilir'),
+      .max(50, 'Malzeme kodu en fazla 50 karakter olabilir')
+      .optional(),
     name: z.string()
       .min(2, 'Malzeme adı en az 2 karakter olmalı')
       .max(200, 'Malzeme adı en fazla 200 karakter olabilir'),
@@ -126,13 +127,15 @@ export const materialSchemas = {
       .max(1000, 'Açıklama en fazla 1000 karakter olabilir')
       .optional(),
     category: z.string()
-      .min(1, 'Kategori gerekli')
-      .max(100, 'Kategori en fazla 100 karakter olabilir'),
+      .max(100, 'Kategori en fazla 100 karakter olabilir')
+      .optional()
+      .transform((v) => (v && v.trim() ? v.trim() : undefined)),
     unit: z.string()
       .min(1, 'Birim gerekli')
       .max(50, 'Birim en fazla 50 karakter olabilir'),
-    unit_cost: commonSchemas.price,
+    unit_cost: commonSchemas.price.optional(),
     min_stock: commonSchemas.quantity.optional(),
+    initial_stock: commonSchemas.quantity.optional(),
     max_stock: commonSchemas.quantity.optional(),
   }),
   update: z.object({
@@ -290,6 +293,22 @@ export const productionSchemas = {
     notes: z.string()
       .max(2000, 'Notlar en fazla 2000 karakter olabilir')
       .optional(),
+  }),
+}
+
+// Satın alma siparişi (client veya API)
+export const purchaseOrderSchemas = {
+  create: z.object({
+    supplier_id: z.string().min(1, 'Tedarikçi seçilmelidir'),
+    order_date: z.string().optional().nullable(),
+    status: z.string().optional(),
+    payment_terms_days: z.union([z.string(), z.number()]).optional().nullable(),
+    notes: z.string().max(2000).optional().nullable(),
+    items: z.array(z.object({
+      material_id: z.string().min(1, 'Malzeme seçiniz'),
+      quantity: z.number().min(0.001, 'Miktar 0\'dan büyük olmalı'),
+      unit_price: z.number().min(0, 'Birim fiyat negatif olamaz'),
+    })).min(1, 'En az bir kalem ekleyin'),
   }),
 }
 

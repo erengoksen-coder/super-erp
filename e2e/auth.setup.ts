@@ -33,6 +33,43 @@ setup('giriş yap ve oturumu kaydet', async ({ page }) => {
   if (!hasAuthCookie) {
     await new Promise((r) => setTimeout(r, 1000))
   }
+  // Fatura testleri için en az bir fatura oluştur (tedarikçi yoksa oluştur, sonra alış faturası)
+  try {
+    const listRes = await page.request.get('/api/invoices?limit=1')
+    const listJson = (await listRes.json()) as { data?: unknown[]; meta?: { total?: number } }
+    const total = listJson?.meta?.total ?? (Array.isArray(listJson?.data) ? listJson.data.length : 0)
+    if (total === 0) {
+      let supplierId: string | null = null
+      const accRes = await page.request.get('/api/accounts?type=supplier&limit=1')
+      const accJson = (await accRes.json()) as { data?: { id: string }[] }
+      const rows = accJson?.data ?? []
+      const supplier = Array.isArray(rows) ? rows[0] : null
+      if (supplier?.id) {
+        supplierId = supplier.id
+      } else {
+        const createAccRes = await page.request.post('/api/accounts', {
+          data: { name: 'E2E Tedarikçi', type: 'supplier' },
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (createAccRes.ok()) {
+          const created = (await createAccRes.json()) as { data?: { id: string }; id?: string }
+          supplierId = created?.data?.id ?? created?.id ?? null
+        }
+      }
+      if (supplierId) {
+        await page.request.post('/api/invoices', {
+          data: {
+            type: 'purchase',
+            customer_id: supplierId,
+            items: [{ quantity: 1, unit_price: 1, description: 'E2E test fatura' }],
+          },
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+    }
+  } catch {
+    // Fatura/hesap API hata verirse setup devam etsin
+  }
   await page.context().storageState({ path: authFile })
 
   const raw = fs.readFileSync(authFile, 'utf-8')

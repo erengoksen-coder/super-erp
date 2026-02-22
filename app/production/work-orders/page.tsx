@@ -67,7 +67,7 @@ export default function WorkOrdersPage() {
         setSelectedProductionOrder(productionOrdersData[0].id)
       }
     } catch (error) {
-      console.error('Data load error:', error)
+      console.error('Veri yüklenirken hata:', error)
     } finally {
       setLoading(false)
     }
@@ -111,7 +111,7 @@ export default function WorkOrdersPage() {
       const detail = await fetchApi<WorkOrderDetail>(`/api/work-orders/${id}`)
       setWorkOrderDetail(detail)
     } catch (error) {
-      console.error('Detail load error:', error)
+      console.error('Detay yüklenirken hata:', error)
       setWorkOrderDetail(null)
     }
   }

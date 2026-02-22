@@ -92,14 +92,14 @@ function ProductionRealtimeView({
           const config = statusConfig[key as keyof typeof statusConfig]
           const Icon = config.icon
           return (
-            <Card key={key} variant="flat">
+            <Card key={key} variant="flat" className="group transition-colors hover:bg-slate-700/50 dark:hover:bg-slate-700/50">
               <CardBody className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">{config.label}</p>
-                    <p className="text-2xl font-semibold text-gray-900">{value}</p>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">{config.label}</p>
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">{value}</p>
                   </div>
-                  <Icon className="h-5 w-5 text-gray-400" />
+                  <Icon className="h-5 w-5 text-gray-400 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors" />
                 </div>
               </CardBody>
             </Card>
@@ -107,7 +107,7 @@ function ProductionRealtimeView({
         })}
       </div>
 
-      <Card>
+      <Card className="group">
         <div
           className="cursor-pointer"
           onClick={() => setShowDetails((prev) => !prev)}
@@ -123,11 +123,11 @@ function ProductionRealtimeView({
               return (
                 <div
                   key={order.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors"
+                  className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 p-4 bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700/80 transition-colors group/item"
                 >
                   <div className="space-y-1">
-                    <div className="font-medium text-gray-900">{order.order_number}</div>
-                    <div className="text-sm text-gray-500">
+                    <div className="font-medium text-gray-900 dark:text-slate-100 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">{order.order_number}</div>
+                    <div className="text-sm text-gray-600 dark:text-slate-300 group-hover/item:text-white dark:group-hover/item:text-white transition-colors">
                       {order.product_name || 'Ürün'} · {order.quantity} adet
                     </div>
                   </div>

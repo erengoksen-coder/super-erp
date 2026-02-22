@@ -1,18 +1,30 @@
+'use client'
+
+import { useEffect } from 'react'
+import Link from 'next/link'
+import { Settings, Lock, ChevronRight } from 'lucide-react'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
+
 export default function SettingsPage() {
+  useEffect(() => { document.title = 'Ayarlar - LIVASOFA ERP'; return () => { document.title = 'LIVASOFA ERP' } }, [])
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Ayarlar</h1>
-            <p className="text-gray-600 mt-1">Sistem ayarları ve yapılandırma</p>
+    <AppDashboardLayout title="Ayarlar" subtitle="Sistem ve hesap ayarları" icon={Settings}>
+      <div className="max-w-2xl space-y-4">
+        <Link
+          href="/settings/change-password"
+          className="flex items-center gap-4 p-4 bg-gray-900 rounded-xl border border-gray-800 hover:bg-gray-800/50 transition"
+        >
+          <div className="p-2 rounded-lg bg-gray-800">
+            <Lock className="w-5 h-5 text-blue-400" />
           </div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-gray-500">Ayarlar modülü yakında eklenecek...</p>
-        </div>
+          <div className="flex-1">
+            <p className="font-medium text-white">Şifre değiştir</p>
+            <p className="text-sm text-gray-400">Hesap şifrenizi güncelleyin</p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-500" />
+        </Link>
       </div>
-    </div>
+    </AppDashboardLayout>
   )
 }
 

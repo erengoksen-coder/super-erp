@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Plus, X, ClipboardList } from 'lucide-react'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi, useApi } from '@/lib/api/client'
@@ -162,6 +163,15 @@ export default function SalesOrdersPage() {
       </div>
 
       <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+        {!isLoading && orders.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              title="Henüz satış siparişi yok"
+              description="Yeni satış siparişi oluşturmak için yukarıdaki butonu kullanın."
+              icon={ClipboardList}
+            />
+          </div>
+        ) : (
         <Table>
           <TableHeader>
             <TableRow className="border-gray-800">
@@ -178,12 +188,6 @@ export default function SalesOrdersPage() {
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-gray-400">
                   Yükleniyor...
-                </TableCell>
-              </TableRow>
-            ) : orders.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-400">
-                  Henüz satış siparişi yok.
                 </TableCell>
               </TableRow>
             ) : (
@@ -212,6 +216,7 @@ export default function SalesOrdersPage() {
             )}
           </TableBody>
         </Table>
+        )}
       </div>
 
       {showModal && (

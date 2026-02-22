@@ -146,7 +146,7 @@ export default function WorkstationPage() {
         setStats(data.stations || [])
       }
     } catch (error) {
-      console.error('Stats yüklenemedi:', error)
+      console.error('İstatistikler yüklenemedi:', error)
     }
   }
 

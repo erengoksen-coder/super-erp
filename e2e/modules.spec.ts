@@ -28,7 +28,6 @@ test.describe('Tüm modüller tek akışta', () => {
       { path: '/bom', expectText: /reçete|bom|ürün/i },
       { path: '/accounts', expectText: /cari|hesap|account/i },
       { path: '/finance', expectText: /finans|finance|ödeme|fiş/i },
-      { path: '/hr', expectText: /insan|kaynak|hr|bordro|izin/i },
       { path: '/users', expectText: /kullanıcı|user/i },
       { path: '/settings', expectText: /Ayarlar|ayar|sistem ayarları/i },
     ]
@@ -49,8 +48,6 @@ test.describe('Tüm modüller tek akışta', () => {
       await expect(page).toHaveURL(new RegExp(path.replace('/', '\\/')), { timeout: 12_000 })
       if (path === '/settings') {
         await expect(page.getByRole('heading', { name: 'Ayarlar' })).toBeVisible({ timeout: 10_000 })
-      } else if (path === '/hr') {
-        await expect(page.getByRole('heading', { name: 'İnsan Kaynakları' })).toBeVisible({ timeout: 10_000 })
       } else if (path === '/barcodes') {
         await expect(page.getByRole('heading', { name: 'Barkod Yönetimi' })).toBeVisible({ timeout: 10_000 })
       } else if (path === '/shipments') {
@@ -97,16 +94,6 @@ test.describe('Ana modüller', () => {
     }
     await expect(page).toHaveURL(/\/finance/, { timeout: 10_000 })
     await expect(page.getByRole('heading', { name: 'Finans & Muhasebe' })).toBeVisible({ timeout: 10_000 })
-  })
-
-  test('İK sayfası yüklenir', async ({ page }, testInfo) => {
-    await page.goto('/hr', { waitUntil: 'networkidle' })
-    if (page.url().includes('/auth/login')) {
-      testInfo.skip(true, 'Bu bağlamda oturum yok; İK testi atlanıyor')
-      return
-    }
-    await expect(page).toHaveURL(/\/hr/, { timeout: 10_000 })
-    await expect(page.getByRole('heading', { name: 'İnsan Kaynakları' })).toBeVisible({ timeout: 10_000 })
   })
 
   test('Ayarlar sayfası yüklenir', async ({ page }, testInfo) => {

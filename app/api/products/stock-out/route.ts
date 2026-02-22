@@ -32,8 +32,12 @@ export const POST = withAuth(async (request: NextRequest) => {
       return NextResponse.json({ error: '�Srün bulunamadı' }, { status: 404 })
     }
 
-    // Müşteri bilgisini al (transaction'dan önce)
-    const customer = db.prepare('SELECT * FROM accounts WHERE id = ?').get(customer_id) as any
+    // Müşteri bilgisini al (önce id, yoksa kod MUS-001 ile ara)
+    const customerIdTrimmed = String(customer_id || '').trim()
+    let customer = db.prepare('SELECT * FROM accounts WHERE id = ? AND deleted_at IS NULL').get(customerIdTrimmed) as any
+    if (!customer && /^[A-Za-z]+-\d+$/.test(customerIdTrimmed)) {
+      customer = db.prepare('SELECT * FROM accounts WHERE code = ? AND deleted_at IS NULL').get(customerIdTrimmed) as any
+    }
     if (!customer) {
       return NextResponse.json({ error: 'Müşteri bulunamadı' }, { status: 404 })
     }

@@ -244,8 +244,10 @@ export const POST = withAuth(async (request: NextRequest, user: { userId: string
     const message = `${dealerName} tarafından ${inserted.length} adet sipariş girildi.`
     const refType = 'bayi_order'
     const refId = inserted[0]?.id ?? ''
+    const { userWantsNotification } = await import('@/lib/notifications/preferences')
     for (const { id: targetUserId } of targetUsers) {
       if (targetUserId === user.userId) continue
+      if (!userWantsNotification(db, targetUserId, 'new_order')) continue
       const notifId = randomUUID()
       db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, read, created_at)

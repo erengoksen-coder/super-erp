@@ -44,7 +44,7 @@ export const PATCH = withAuth(async (
     const { status, cancel_reason } = body
 
     if (!status || !['pending', 'in_transit', 'delivered', 'cancelled'].includes(status)) {
-      return fail('Geçersiz durum. Geçerli durumlar: pending, in_transit, delivered, cancelled', { status: 400 })
+      return fail('Geçersiz durum. Geçerli durum kodları: pending, in_transit, delivered, cancelled', { status: 400 })
     }
 
     // İptal ediliyorsa iptal nedeni zorunlu

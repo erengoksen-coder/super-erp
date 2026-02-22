@@ -83,13 +83,26 @@ export const accountsRepo = {
     return db.prepare(query).all(...params) as AccountRow[]
   },
 
-  getPage(type: string | null | undefined, limit: number, offset: number): { rows: AccountRow[]; total: number } {
+  getPage(
+    type: string | null | undefined,
+    limit: number,
+    offset: number,
+    balanceFilter?: 'debt' | 'credit' | 'zero' | null
+  ): { rows: AccountRow[]; total: number } {
     const db = getDatabase()
-    const params: string[] = []
+    const params: (string | number)[] = []
     let where = ' WHERE a.deleted_at IS NULL'
-    if (type) {
+    const typeFilter = type === 'customer' || type === 'supplier' ? type : null
+    if (typeFilter) {
       where += ' AND a.type = ?'
-      params.push(type)
+      params.push(typeFilter)
+    }
+    if (balanceFilter === 'debt') {
+      where += ' AND CAST(a.balance AS REAL) > 0'
+    } else if (balanceFilter === 'credit') {
+      where += ' AND CAST(a.balance AS REAL) < 0'
+    } else if (balanceFilter === 'zero') {
+      where += ' AND (a.balance IS NULL OR CAST(a.balance AS REAL) = 0)'
     }
     const countRow = db.prepare(`
       SELECT COUNT(*) as total FROM accounts a ${where}
@@ -318,9 +331,17 @@ export const accountsRepo = {
     const usedInOrders = db
       .prepare('SELECT COUNT(*) as count FROM active_orders WHERE customer_code = ? OR dealer_name = ?')
       .get(id, name) as CountRow | undefined
+    let usedInChecksAndNotes = 0
+    try {
+      const row = db.prepare('SELECT COUNT(*) as count FROM checks_and_notes WHERE account_id = ? AND deleted_at IS NULL').get(id) as CountRow | undefined
+      usedInChecksAndNotes = row?.count ?? 0
+    } catch {
+      // Tablo yoksa 0
+    }
     return {
       usedInMaterials: usedInMaterials?.count || 0,
       usedInOrders: usedInOrders?.count || 0,
+      usedInChecksAndNotes,
     }
   },
 }

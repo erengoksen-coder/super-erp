@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
-import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+import { withAuth } from '@/lib/api/withAuth'
 import { apiLogger } from '@/lib/api/logger'
 import { randomUUID } from 'crypto'
 import { ok, fail } from '@/lib/api/response'
 import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
-import { materialsRepo } from '@/lib/repositories/materials'
+import { materialsRepo, generateNextKmsCode } from '@/lib/repositories/materials'
 import { getDatabase, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID, DEFAULT_WAREHOUSE_ID } from '@/lib/database/db'
 import { materialSchemas, validateRequest } from '@/lib/validation/schemas'
 
@@ -16,7 +16,7 @@ function ensureDefaultFabric(): void {
   if (anyMaterial) return
   try {
     const id = `mat-default-fabric-${Date.now()}`
-    const code = 'KUMAŞ-001'
+    const code = 'KMS-001'
     const name = 'Kumaş Varsayılan'
     db.prepare(`
       INSERT INTO materials (id, code, name, category, unit, stock_amount, min_stock_level, purchase_price, company_id, branch_id, created_at, updated_at)
@@ -31,8 +31,8 @@ function ensureDefaultFabric(): void {
   }
 }
 
-// GET: Tüm hammaddeleri getir (kumaş listesi yoksa varsayılan kumaş otomatik oluşturulur)
-export const GET = withAuthAndPermission(async () => {
+// GET: Tüm hammaddeleri getir (giriş yapmış herkes listeleyebilir; alış faturası ve stok sayfaları için)
+export const GET = withAuth(async () => {
   try {
     ensureDefaultFabric()
     const materials = materialsRepo.getAll()
@@ -42,7 +42,7 @@ export const GET = withAuthAndPermission(async () => {
     apiLogger.error('Materials API GET failed', { message })
     return fail(message, { status: 500 })
   }
-}, '/inventory/materials', 'view')
+})
 
 // POST: Yeni hammadde ekle
 export const POST = withAuth(async (request: NextRequest) => {
@@ -61,14 +61,16 @@ export const POST = withAuth(async (request: NextRequest) => {
     
     const db = getDatabase()
     const id = randomUUID()
-    const { name, unit, min_stock = 0, category, code, unit_cost = 0 } = validation.data
+    const { name, unit, min_stock = 0, initial_stock, category, code, unit_cost = 0 } = validation.data
 
-    // Kod oluştur (eşer verilmemişse)
-    let materialCode = code
+    // Kod oluştur (verilmemişse): sıralı KMS-001, KMS-002, ...
+    let materialCode = code && code.trim() ? code.trim() : null
     if (!materialCode) {
-      const { generateMaterialCode } = await import('@/lib/utils/codeGenerator')
-      materialCode = await generateMaterialCode()
+      materialCode = generateNextKmsCode(db)
     }
+
+    const startStock = Number(initial_stock) || 0
+    const minLevel = Number(min_stock) || 0
 
     db.transaction(() => {
       materialsRepo.insert({
@@ -77,8 +79,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         name,
         category: category || null,
         unit,
-        stock_amount: min_stock || 0,
-        min_stock_level: min_stock,
+        stock_amount: startStock,
+        min_stock_level: minLevel,
         unit_price: unit_cost,
       })
 
@@ -90,8 +92,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         `).run(priceId, id, unit_cost, id)
       }
 
-      // Eşer başlangıç stoku varsa, stok hareketi kaydı oluştur
-      if (min_stock > 0) {
+      // Başlangıç stoku varsa depo hareketi oluştur (kumaş listesinin depoya kaydı)
+      if (startStock > 0) {
         const movementId = randomUUID()
         db.prepare(`
           INSERT INTO stock_movements 
@@ -100,7 +102,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         `).run(
           movementId,
           id,
-          min_stock,
+          startStock,
           `Başlangıç stoku - ${new Date().toLocaleString('tr-TR')}`
         )
       }

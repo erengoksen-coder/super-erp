@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { UserPlus, User, Lock, Mail, Briefcase, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/notify'
 import { userSchemas } from '@/lib/validation/schemas'
+import { PasswordStrengthBar } from '@/components/ui/PasswordStrengthBar'
 
 const registerFormSchema = userSchemas.register.extend({
   confirmPassword: z.string().min(1, 'Şifre tekrar gerekli'),
@@ -23,6 +24,7 @@ export default function RegisterPage() {
   const {
     register: registerField,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerFormSchema) as Resolver<RegisterFormData>,
@@ -191,6 +193,7 @@ export default function RegisterPage() {
                 />
               </div>
               {errors.password && <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>}
+            <PasswordStrengthBar password={watch('password') ?? ''} />
             </div>
 
             <div>

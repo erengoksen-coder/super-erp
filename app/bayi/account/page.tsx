@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Wallet, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Account = {
   id: string
@@ -159,7 +160,11 @@ export default function BayiAccountPage() {
           </div>
         </div>
         {filteredTransactions.length === 0 ? (
-          <div className="p-6 text-center text-slate-500 text-sm">Henüz işlem yok veya seçilen tarih aralığında kayıt yok.</div>
+          <EmptyState
+            title="Henüz işlem yok"
+            description="Seçilen tarih aralığında kayıt bulunamadı."
+            icon={Wallet}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">

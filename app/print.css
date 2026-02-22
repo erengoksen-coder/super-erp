@@ -1,0 +1,84 @@
+/* Yazdırma stilleri: sadece içerik alanı, kenar boşlukları */
+
+@media print {
+  /* Sidebar ve shell dışındaki navigasyonu gizle */
+  [data-sidebar],
+  aside,
+  nav[aria-label="Ana menü"],
+  .sidebar-container,
+  button[data-command-palette-trigger],
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ana içerik tam genişlik */
+  #app-main,
+  main {
+    position: static !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    padding: 0.5rem 1rem !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  /* Yazdırmada okunaklı renkler */
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .bg-gray-900,
+  .bg-gray-800,
+  .bg-slate-800,
+  .bg-slate-900 {
+    background: #f5f5f5 !important;
+  }
+
+  .text-white,
+  .text-gray-100,
+  .text-gray-200,
+  .text-gray-300 {
+    color: #111 !important;
+  }
+
+  .text-gray-400,
+  .text-gray-500 {
+    color: #333 !important;
+  }
+
+  .border-gray-700,
+  .border-gray-800 {
+    border-color: #ddd !important;
+  }
+
+  /* Tablolar */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 0.35rem 0.5rem;
+  }
+  th {
+    background: #eee !important;
+    color: #111 !important;
+  }
+
+  /* Sayfa kırılımı */
+  .break-before {
+    page-break-before: always;
+  }
+  .break-after {
+    page-break-after: always;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+}

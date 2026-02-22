@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield, Circle, KeyRound } from 'lucide-react'
+import { Users, UserPlus, CheckCircle, XCircle, Edit, Trash2, Save, X, Shield, Circle, KeyRound, Eye, EyeOff, Lock, FileDown } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { useAuthStore } from '@/lib/store/authStore'
 import { isAdminRole } from '@/lib/auth/permissions-check'
 import { toast } from '@/lib/notify'
-import { PageLoader } from '@/components/ui/PageLoader'
+import { getAuthHeaders } from '@/lib/api/client'
+import { TableSkeleton } from '@/components/ui/TableSkeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatDateTime } from '@/lib/utils/dateFormat'
 
@@ -27,6 +28,9 @@ interface User {
   last_login?: string
   is_online?: boolean
   dealer_name?: string | null
+  can_export?: number
+  max_export_rows?: number | null
+  view_only?: number
   permissions?: Array<{
     page_path: string
     can_view: number
@@ -89,16 +93,107 @@ const AVAILABLE_PAGES: PageOption[] = [
   { path: '/settings', name: 'Ayarlar', category: 'Sistem' },
   { path: '/users', name: 'Kullanıcı Yönetimi', category: 'Sistem' },
   { path: '/bayi', name: 'Bayi Portal (Yeni Sipariş Girme)', category: 'Bayi' },
-  { path: '/hr', name: 'İnsan Kaynakları', category: 'İK' },
   { path: '/crm', name: 'CRM', category: 'Satış' },
   { path: '/fixed-assets', name: 'Sabit Kıymet', category: 'Finans' },
 ]
+
+/** Rol şablonları: Hızlı seçim ile kullanıcının görebileceği alanlar ve yetkiler. */
+type RoleTemplateId = 'full' | 'satis' | 'uretim' | 'depo' | 'muhasebe' | 'sevkiyat' | 'viewer' | 'bayi' | 'custom'
+const ROLE_TEMPLATES: { id: RoleTemplateId; label: string; description: string; categories: string[]; canCreateEdit: boolean; canDelete: boolean }[] = [
+  { id: 'full', label: 'Tam yetki', description: 'Tüm sayfalara tam erişim', categories: [], canCreateEdit: true, canDelete: true },
+  { id: 'satis', label: 'Satış', description: 'Siparişler, Faturalar, Cari, CRM, Sevkiyat', categories: ['Ana', 'Satış', 'Sevkiyat', 'Finans', 'Rapor'], canCreateEdit: true, canDelete: false },
+  { id: 'uretim', label: 'Üretim', description: 'Üretim emirleri, Stok, BOM, Rapor, Mobil', categories: ['Ana', 'Üretim', 'Stok', 'Rapor', 'Mobil'], canCreateEdit: true, canDelete: false },
+  { id: 'depo', label: 'Depo', description: 'Stok, Satın alma, Kritik stok, Mobil', categories: ['Ana', 'Stok', 'Satın Alma', 'Mobil'], canCreateEdit: true, canDelete: false },
+  { id: 'muhasebe', label: 'Muhasebe', description: 'Finans, Cari, Faturalar, Raporlar', categories: ['Ana', 'Finans', 'Satış', 'Rapor'], canCreateEdit: true, canDelete: false },
+  { id: 'sevkiyat', label: 'Sevkiyat', description: 'Sevkiyat, Siparişler, Stok', categories: ['Ana', 'Sevkiyat', 'Satış', 'Stok'], canCreateEdit: true, canDelete: false },
+  { id: 'viewer', label: 'Sadece görüntüleme', description: 'Tüm modülleri görebilir; ekleme/düzenleme/silme yok', categories: ['Ana', 'Stok', 'Üretim', 'Satış', 'Sevkiyat', 'Finans', 'Rapor', 'Satın Alma', 'Mobil', 'Sistem'], canCreateEdit: false, canDelete: false },
+  { id: 'bayi', label: 'Bayi', description: 'Sadece bayi portalı (yeni sipariş girişi)', categories: ['Bayi'], canCreateEdit: true, canDelete: false },
+  { id: 'custom', label: 'Özel', description: 'Mevcut izinlere dokunma', categories: [], canCreateEdit: false, canDelete: false },
+]
+
+function getPermissionsFromRoleTemplate(templateId: RoleTemplateId): Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> {
+  const template = ROLE_TEMPLATES.find(t => t.id === templateId)
+  const result: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
+  if (!template || templateId === 'custom') {
+    AVAILABLE_PAGES.forEach(page => {
+      result[page.path] = { can_view: false, can_create: false, can_edit: false, can_delete: false }
+    })
+    return result
+  }
+  if (templateId === 'full') {
+    AVAILABLE_PAGES.forEach(page => {
+      result[page.path] = { can_view: true, can_create: true, can_edit: true, can_delete: true }
+    })
+    return result
+  }
+  if (templateId === 'bayi') {
+    AVAILABLE_PAGES.forEach(page => {
+      result[page.path] = { can_view: false, can_create: false, can_edit: false, can_delete: false }
+    })
+    result['/bayi'] = { can_view: true, can_create: true, can_edit: true, can_delete: false }
+    return result
+  }
+  const allowView = template.categories.length === 0 || template.categories.includes('Ana')
+  AVAILABLE_PAGES.forEach(page => {
+    const inCategory = template.categories.length === 0 || template.categories.includes(page.category)
+    result[page.path] = {
+      can_view: inCategory,
+      can_create: inCategory && template.canCreateEdit,
+      can_edit: inCategory && template.canCreateEdit,
+      can_delete: inCategory && template.canDelete,
+    }
+  })
+  if (template.categories.includes('Ana')) {
+    result['/'] = { can_view: true, can_create: template.canCreateEdit, can_edit: template.canCreateEdit, can_delete: template.canDelete }
+  }
+  return result
+}
+
+/** Rol ve pozisyona göre varsayılan izinler (sadece o rol/pozisyonla ilişkili alanlar açılır; admin/yönetici hariç). Elle müdahale ile formdan değiştirilebilir. */
+function getDefaultPermissionsForRoleAndPosition(
+  role: string,
+  position: string
+): Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> {
+  const r = (role || '').toString().trim().toLowerCase()
+  const p = (position || '').toString().trim().toLowerCase()
+  if (r === 'admin' || r === 'yönetici' || r === 'yonetici') {
+    const all: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
+    AVAILABLE_PAGES.forEach(page => {
+      all[page.path] = { can_view: true, can_create: true, can_edit: true, can_delete: true }
+    })
+    return all
+  }
+  const allowedCategories: string[] = ['Ana']
+  if (p === 'planlama') allowedCategories.push('Üretim', 'Stok')
+  else if (p === 'uretim_sorumlusu' || p === 'uretim_muduru') allowedCategories.push('Üretim', 'Stok', 'Satış', 'Sevkiyat', 'Rapor', 'Mobil')
+  else if (p === 'genel_mudur') allowedCategories.push('Üretim', 'Stok', 'Satış', 'Sevkiyat', 'Rapor', 'Finans', 'Satın Alma', 'Mobil', 'İK')
+  else if (p === 'depo_sorumlusu') allowedCategories.push('Stok', 'Satın Alma', 'Mobil')
+  else if (p === 'satis_sorumlusu') allowedCategories.push('Satış', 'Sevkiyat', 'Finans') // Cari, Fatura, Ödemeler Finans altında
+  else if (p === 'muhasebe') allowedCategories.push('Finans', 'Satış', 'Rapor')
+  else if (p === 'sevkiyat') allowedCategories.push('Satış', 'Sevkiyat', 'Stok')
+  else if (p === 'usta' || p === 'terzi') allowedCategories.push('Üretim', 'Stok', 'Mobil')
+  else if (p === 'kalite_kontrol') allowedCategories.push('Üretim', 'Stok')
+  else if (r === 'user') allowedCategories.push('Üretim', 'Stok', 'Satış', 'Sevkiyat')
+
+  const result: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
+  AVAILABLE_PAGES.forEach(page => {
+    const allowed = allowedCategories.includes(page.category)
+    result[page.path] = {
+      can_view: allowed,
+      can_create: allowed,
+      can_edit: allowed,
+      can_delete: false,
+    }
+  })
+  return result
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -110,6 +205,9 @@ export default function UsersPage() {
     dealer_name: '',
     is_approved: false,
     is_locked: false,
+    can_export: true,
+    max_export_rows: null as number | null,
+    view_only: false,
   })
   const [selectedPermissions, setSelectedPermissions] = useState<Record<string, {
     can_view: boolean
@@ -119,6 +217,8 @@ export default function UsersPage() {
   }>>({})
   const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null)
   const [userListTab, setUserListTab] = useState<'all' | 'bayiler'>('all')
+  const [permissionMode, setPermissionMode] = useState<'simple' | 'advanced'>('simple')
+  const [roleTemplateId, setRoleTemplateId] = useState<RoleTemplateId>('custom')
   const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const user = useAuthStore((state) => state.user)
   const router = useRouter()
@@ -196,7 +296,7 @@ export default function UsersPage() {
       const list = Array.isArray(data) ? data : (data?.users ?? data?.data ?? [])
       setUsers(Array.isArray(list) ? list : [])
     } catch (error) {
-      console.error('Error loading users:', error)
+      console.error('Kullanıcılar yüklenirken hata:', error)
       toast.error('Kullanıcılar yüklenirken hata oluştu')
     } finally {
       setLoading(false)
@@ -216,6 +316,9 @@ export default function UsersPage() {
       dealer_name: (user as any).dealer_name || '',
       is_approved: user.is_approved === 1,
       is_locked: (user as User).is_locked === 1,
+      can_export: user.can_export !== 0,
+      max_export_rows: user.max_export_rows != null ? user.max_export_rows : null,
+      view_only: (user as User).view_only === 1,
     })
 
     // İzinleri yükle
@@ -231,6 +334,8 @@ export default function UsersPage() {
       })
     }
     setSelectedPermissions(perms)
+    setPermissionMode('simple')
+    setRoleTemplateId('custom')
     // Sayfayı yukarı kaydır (işlem alanına)
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -250,8 +355,13 @@ export default function UsersPage() {
       dealer_name: '',
       is_approved: false,
       is_locked: false,
+      can_export: true,
+      max_export_rows: null,
+      view_only: false,
     })
     setSelectedPermissions({})
+    setPermissionMode('simple')
+    setRoleTemplateId('custom')
   }
 
   async function handleSave() {
@@ -264,6 +374,9 @@ export default function UsersPage() {
           ...restForm,
           is_approved: formData.is_approved,
           is_locked: (formData as { is_locked?: boolean }).is_locked,
+          can_export: formData.can_export,
+          max_export_rows: formData.max_export_rows ?? null,
+          view_only: formData.view_only,
           approved_by: formData.is_approved && !users.find(u => u.id === userId)?.is_approved ? currentUserId : undefined,
           permissions: Object.entries(selectedPermissions).map(([path, perms]) => ({
             page_path: path,
@@ -290,6 +403,9 @@ export default function UsersPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...formData,
+            can_export: formData.can_export,
+            max_export_rows: formData.max_export_rows ?? null,
+            view_only: formData.view_only,
             permissions: Object.entries(selectedPermissions).map(([path, perms]) => ({
               page_path: path,
               ...perms,
@@ -326,6 +442,8 @@ export default function UsersPage() {
     try {
       const response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
       })
 
       if (!response.ok) {
@@ -419,6 +537,43 @@ export default function UsersPage() {
     setSelectedPermissions(viewCreatePermissions)
   }
 
+  function applyRoleTemplate(templateId: RoleTemplateId) {
+    setRoleTemplateId(templateId)
+    if (templateId === 'custom') return
+    const perms = getPermissionsFromRoleTemplate(templateId)
+    setSelectedPermissions(perms)
+  }
+
+  function setCategoryPermission(category: string, view: boolean, createEdit: boolean) {
+    setSelectedPermissions(prev => {
+      const next = { ...prev }
+      AVAILABLE_PAGES.forEach(page => {
+        if (page.category !== category) return
+        next[page.path] = {
+          can_view: view,
+          can_create: createEdit,
+          can_edit: createEdit,
+          can_delete: false,
+        }
+      })
+      return next
+    })
+  }
+
+  const categoryList = Array.from(new Set(AVAILABLE_PAGES.map(p => p.category))).filter(c => c && c !== 'Bayi').sort((a, b) => (a === 'Ana' ? -1 : b === 'Ana' ? 1 : a.localeCompare(b)))
+  const permissionSummary = useMemo(() => {
+    const withView = new Set<string>()
+    const withCreateEdit = new Set<string>()
+    AVAILABLE_PAGES.forEach((p) => {
+      const perm = selectedPermissions[p.path]
+      if (perm?.can_view) withView.add(p.category)
+      if (perm?.can_create || perm?.can_edit) withCreateEdit.add(p.category)
+    })
+    return {
+      categoriesView: Array.from(withView).filter(Boolean).sort(),
+      categoriesCreateEdit: Array.from(withCreateEdit).filter(Boolean).sort(),
+    }
+  }, [selectedPermissions])
   const groupedPages = AVAILABLE_PAGES.reduce((acc, page) => {
     if (!acc[page.category]) {
       acc[page.category] = []
@@ -444,8 +599,16 @@ export default function UsersPage() {
         </div>
         <button
           onClick={() => {
-            setShowAddForm(!showAddForm)
-            cancelEdit()
+            if (!showAddForm && !editingUserId) {
+              setShowAddForm(true)
+              cancelEdit()
+              setPermissionMode('simple')
+              setRoleTemplateId('viewer')
+              setSelectedPermissions(getPermissionsFromRoleTemplate('viewer'))
+            } else {
+              setShowAddForm(!showAddForm)
+              cancelEdit()
+            }
           }}
           className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2 text-sm touch-manipulation mt-4 md:mt-0"
         >
@@ -501,29 +664,48 @@ export default function UsersPage() {
                 required
               />
             </div>
-            {(isStrictAdmin || !editingUserId) && (
+            {/* Yeni kullanıcı: şifre alanı + göz ile görünür yapma. Düzenleme: sadece admin şifre değiştirebilir. */}
+            {!editingUserId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Şifre *</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="En az 6 karakter"
+                    className="w-full px-3 py-2 pr-10 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white rounded"
+                    title={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                    aria-label={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">En az 6 karakter. Göz simgesiyle yazılan şifreyi gösterebilirsiniz.</p>
+              </div>
+            )}
+            {editingUserId && isStrictAdmin && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  {editingUserId ? 'Yeni Şifre (değiştirmek istemiyorsanız boş bırakın)' : 'Şifre *'}
+                  Yeni Şifre (değiştirmek istemiyorsanız boş bırakın)
                 </label>
                 <input
-                  type={editingUserId ? 'text' : 'password'}
+                  type="text"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder={editingUserId ? 'Yeni şifre girince burada görünür' : ''}
+                  placeholder="Yeni şifre girince burada görünür"
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                  required={!editingUserId}
-                  minLength={6}
                 />
-                {editingUserId ? (
-                  <p className="mt-1 text-xs text-gray-400">
-                    Mevcut şifre güvenlik nedeniyle görüntülenemez. Yeni şifre yazarsanız burada görünür; kaydedince kullanıcıya iletebilirsiniz. (Sadece admin)
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-gray-500">
-                    En az 6 karakter.
-                  </p>
-                )}
+                <p className="mt-1 text-xs text-gray-400">
+                  Mevcut şifre güvenlik nedeniyle görüntülenemez. Yeni şifre yazarsanız burada görünür; kaydedince kullanıcıya iletebilirsiniz. (Sadece admin)
+                </p>
               </div>
             )}
             {editingUserId && !isStrictAdmin && (
@@ -542,41 +724,38 @@ export default function UsersPage() {
                   }))
                   
                   if (newRole === 'yönetici' || newRole === 'yonetici' || newRole === 'admin') {
-                    const allPermissions: Record<string, {
-                      can_view: boolean
-                      can_create: boolean
-                      can_edit: boolean
-                      can_delete: boolean
-                    }> = {}
-                    AVAILABLE_PAGES.forEach(page => {
-                      allPermissions[page.path] = {
-                        can_view: true,
-                        can_create: true,
-                        can_edit: true,
-                        can_delete: true,
-                      }
-                    })
-                    setSelectedPermissions(allPermissions)
+                    applyRoleTemplate('full')
                   } else if (newRole === 'bayi') {
-                    setSelectedPermissions({
-                      '/bayi': {
-                        can_view: true,
-                        can_create: true,
-                        can_edit: true,
-                        can_delete: false,
-                      },
-                    })
+                    applyRoleTemplate('bayi')
+                  } else {
+                    setRoleTemplateId('custom')
                   }
                 }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 required
               >
-                <option value="user">Kullanıcı</option>
-                <option value="admin">Admin</option>
-                <option value="yönetici">Yönetici</option>
-                <option value="bayi">Bayi</option>
+                <option value="user">Kullanıcı (rol şablonu ile kısıtlanır)</option>
+                <option value="admin">Admin (tüm yetkiler)</option>
+                <option value="yönetici">Yönetici (tüm yetkiler)</option>
+                <option value="manager">Yönetici yardımcısı</option>
+                <option value="bayi">Bayi (sadece sipariş girişi)</option>
               </select>
+              <p className="mt-1 text-xs text-gray-500">Rol, menü ve sayfa erişimini belirler. Engellemeler aşağıdaki izinlerle ayarlanır.</p>
             </div>
+            {formData.role !== 'bayi' && formData.role !== 'admin' && formData.role !== 'yönetici' && formData.role !== 'yonetici' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Rol şablonu (hızlı)</label>
+                <select
+                  value={roleTemplateId}
+                  onChange={(e) => applyRoleTemplate(e.target.value as RoleTemplateId)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                >
+                  {ROLE_TEMPLATES.filter(t => t.id !== 'full').map(t => (
+                    <option key={t.id} value={t.id}>{t.label} — {t.description}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {(formData.role === 'bayi') && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-300 mb-1">Cari Adı (Bayi) *</label>
@@ -618,6 +797,17 @@ export default function UsersPage() {
                 )}
               </select>
             </div>
+            {formData.role !== 'bayi' && (
+              <div className="md:col-span-2 flex items-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPermissions(getDefaultPermissionsForRoleAndPosition(formData.role, formData.position))}
+                  className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg border border-gray-600"
+                >
+                  Rol / pozisyona göre varsayılan izinleri uygula
+                </button>
+              </div>
+            )}
             <div className="md:col-span-2">
               <label className="flex items-center space-x-2">
                 <input
@@ -640,31 +830,148 @@ export default function UsersPage() {
                 <span className="text-sm text-gray-300">Hesabı kilitle</span>
               </label>
             </div>
+            {/* Sınırlamalar */}
+            <div className="md:col-span-2 border-t border-gray-700 pt-4 mt-2">
+              <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                Sınırlamalar
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="can_export"
+                    checked={formData.can_export}
+                    onChange={(e) => setFormData({ ...formData, can_export: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-700 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="can_export" className="text-sm text-gray-300 flex items-center gap-1">
+                    <FileDown className="w-4 h-4" />
+                    Dışa aktarmaya (Excel/PDF) izin ver
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Maks. dışa aktarma satırı (boş = sınırsız)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="Sınırsız"
+                    value={formData.max_export_rows ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim()
+                      setFormData({ ...formData, max_export_rows: v === '' ? null : Math.max(0, parseInt(v, 10) || 0) })
+                    }}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="view_only"
+                    checked={formData.view_only}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setFormData({ ...formData, view_only: checked })
+                      if (checked) {
+                        const viewOnlyPerms: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
+                        Object.keys(selectedPermissions).forEach(path => {
+                          viewOnlyPerms[path] = {
+                            can_view: selectedPermissions[path]?.can_view ?? false,
+                            can_create: false,
+                            can_edit: false,
+                            can_delete: false,
+                          }
+                        }
+                        setSelectedPermissions(viewOnlyPerms)
+                      }
+                    }}
+                    className="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500"
+                  />
+                  <label htmlFor="view_only" className="text-sm text-gray-300">
+                    Sadece görüntüleme (ekleme, düzenleme, silme kapalı)
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Sayfa İzinleri */}
           <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-300">Sayfa İzinleri</h3>
-              <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-semibold text-gray-300">Erişim ve yetkiler — Rol görebileceği yerler</h3>
+              {permissionSummary.categoriesView.length > 0 && (
+                <div className="text-xs text-gray-400 bg-gray-800/80 rounded px-2 py-1.5 border border-gray-700">
+                  <span className="font-medium text-gray-300">Erişim özeti:</span>{' '}
+                  Görüntüleme: {permissionSummary.categoriesView.join(', ')}
+                  {permissionSummary.categoriesCreateEdit.length > 0 && (
+                    <> · Ekle/Düzenle: {permissionSummary.categoriesCreateEdit.join(', ')}</>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-500">Mod:</span>
                 <button
                   type="button"
-                  onClick={activateAllPermissions}
-                  className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition"
+                  onClick={() => setPermissionMode('simple')}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition ${permissionMode === 'simple' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                 >
-                  Tümünü Aktif Et
+                  Basit (kategori)
                 </button>
                 <button
                   type="button"
-                  onClick={activateViewAndCreateOnly}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition"
+                  onClick={() => setPermissionMode('advanced')}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition ${permissionMode === 'advanced' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                 >
-                  Sil ve Düzen Haric Aktif Et
+                  Gelişmiş (sayfa sayfa)
                 </button>
+                <span className="w-px h-5 bg-gray-600" />
+                <button type="button" onClick={activateAllPermissions} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition">Tümünü Aç</button>
+                <button type="button" onClick={activateViewAndCreateOnly} className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition">Gör + Ekle (düzen/sil yok)</button>
               </div>
             </div>
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {Object.entries(groupedPages).map(([category, pages]) => (
+            {permissionMode === 'simple' && formData.role !== 'bayi' && (
+              <div className="mb-4 p-3 bg-gray-800 rounded-lg">
+                <p className="text-xs text-gray-400 mb-3">Modül bazlı erişim. Açtığınız kategorilerde kullanıcı ilgili sayfaları görür; “Ekleme/Düzenleme” ile kayıt ekleyip düzenleyebilir (silme kapalı).</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                  {categoryList.map(cat => {
+                    const pagesInCat = AVAILABLE_PAGES.filter(p => p.category === cat)
+                    const anyView = pagesInCat.some(p => selectedPermissions[p.path]?.can_view)
+                    const anyCreateEdit = pagesInCat.some(p => selectedPermissions[p.path]?.can_create || selectedPermissions[p.path]?.can_edit)
+                    return (
+                      <div key={cat} className="flex items-center justify-between gap-2 p-2 rounded bg-gray-900">
+                        <span className="text-sm text-white truncate">{cat}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={anyView}
+                              onChange={(e) => setCategoryPermission(cat, e.target.checked, anyCreateEdit)}
+                              className="w-3.5 h-3.5 text-blue-600 bg-gray-800 border-gray-600 rounded"
+                            />
+                            <span className="text-xs text-gray-400">Gör</span>
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={anyCreateEdit}
+                              disabled={!anyView}
+                              onChange={(e) => setCategoryPermission(cat, anyView, e.target.checked)}
+                              className="w-3.5 h-3.5 text-blue-600 bg-gray-800 border-gray-600 rounded"
+                            />
+                            <span className="text-xs text-gray-400">Ekle/Düz</span>
+                          </label>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            <div className={`space-y-4 overflow-y-auto ${permissionMode === 'simple' ? 'max-h-48' : 'max-h-96'}`}>
+              {permissionMode === 'simple' && (
+                <p className="text-xs text-gray-500 py-2">Gelişmiş moda geçerek sayfa sayfa Gör / Ekle / Düz / Sil kısıtlaması yapabilirsiniz.</p>
+              )}
+              {permissionMode === 'advanced' && Object.entries(groupedPages).map(([category, pages]) => (
                 <div key={category} className="bg-gray-800 rounded-lg p-3">
                   <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase">{category}</h4>
                   <div className="space-y-2">
@@ -770,7 +1077,7 @@ export default function UsersPage() {
 
       {/* Kullanıcı Listesi */}
       {loading ? (
-        <PageLoader fullScreen label="Kullanıcılar yükleniyor..." />
+        <TableSkeleton rows={10} cols={8} />
       ) : users.length === 0 ? (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <EmptyState
@@ -835,7 +1142,9 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {displayedUsers.map((userRow) => (
+                {displayedUsers.map((userRow) => {
+                    const showDeleteBtn = userRow.username?.toLowerCase() !== 'admin'
+                    return (
                     <tr key={userRow.id} className="hover:bg-gray-800">
                       <td className="px-4 py-3 text-sm text-white font-mono">{userRow.username}</td>
                       <td className="px-4 py-3 text-sm text-gray-300">{userRow.full_name || '-'}</td>
@@ -953,7 +1262,7 @@ export default function UsersPage() {
                             <Edit className="w-3.5 h-3.5" />
                             Düzenle
                           </button>
-                          {userRow.role !== 'admin' && (
+                          {showDeleteBtn ? (
                             <button
                               onClick={() => handleDelete(userRow.id)}
                               className="p-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
@@ -961,11 +1270,11 @@ export default function UsersPage() {
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ); })}
               </tbody>
             </table>
           </div>

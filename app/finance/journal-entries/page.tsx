@@ -45,7 +45,7 @@ export default function JournalEntriesPage() {
       const list = Array.isArray(data) ? data : (data?.entries ?? data?.data ?? [])
       setEntries(Array.isArray(list) ? list : [])
     } catch (error) {
-      console.error('Error loading entries:', error)
+      console.error('Kayıtlar yüklenirken hata:', error)
       toast.error('Yevmiye kayıtları yüklenirken hata oluştu')
     } finally {
       setLoading(false)

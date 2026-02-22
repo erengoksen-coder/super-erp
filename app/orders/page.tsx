@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useRouter } from 'next/navigation'
-import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload, Trash2, Pencil } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search, Filter, Plus, X, FileDown, Upload, Trash2, Pencil, RefreshCw, ChevronDown, ChevronUp, Calendar, AlertCircle } from 'lucide-react'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { TableSkeleton } from '@/components/ui/TableSkeleton'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -12,7 +14,9 @@ import { useDebounce } from '@/lib/hooks/useDebounce'
 import { toast } from '@/lib/notify'
 import { formatDate, formatOrderDateDisplay } from '@/lib/utils/dateFormat'
 import { usePolling } from '@/lib/hooks/usePolling'
+import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { orderSchemas } from '@/lib/validation/schemas'
+import { useAuthStore } from '@/lib/store/authStore'
 
 interface Order {
   id: string
@@ -44,13 +48,27 @@ interface Account {
   type: string
 }
 
+const APP_TITLE = 'LIVASOFA ERP'
+
 export default function OrdersPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const user = useAuthStore((s) => s.user)
+  const canExport = user?.can_export !== 0
+  useEffect(() => { document.title = `Siparişler - ${APP_TITLE}`; return () => { document.title = APP_TITLE } }, [])
   const [orders, setOrders] = useState<Order[]>([])
   const [converting, setConverting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  useEffect(() => {
+    const o = searchParams.get('overdue')
+    const w = searchParams.get('delivery_week')
+    if (o === '1') setFilterStatus('overdue')
+    else if (w === '1') setFilterStatus('delivery_week')
+  }, []) // Sadece ilk yüklemede URL'den filtre uygula (örn. /orders?overdue=1)
+  const [sortKey, setSortKey] = useState<'order_date' | 'order_number' | 'total_amount' | 'dealer_name'>('order_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -61,6 +79,15 @@ export default function OrdersPage() {
   const [orderProducts, setOrderProducts] = useState<Array<{ id: string; name: string; sku: string }>>([])
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [submittingOrder, setSubmittingOrder] = useState(false)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [orderSummary, setOrderSummary] = useState<{
+    pending: number
+    in_production: number
+    completed: number
+    deliveriesThisWeek: number
+    overdue: number
+  } | null>(null)
 
   // Ürün adına göre BOM’daki ürün kodunu (SKU) bul
   function findSkuByProductName(productName: string): string | null {
@@ -116,6 +143,8 @@ export default function OrdersPage() {
   const ordersKey = useMemo(() => {
     if (filterStatus === 'all') return '/api/orders'
     if (filterStatus === 'shipped') return '/api/orders?status=completed'
+    if (filterStatus === 'delivery_week') return '/api/orders?delivery_week=1'
+    if (filterStatus === 'overdue') return '/api/orders?overdue=1'
     return `/api/orders?status=${encodeURIComponent(filterStatus)}`
   }, [filterStatus])
 
@@ -123,6 +152,14 @@ export default function OrdersPage() {
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   usePolling(() => { void mutate() })
+
+  useEffect(() => {
+    let cancelled = false
+    fetchApi<{ pending: number; in_production: number; completed: number; deliveriesThisWeek: number; overdue: number }>('/api/orders/summary')
+      .then((data) => { if (!cancelled) setOrderSummary(data) })
+      .catch(() => { if (!cancelled) setOrderSummary(null) })
+    return () => { cancelled = true }
+  }, [ordersData])
 
   useEffect(() => {
     loadAccounts()
@@ -143,17 +180,33 @@ export default function OrdersPage() {
   }, [showCreateModal])
 
   useEffect(() => {
+    const openModal = () => setShowCreateModal(true)
+    window.addEventListener('open-create-order-modal', openModal)
+    return () => window.removeEventListener('open-create-order-modal', openModal)
+  }, [])
+
+  useEffect(() => {
     const list = ordersData ?? []
     const sorted = [...list].sort((a, b) => {
-      const dateA = a.order_date || a.created_at || ''
-      const dateB = b.order_date || b.created_at || ''
-      if (!dateA && !dateB) return 0
-      if (!dateA) return 1
-      if (!dateB) return -1
-      return new Date(dateA).getTime() - new Date(dateB).getTime()
+      let cmp = 0
+      if (sortKey === 'order_date') {
+        const dateA = a.order_date || a.created_at || ''
+        const dateB = b.order_date || b.created_at || ''
+        if (!dateA && !dateB) cmp = 0
+        else if (!dateA) cmp = 1
+        else if (!dateB) cmp = -1
+        else cmp = new Date(dateA).getTime() - new Date(dateB).getTime()
+      } else if (sortKey === 'order_number') {
+        cmp = (a.order_number || '').localeCompare(b.order_number || '', 'tr', { numeric: true })
+      } else if (sortKey === 'total_amount') {
+        cmp = (a.total_amount ?? 0) - (b.total_amount ?? 0)
+      } else {
+        cmp = (a.dealer_name || '').localeCompare(b.dealer_name || '', 'tr')
+      }
+      return sortDir === 'asc' ? cmp : -cmp
     })
     setOrders(sorted)
-  }, [ordersData])
+  }, [ordersData, sortKey, sortDir])
 
   async function loadAccounts(skipCache?: boolean) {
     try {
@@ -292,6 +345,8 @@ export default function OrdersPage() {
       setFormErrors({})
     }
 
+    setSubmittingOrder(true)
+    try {
     // Bayi adı cari hesaplarda var mı kontrol et
     const existingAccount = accounts.find(
       acc => acc.name.toLowerCase() === newOrder.dealer_name.toLowerCase()
@@ -455,6 +510,9 @@ export default function OrdersPage() {
     } catch (error: any) {
       toast.error(error.message || 'İşlem başarısız')
     }
+    } finally {
+      setSubmittingOrder(false)
+    }
   }
 
 
@@ -502,25 +560,29 @@ export default function OrdersPage() {
         }
 
         const smallFileResult = await response.json()
-        
-        if (smallFileResult.errors && smallFileResult.errors.length > 0) {
-          let message = `✅ ${smallFileResult.message || `${smallFileResult.inserted_count || 0} sipariş yüklendi`}`
-          if (smallFileResult.errors.length <= 20) {
-            message += `\n\nAtlanan Satırlar (${smallFileResult.errors.length} adet):\n${smallFileResult.errors.slice(0, 20).join('\n')}`
-            if (smallFileResult.errors.length > 20) {
-              message += `\n\n... ve ${smallFileResult.errors.length - 20} satır daha (tüm detaylar konsola bakın)`
-            }
-          } else {
-            message += `\n\n${smallFileResult.errors.length} satır atlandı (ilk 20 hata gösteriliyor, tüm detaylar konsola bakın)`
-            message += `\n\nİlk 20 Hata:\n${smallFileResult.errors.slice(0, 20).join('\n')}`
-            console.warn('Excel yükleme hataları (tümü):', smallFileResult.errors)
-          }
-          toast.error(message)
+        const created = smallFileResult.inserted_count ?? 0
+        const skipped = smallFileResult.skipped_count ?? (smallFileResult.errors?.length ?? 0)
+        const errList = smallFileResult.errors ?? []
+
+        if (created > 0) {
+          toast.success(
+            skipped > 0
+              ? `${created} sipariş eklendi. ${skipped} satır atlandı.`
+              : `${created} sipariş eklendi.`
+          )
+        } else if (skipped > 0) {
+          toast.warning(`Hiç sipariş eklenemedi. ${skipped} satır atlandı.`)
         } else {
-          toast.success(smallFileResult.message || `${smallFileResult.inserted_count || 0} sipariş başarıyla yüklendi`)
+          toast.success(smallFileResult.message || 'İşlem tamamlandı.')
         }
-        
-        window.location.reload()
+        if (errList.length > 0) {
+          console.warn('Toplu sipariş atlanan satırlar:', errList)
+          const firstFew = errList.slice(0, 5).join('; ')
+          toast.info(`Atlanan satırlar (ilk 5): ${firstFew}${errList.length > 5 ? '…' : ''}`)
+        }
+
+        mutate()
+        if (fileInputRef.current) fileInputRef.current.value = ''
         return
       }
       
@@ -599,21 +661,29 @@ export default function OrdersPage() {
       }
       
       const mergeResult = await mergeResponse.json()
-      
-      if (mergeResult.errors && mergeResult.errors.length > 0) {
-        let message = `✅ ${mergeResult.message || `${mergeResult.inserted_count || 0} sipariş yüklendi`}`
-        if (mergeResult.errors.length <= 20) {
-          message += `\n\nAtlanan Satırlar (${mergeResult.errors.length} adet):\n${mergeResult.errors.slice(0, 20).join('\n')}`
-        } else {
-          message += `\n\n${mergeResult.errors.length} satır atlandı (ilk 20 hata gösteriliyor)`
-          message += `\n\nİlk 20 Hata:\n${mergeResult.errors.slice(0, 20).join('\n')}`
-        }
-        toast.error(message)
+      const created = mergeResult.inserted_count ?? 0
+      const skipped = mergeResult.skipped_count ?? (mergeResult.errors?.length ?? 0)
+      const errList = mergeResult.errors ?? []
+
+      if (created > 0) {
+        toast.success(
+          skipped > 0
+            ? `${created} sipariş eklendi. ${skipped} satır atlandı.`
+            : `${created} sipariş eklendi.`
+        )
+      } else if (skipped > 0) {
+        toast.warning(`Hiç sipariş eklenemedi. ${skipped} satır atlandı.`)
       } else {
-        toast.success(mergeResult.message || 'Dosya başarıyla yüklendi')
+        toast.success(mergeResult.message || 'İşlem tamamlandı.')
       }
-      
-      window.location.reload()
+      if (errList.length > 0) {
+        console.warn('Toplu sipariş atlanan satırlar:', errList)
+        const firstFew = errList.slice(0, 5).join('; ')
+        toast.info(`Atlanan satırlar (ilk 5): ${firstFew}${errList.length > 5 ? '…' : ''}`)
+      }
+
+      mutate()
+      if (fileInputRef.current) fileInputRef.current.value = ''
       return
     } catch (error: any) {
       console.error('Excel yükleme hatası:', error)
@@ -683,10 +753,12 @@ export default function OrdersPage() {
     }
   }
 
-  // İstatistikleri hesapla
-  const pendingCount = orders.filter(o => o.status === 'pending').length
-  const inProductionCount = orders.filter(o => o.status === 'in_production').length
-  const completedCount = orders.filter(o => o.status === 'completed').length
+  // Özet sayıları (API'den; yoksa mevcut listeden)
+  const pendingCount = orderSummary?.pending ?? orders.filter(o => o.status === 'pending').length
+  const inProductionCount = orderSummary?.in_production ?? orders.filter(o => o.status === 'in_production').length
+  const completedCount = orderSummary?.completed ?? orders.filter(o => o.status === 'completed').length
+  const deliveriesThisWeek = orderSummary?.deliveriesThisWeek ?? 0
+  const overdueCount = orderSummary?.overdue ?? 0
 
   const normalize = (value: unknown) => String(value ?? '').toLowerCase()
   const normalizeNotes = (value: unknown) => String(value ?? '')
@@ -719,6 +791,17 @@ export default function OrdersPage() {
     cancelled: 'İptal Edildi'
   }
 
+  useKeyboardShortcut('Escape', () => {
+    if (showCreateModal) { setShowCreateModal(false); setEditingOrder(null) }
+    else setSelectedOrderId(null)
+  })
+  useKeyboardShortcut('Enter', () => {
+    if (!selectedOrderId) return
+    const order = filteredOrders.find(o => o.id === selectedOrderId)
+    if (order?.production_order_id) router.push(`/production/${order.production_order_id}`)
+    else if (order?.status === 'pending') handleEditOrder(order)
+  }, { enabled: !!selectedOrderId })
+
   return (
     <AppDashboardLayout
       title="Siparişler"
@@ -739,6 +822,10 @@ export default function OrdersPage() {
             <Plus className="w-4 h-4 mr-2" />
             Yeni Sipariş
           </Button>
+          <Button variant="outline" size="sm" onClick={() => mutate()} disabled={isLoading} title="Listeyi yenile">
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Yenile
+          </Button>
           <Button
             variant="solid"
             size="sm"
@@ -758,6 +845,29 @@ export default function OrdersPage() {
           >
             <Trash2 className="w-4 h-4 mr-2" />
             Tüm Siparişleri Sil
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/orders/import/template', { credentials: 'include', headers: getAuthHeaders() })
+                if (!res.ok) throw new Error('Şablon indirilemedi')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `Siparis_Sablonu_${new Date().toISOString().split('T')[0]}.xlsx`
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success('Örnek şablon indirildi')
+              } catch (e: any) {
+                toast.error(e?.message || 'Şablon indirilemedi')
+              }
+            }}
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            Örnek şablon
           </Button>
           <Button
             variant="solid"
@@ -788,14 +898,18 @@ export default function OrdersPage() {
               {converting ? 'Dönüştürülüyor...' : `Üretim Emrine Dönüştür (${selectedOrders.size})`}
             </Button>
           )}
-          {orders.length > 0 && (
+          {orders.length > 0 && canExport && (
             <Button
               variant="outline"
               size="sm"
               onClick={async () => {
                 try {
                   const exportParams = new URLSearchParams()
-                  if (filterStatus && filterStatus !== 'all') exportParams.set('status', filterStatus)
+                  if (filterStatus && filterStatus !== 'all') {
+                    if (filterStatus === 'delivery_week') exportParams.set('delivery_week', '1')
+                    else if (filterStatus === 'overdue') exportParams.set('overdue', '1')
+                    else exportParams.set('status', filterStatus)
+                  }
                   if (searchTerm.trim()) exportParams.set('search', searchTerm.trim())
                   const query = exportParams.toString()
                   const response = await fetch(`/api/orders/export${query ? '?' + query : ''}`, {
@@ -803,7 +917,7 @@ export default function OrdersPage() {
                     credentials: 'include',
                   })
                   if (!response.ok) {
-                    throw new Error('Excel export başarısız')
+                    throw new Error('Excel dışa aktarma başarısız')
                   }
                   const blob = await response.blob()
                   const url = window.URL.createObjectURL(blob)
@@ -827,21 +941,56 @@ export default function OrdersPage() {
         </div>
       }
     >
+      <Breadcrumb items={[{ label: 'Panel', href: '/dashboard' }, { label: 'Siparişler' }]} className="mb-4" />
 
-      {/* İstatistikler */}
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+      {/* Özet kartları */}
+      <div className="mb-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <button
+          type="button"
+          onClick={() => setFilterStatus('pending')}
+          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-yellow-600/50 transition-colors"
+        >
           <div className="text-sm text-gray-400 mb-1">Beklemede</div>
           <div className="text-2xl font-bold text-yellow-400">{pendingCount}</div>
-        </div>
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus('in_production')}
+          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-blue-600/50 transition-colors"
+        >
           <div className="text-sm text-gray-400 mb-1">Üretimde</div>
           <div className="text-2xl font-bold text-blue-400">{inProductionCount}</div>
-        </div>
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus('delivery_week')}
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'delivery_week' ? 'border-sky-500 bg-sky-900/20' : 'border-gray-800 bg-gray-900 hover:border-sky-600/50'}`}
+          title="Bu hafta teslim tarihli sipariş sayısı"
+        >
+          <div className="text-sm text-gray-400 mb-1 flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5" /> Bu Hafta Teslim
+          </div>
+          <div className="text-2xl font-bold text-sky-400">{deliveriesThisWeek}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus('overdue')}
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'overdue' ? 'border-red-500 bg-red-900/20' : 'border-gray-800 bg-gray-900 hover:border-red-600/50'}`}
+          title="Teslim tarihi geçmiş, henüz tamamlanmamış"
+        >
+          <div className="text-sm text-gray-400 mb-1 flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5" /> Gecikmiş
+          </div>
+          <div className="text-2xl font-bold text-red-400">{overdueCount}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus('shipped')}
+          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-green-600/50 transition-colors"
+        >
           <div className="text-sm text-gray-400 mb-1">Sevk Edilen</div>
           <div className="text-2xl font-bold text-green-400">{completedCount}</div>
-        </div>
+        </button>
       </div>
 
       {/* Filtreler */}
@@ -866,27 +1015,47 @@ export default function OrdersPage() {
             <option value="all">Tümü</option>
             <option value="pending">Beklemede</option>
             <option value="in_production">Üretimde</option>
+            <option value="delivery_week">Bu Hafta Teslim</option>
+            <option value="overdue">Gecikmiş</option>
             <option value="shipped">Sevk Edilen</option>
           </select>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-gray-400">
+          <span>Sırala:</span>
+          {(['order_date', 'order_number', 'total_amount', 'dealer_name'] as const).map((key) => {
+            const label = key === 'order_date' ? 'Tarih' : key === 'order_number' ? 'Sipariş No' : key === 'total_amount' ? 'Tutar' : 'Cari'
+            const active = sortKey === key
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+                  else { setSortKey(key); setSortDir(key === 'order_date' || key === 'total_amount' ? 'desc' : 'asc') }
+                }}
+                className={`inline-flex items-center gap-0.5 px-2 py-1 rounded ${active ? 'bg-gray-700 text-white' : 'hover:bg-gray-800 text-gray-400'}`}
+              >
+                {label}
+                {active && (sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />)}
+              </button>
+            )
+          })}
         </div>
       </div>
 
       {/* Siparişler Tablosu */}
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-gray-400 mt-4">Yükleniyor...</p>
-        </div>
+        <TableSkeleton rows={8} cols={8} />
       ) : filteredOrders.length === 0 ? (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <EmptyState
             title={debouncedSearchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş yok'}
-            description={debouncedSearchTerm ? 'Farklı bir arama deneyin' : 'Yeni sipariş butonuna tıklayarak sipariş ekleyebilirsiniz.'}
+            description={debouncedSearchTerm ? 'Farklı bir arama deneyin' : 'İlk siparişinizi oluşturarak başlayın.'}
             icon={FileSpreadsheet}
             action={!debouncedSearchTerm ? (
-              <Button onClick={() => setShowCreateModal(true)}>
+              <Button onClick={() => setShowCreateModal(true)} variant="solid" color="primary">
                 <Plus className="w-4 h-4 mr-2" />
-                Yeni Sipariş
+                İlk siparişi oluştur
               </Button>
             ) : undefined}
           />
@@ -894,180 +1063,45 @@ export default function OrdersPage() {
       ) : (
         <div className="space-y-4">
           {filteredOrders.map((order) => (
-            <div 
-              key={order.id} 
-              className={`bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30 ${
-                selectedOrders.has(order.id) ? 'bg-blue-900/20 border-blue-500' : ''
+            <div
+              key={order.id}
+              role="button"
+              tabIndex={0}
+              className={`bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30 cursor-pointer ${
+                selectedOrders.has(order.id) ? 'bg-blue-900/20 border-blue-500' : selectedOrderId === order.id ? 'ring-2 ring-blue-500' : ''
               }`}
+              onClick={() => setSelectedOrderId(order.id)}
             >
-              <div className="flex justify-between items-start gap-3 mb-3">
-                <span className="text-xs text-gray-400 font-mono">{order.order_number}</span>
-                <div className="flex items-center gap-2">
+              <div className="flex justify-between items-start gap-3 mb-4">
+                <span className="text-xl font-bold text-white font-mono tracking-tight">{order.order_number}</span>
+                <div className="flex items-center gap-2 shrink-0">
                   {order.status === 'pending' && !order.production_order_id && (
-                    <button
-                      type="button"
-                      onClick={() => handleEditOrder(order)}
-                      className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-blue-400 bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 rounded-lg text-xs font-medium transition-colors"
-                      title="Siparişi düzenle"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Düzenle
+                    <button type="button" onClick={() => handleEditOrder(order)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-blue-400 bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 rounded-md text-xs font-medium" title="Siparişi düzenle">
+                      <Pencil className="w-3.5 h-3.5" /> Düzenle
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteOrder(order)}
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded-lg text-xs font-medium transition-colors"
-                    title="Siparişi sil"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Sil
+                  <button type="button" onClick={() => handleDeleteOrder(order)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded-md text-xs font-medium" title="Siparişi sil">
+                    <Trash2 className="w-3.5 h-3.5" /> Sil
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Sol Sütun */}
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Seç</div>
-                  <div>
-                    <input
-                      type="checkbox"
-                      checked={selectedOrders.has(order.id)}
-                      onChange={() => toggleOrderSelection(order.id)}
-                      disabled={order.status === 'in_production' || order.status === 'completed'}
-                      className="rounded border-gray-600"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">TAKİP NO</div>
-                  <div className="text-white text-sm font-mono">{order.order_number}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">KASA</div>
-                  <div className="text-white text-sm">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
-                      return caseMatch ? caseMatch[1].trim() : '-'
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Durum</div>
-                  <div>
-                    <span className={`px-2 py-1 rounded text-xs border ${statusColors[order.status]}`}>
-                      {statusLabels[order.status]}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Orta Sol Sütun */}
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                  <div className="text-white text-sm">{order.dealer_name || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                  <div className="text-white text-sm break-words whitespace-normal">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      let desc = notesText
-                        .replace(/Kumaş:\s*[^|]+/gi, '')
-                        .replace(/Kasa:\s*[^|]+/gi, '')
-                        .replace(/Ayak:\s*[^|]+/gi, '')
-                        .replace(/Kirlent:\s*[^|]+/gi, '')
-                        .replace(/Birim:\s*[^|]+/gi, '')
-                        .replace(/\|\s*\|\s*/g, '|')
-                        .replace(/^\|\s*|\s*\|$/g, '')
-                        .trim()
-                      return desc || '-'
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
-                  <div className="text-white text-sm">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
-                      return fabricMatch ? fabricMatch[1].trim() : '-'
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
-                  <div className="text-white text-sm">
-                    {order.production_order_number ? (
-                      <>
-                        <a
-                          href={`/production/${order.production_order_id}`}
-                          className="text-blue-400 hover:text-blue-300 underline"
-                        >
-                          {order.production_order_number}
-                        </a>
-                        {order.status === 'in_production' && order.production_order_due_date && (
-                          <span className="block text-gray-400 text-xs mt-0.5">
-                            Emir tarihi: {formatDate(order.production_order_due_date) || '-'}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      '-'
-                    )}
-                  </div>
-                </div>
-
-                {/* Orta Sağ Sütun */}
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                  <div className="text-white text-sm">{order.product_name || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
-                  <div className="text-white text-sm">{order.quantity} ADET</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                  <div className="text-white text-sm">{(order as any).configuration || '-'}</div>
-                </div>
-
-                {/* Sağ Sütun */}
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
-                  <div className="text-white text-sm">
-                    {formatOrderDateDisplay(order.order_date, order.created_at ?? null)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                  <div className="text-white text-sm">{order.customer_name || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">AYAK</div>
-                  <div className="text-white text-sm">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
-                      return legMatch ? legMatch[1].trim() : '-'
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">KİRLENT</div>
-                  <div className="text-white text-sm">
-                    {(() => {
-                      const notesText = normalizeNotes(order.notes).trim()
-                      if (!notesText) return '-'
-                      const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
-                      return cushionMatch ? cushionMatch[1].trim() : '-'
-                    })()}
-                  </div>
-                </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                <div><div className="text-xs text-gray-400 mb-1">Seç</div><input type="checkbox" checked={selectedOrders.has(order.id)} onChange={() => toggleOrderSelection(order.id)} disabled={order.status === 'in_production' || order.status === 'completed'} className="rounded border-gray-600" /></div>
+                <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kasa:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className={`px-2 py-1 rounded text-xs border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span></div></div>
+                <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; return n.replace(/Kumaş:\s*[^|]+/gi, '').replace(/Kasa:\s*[^|]+/gi, '').replace(/Ayak:\s*[^|]+/gi, '').replace(/Kirlent:\s*[^|]+/gi, '').replace(/Birim:\s*[^|]+/gi, '').replace(/\|\s*\|\s*/g, '|').replace(/^\|\s*|\s*\|$/g, '').trim() || '-'; })()}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kumaş:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_number ? <><a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number}</a>{order.status === 'in_production' && order.production_order_due_date && <span className="block text-gray-400 text-xs mt-0.5">Emir tarihi: {formatDate(order.production_order_due_date) || '-'}</span>}</> : '-'}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity} ADET</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{(order as any).configuration || '-'}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, order.created_at ?? null)}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Ayak:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
+                <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kirlent:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
+                <div />
               </div>
             </div>
           ))}
@@ -1400,9 +1434,10 @@ export default function OrdersPage() {
                 </button>
                   <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  disabled={submittingOrder}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
                 >
-                  {editingOrder ? 'Güncelle' : 'Sipariş Oluştur'}
+                  {submittingOrder ? 'Kaydediliyor…' : editingOrder ? 'Güncelle' : 'Sipariş Oluştur'}
                 </button>
               </div>
             </form>

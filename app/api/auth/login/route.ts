@@ -62,7 +62,18 @@ export async function POST(request: NextRequest) {
     }
     const { username, password } = body
 
-    const db = getDatabase()
+    let db
+    try {
+      db = getDatabase()
+    } catch (dbError: unknown) {
+      const msg = dbError instanceof Error ? dbError.message : String(dbError)
+      const { apiLogger } = await import('@/lib/api/logger')
+      apiLogger.error('Login: veritabanı açılamadı', { message: msg })
+      return NextResponse.json(
+        { error: 'Veritabanı açılamadı. Docker kullanıyorsanız volume (erp-data) ve .env dosyasını kontrol edin.' },
+        { status: 503 }
+      )
+    }
 
     // Kullanıcıyı bul (büyük/küçük harf duyarsız; farklı bilgisayar/klavye için)
     const user = db.prepare(`
@@ -146,6 +157,13 @@ export async function POST(request: NextRequest) {
     const stack = error instanceof Error ? error.stack : undefined
     const { apiLogger } = await import('@/lib/api/logger')
     apiLogger.error('Login hatası', { message, stack })
+    // JWT_SECRET eksikse kullanıcıya net mesaj
+    if (message.includes('JWT_SECRET')) {
+      return NextResponse.json(
+        { error: '.env dosyasında JWT_SECRET tanımlayın (en az 16 karakter) ve sunucuyu yeniden başlatın.' },
+        { status: 503 }
+      )
+    }
     const errorMessage = message || 'Sunucu hatası oluştu. Lütfen tekrar deneyin.'
     return fail(errorMessage, { status: 500 })
   }

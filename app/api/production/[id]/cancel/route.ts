@@ -6,12 +6,24 @@ import { applyMaterialStockChange } from '@/lib/materials/stock'
 import { getAuthUserId } from '@/lib/auth/session'
 import { randomUUID } from 'crypto'
 import { logAudit } from '@/lib/audit'
+import { apiLogger } from '@/lib/api/logger'
+
+type StockMovementRow = {
+  material_id: string
+  quantity: number
+  notes: string | null
+}
 
 async function getActorId(request: NextRequest) {
   return await getAuthUserId(request)
 }
 
-// POST: Üretim emrini iptal et ve malzemeleri stoka geri ekle
+/**
+ * POST: Üretim emrini iptal et.
+ * - BOM'dan düşülen malzemeler depoya iade edilir (önce 'out' stok hareketlerine göre, yoksa BOM hesaplaması).
+ * - Bu üretim emrine bağlı siparişler bekleyene alınır (status=pending, production_order_id=null).
+ * - Barkodlar silinir, üretim emri status=cancelled olur.
+ */
 export const POST = withAuth(async (
   request: NextRequest,
   _user,
@@ -22,124 +34,129 @@ export const POST = withAuth(async (
     const resolvedParams = await Promise.resolve(context?.params)
     const orderId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).slice(-2)[0]
     if (!orderId) {
-      return NextResponse.json({ error: 'ID gerekli' }, { status: 400 })
+      return NextResponse.json({ error: 'Üretim emri ID gerekli' }, { status: 400 })
     }
 
-    // Üretim emri bilgilerini al
     const order = db.prepare(`
-      SELECT * FROM production_orders WHERE id = ? AND deleted_at IS NULL
-    `).get(orderId) as any
+      SELECT id, order_number, product_id, quantity, status FROM production_orders WHERE id = ? AND (deleted_at IS NULL OR deleted_at = '')
+    `).get(orderId) as { id: string; order_number: string; product_id: string; quantity: number; status: string } | undefined
 
     if (!order) {
       return NextResponse.json({ error: 'Üretim emri bulunamadı' }, { status: 404 })
     }
 
-    // Zaten iptal edilmiş mi kontrol et
     if (order.status === 'cancelled') {
       return NextResponse.json({ error: 'Bu üretim emri zaten iptal edilmiş' }, { status: 400 })
     }
 
-    // Üretim emri tamamlanmışsa iptal edilemez
     if (order.status === 'completed') {
       return NextResponse.json({ error: 'Tamamlanmış üretim emirleri iptal edilemez' }, { status: 400 })
     }
 
-    // BOM malzemelerini al
-    const bom = db.prepare(`
-      SELECT 
-        b.material_id,
-        b.quantity_required,
-        b.unit as unit,
-        COALESCE(b.fire_percentage, 0) as fire_percentage,
-        m.name as material_name,
-        m.unit as material_unit,
-        m.reserved_quantity
-      FROM bom b
-      JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
-      JOIN materials m ON b.material_id = m.id
-      WHERE b.product_id = ? AND b.deleted_at IS NULL
-    `).all(order.product_id) as any[]
-
-    // Stok hareketlerini al (bu üretim emri için)
-    const stockMovements = db.prepare(`
-      SELECT * FROM stock_movements 
-      WHERE reference_type = 'production_order' AND reference_id = ?
-    `).all(orderId) as any[]
+    const ureNumber = order.order_number
 
     db.transaction(() => {
-      // Her BOM malzemesi için stoku geri ekle
-      for (const bomItem of bom) {
-        const firePercentage = bomItem.fire_percentage || 0
-        const quantityWithFire = bomItem.quantity_required * (1 + firePercentage / 100)
-        const fromUnit = (bomItem.unit || bomItem.material_unit || '').toString()
-        const toUnit = (bomItem.material_unit || '').toString()
-        const factor = resolveUnitFactor(db, bomItem.material_id || null, fromUnit, toUnit)
-        const convertedQuantity = factor ? quantityWithFire * factor : quantityWithFire
-        const totalRequired = convertedQuantity * order.quantity
+      // 1. Bu üretim emrine ait 'out' stok hareketlerini al (BOM'dan düşülen miktarlar)
+      const outMovements = db.prepare(`
+        SELECT material_id, quantity, notes
+        FROM stock_movements
+        WHERE reference_id = ? AND movement_type = 'out'
+          AND reference_type IN ('production_order', 'production')
+          AND (deleted_at IS NULL OR deleted_at = '')
+      `).all(orderId) as StockMovementRow[]
 
-        // Stoku geri ekle
-        applyMaterialStockChange(db, bomItem.material_id, totalRequired)
-
-        // Geri alma stok hareketi oluştur
-        const movementId = randomUUID()
-        db.prepare(`
-          INSERT INTO stock_movements 
-          (id, material_id, movement_type, quantity, reference_type, reference_id, notes, warehouse_id, to_warehouse_id)
-          VALUES (?, ?, 'in', ?, 'production_order_cancel', ?, ?, ?, ?)
-        `).run(
-          movementId,
-          bomItem.material_id,
-          totalRequired,
-          orderId,
-          `Üretim emri iptali: ${order.order_number} - ${bomItem.material_name} (Fire: ${firePercentage}%) - Geri eklenen: ${totalRequired} ${bomItem.material_unit}`,
-          DEFAULT_WAREHOUSE_ID,
-          DEFAULT_WAREHOUSE_ID
-        )
+      const byMaterial = new Map<string, { quantity: number; notes: string }>()
+      for (const m of outMovements) {
+        if (!m.material_id) continue
+        const prev = byMaterial.get(m.material_id) ?? { quantity: 0, notes: m.notes ?? '' }
+        const absQty = Math.abs(Number(m.quantity) || 0)
+        if (absQty <= 0) continue
+        byMaterial.set(m.material_id, {
+          quantity: prev.quantity + absQty,
+          notes: prev.notes || m.notes || '',
+        })
       }
 
-      // Üretilen ürün barkodlarını sil (eğer varsa)
-      const barcodes = db.prepare(`
-        SELECT id FROM product_serial_numbers WHERE production_order_id = ?
-      `).all(orderId) as any[]
-
-      if (barcodes.length > 0) {
-        // Ürün stok miktarını düş (üretilen ürünler stoktan çıkarılsın)
-        db.prepare(`
-          UPDATE products
-          SET stock_amount = stock_amount - ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(order.quantity, order.product_id)
-
-        // Barkodları sil
-        db.prepare(`
-          DELETE FROM product_serial_numbers WHERE production_order_id = ?
-        `).run(orderId)
+      // 2. Stok hareketi yoksa BOM'dan iade miktarını hesapla
+      if (byMaterial.size === 0 && order.product_id) {
+        const bom = db.prepare(`
+          SELECT material_id, quantity_required, unit, COALESCE(fire_percentage, 0) as fire_percentage,
+                 (SELECT unit FROM materials WHERE id = b.material_id) as material_unit
+          FROM bom b
+          JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
+          WHERE b.product_id = ? AND b.deleted_at IS NULL
+        `).all(order.product_id) as { material_id: string; quantity_required: number; unit: string; fire_percentage: number; material_unit: string }[]
+        for (const item of bom) {
+          const firePct = item.fire_percentage || 0
+          const qtyWithFire = item.quantity_required * (1 + firePct / 100)
+          const fromUnit = (item.unit || '').toString()
+          const toUnit = (item.material_unit || '').toString()
+          const factor = resolveUnitFactor(db, item.material_id, fromUnit, toUnit)
+          const totalRequired = (factor ? qtyWithFire * factor : qtyWithFire) * order.quantity
+          if (totalRequired <= 0) continue
+          byMaterial.set(item.material_id, { quantity: totalRequired, notes: '' })
+        }
       }
 
-      // Üretim emri durumunu iptal olarak işaretle
+      // 3. Depo stoğuna iade: stok artır + 'in' hareketi
+      for (const [materialId, { quantity }] of byMaterial) {
+        if (quantity <= 0) continue
+        try {
+          applyMaterialStockChange(db, materialId, quantity)
+          const movementId = randomUUID()
+          db.prepare(`
+            INSERT INTO stock_movements
+            (id, material_id, movement_type, quantity, reference_type, reference_id, notes, warehouse_id, to_warehouse_id, created_at)
+            VALUES (?, ?, 'in', ?, 'production_order_cancel', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `).run(
+            movementId,
+            materialId,
+            quantity,
+            orderId,
+            `Üretim emri iptali: ${ureNumber} - BOM malzemesi depoya iade`,
+            DEFAULT_WAREHOUSE_ID,
+            DEFAULT_WAREHOUSE_ID
+          )
+        } catch (materialErr: unknown) {
+          apiLogger.warn('production-order-cancel: malzeme iadesi atlandı', { materialId, quantity, error: materialErr instanceof Error ? materialErr.message : String(materialErr) })
+        }
+      }
+
+      // 4. Bu üretim emrine ait barkodları sil
+      db.prepare(`
+        DELETE FROM product_serial_numbers WHERE production_order_id = ?
+      `).run(orderId)
+
+      // 5. Bu üretim emrine bağlı siparişleri bekleyene al
+      db.prepare(`
+        UPDATE orders SET status = 'pending', production_order_id = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE production_order_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+      `).run(orderId)
+
+      // 6. Üretim emrini iptal olarak işaretle
       db.prepare(`
         UPDATE production_orders
-        SET status = 'cancelled',
-            updated_at = CURRENT_TIMESTAMP
+        SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(orderId)
     })()
 
+    const userId = await getActorId(request)
     logAudit(db, {
       tableName: 'production_orders',
       action: 'update',
       recordId: orderId,
-      userId: await getActorId(request),
+      userId: userId ?? undefined,
       before: { status: order.status },
-      after: { status: 'cancelled' },
+      after: { status: 'cancelled', _note: 'Çalışılan üretim iptal edildi; BOM depoya iade edildi.' },
     })
 
     return NextResponse.json({
       success: true,
-      message: 'Üretim emri başarıyla iptal edildi ve malzemeler stoka geri eklendi'
+      message: 'Üretim emri iptal edildi. BOM malzemeleri depoya iade edildi.',
     })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'İptal işlemi başarısız'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
-});
+})

@@ -83,7 +83,7 @@ export default function ShipmentDetailPage() {
       const payload = (data && typeof data === 'object' && 'data' in data) ? (data as { data: Shipment }).data : data
       setShipment(payload as Shipment)
     } catch (error) {
-      console.error('Error loading shipment:', error)
+      console.error('Sevkiyat yüklenirken hata:', error)
       toast.error('Sevkiyat yüklenirken hata oluştu')
     } finally {
       setLoading(false)
@@ -271,7 +271,7 @@ export default function ShipmentDetailPage() {
         </div>
 
         {/* Sevkiyat Fişi - Yazdırılabilir (A5) */}
-        <div className="shipment-slip bg-white rounded-lg shadow-lg p-6 md:p-8 print:p-8 print:shadow-none print:max-w-[148mm] print:mx-auto print:box-border">
+        <div className="shipment-slip bg-white rounded-lg shadow-lg p-6 md:p-8 print:p-8 print:shadow-none print:max-w-[128mm] print:w-[128mm] print:mx-auto print:box-border" style={{ maxWidth: '100%' }}>
           {/* Başlık */}
           <div className="text-center mb-8 border-b-2 border-gray-300 pb-4">
             <div className="flex items-center justify-center gap-2 mb-2">
@@ -540,7 +540,7 @@ export default function ShipmentDetailPage() {
         </div>
       </div>
 
-      {/* Yazdırma Stilleri - A5 boyutu (148×210 mm) */}
+      {/* Yazdırma: Sevkiyat fişi A5 (148×210 mm) */}
       <style jsx global>{`
         @media print {
           @page {
@@ -557,7 +557,8 @@ export default function ShipmentDetailPage() {
             color: #000 !important;
           }
           .shipment-slip {
-            max-width: 128mm;
+            max-width: 128mm !important;
+            width: 128mm !important;
           }
           button {
             display: none !important;
