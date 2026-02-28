@@ -22,10 +22,10 @@ function createAccountIfNotExists(db: any, dealerName: string | null): void {
   }
 
   const trimmedName = dealerName.trim()
-  
+
   // Aynı isimde cari hesap var mı kontrol et
   const existingAccount = db.prepare('SELECT id FROM accounts WHERE name = ? COLLATE NOCASE').get(trimmedName) as any
-  
+
   if (existingAccount) {
     // Zaten var, oluşturma
     return
@@ -39,16 +39,16 @@ function createAccountIfNotExists(db: any, dealerName: string | null): void {
       ORDER BY code DESC 
       LIMIT 1
     `).get() as any
-    
+
     let codeNumber = 1
     if (lastAccount) {
       const lastNum = parseInt(lastAccount.code.replace(/[^0-9]/g, '')) || 0
       codeNumber = lastNum + 1
     }
-    
+
     const code = `MUS-${String(codeNumber).padStart(4, '0')}`
     const id = `acc-${Date.now()}-${Math.random().toString(36).substring(7)}`
-    
+
     // Cari hesap oluştur (created_by ve updated_by NULL, FOREIGN KEY constraint için)
     db.prepare(`
       INSERT INTO accounts (id, code, name, type, created_by, updated_by)
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
   // Request'e hiçbir şekilde dokunmadan direkt formData() çağır
   let formData: FormData
   let file: File | null = null
-  
+
   try {
     // Request'i hiçbir şekilde okumadan direkt formData() çağır
     formData = await request.formData()
@@ -144,15 +144,15 @@ export async function POST(request: NextRequest) {
     console.error('[import] Error stack:', formDataError?.stack)
     console.error('[import] Content-Type:', request.headers.get('content-type'))
     console.error('[import] Request method:', request.method)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'FormData ayrıştırılamadı',
       details: formDataError?.message || 'Bilinmeyen FormData hatası'
     }, { status: 400 })
   }
-  
+
   // Ana işlem bloğu
   try {
-    
+
     // Auth kontrolü - header'lardan token al (body okuduktan SONRA)
     const authHeader = request.headers.get('authorization')
     const headerToken = authHeader?.startsWith('Bearer ')
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
     if (!payload) {
       return NextResponse.json({ error: 'Geçersiz token' }, { status: 401 })
     }
-    
+
     // Dosya kontrolü
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: 'Dosya bulunamadı' }, { status: 400 })
@@ -182,24 +182,24 @@ export async function POST(request: NextRequest) {
       buffer = Buffer.from(arrayBuffer)
     } catch (bufferError: any) {
       console.error('[import] Buffer conversion error:', bufferError)
-      return NextResponse.json({ 
-        error: 'Dosya işlenemedi', 
-        details: bufferError?.message || 'Dosya buffer\'a dönüştürülemedi' 
+      return NextResponse.json({
+        error: 'Dosya işlenemedi',
+        details: bufferError?.message || 'Dosya buffer\'a dönüştürülemedi'
       }, { status: 400 })
     }
 
     if (!buffer || !buffer.length) {
       return NextResponse.json({ error: 'Dosya boş' }, { status: 400 })
     }
-    
+
     // Excel dosyasını oku
     let workbook
     try {
       workbook = XLSX.read(buffer, { type: 'buffer' })
     } catch (error: any) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Excel dosyası okunamadı',
-        details: error.message 
+        details: error.message
       }, { status: 400 })
     }
     const firstSheetName = workbook.SheetNames[0]
@@ -207,12 +207,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Excel sayfası bulunamadı' }, { status: 400 })
     }
     const worksheet = workbook.Sheets[firstSheetName]
-    
+
     // JSON'a çevir - raw: true yaparak Excel tarih serial number'larını al
     const data = XLSX.utils.sheet_to_json(worksheet, { raw: true })
 
     if (!data || data.length === 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Dosya boş',
         details: 'Excel dosyasında veri bulunamadı.'
       }, { status: 400 })
@@ -257,7 +257,7 @@ export async function POST(request: NextRequest) {
     const getValue = (row: any, keys: string[]): string | null => {
       for (const key of keys) {
         const normalizedKey = normalizeTurkish(key.trim().toLowerCase())
-        
+
         // 1. Tam eşleşme (normalize edilmiş)
         if (normalizedColumns[normalizedKey]) {
           const originalKey = normalizedColumns[normalizedKey]
@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 4. Büyük/küçük harf duyarsız (trim ile)
-        const caseInsensitiveKey = Object.keys(row).find(k => 
+        const caseInsensitiveKey = Object.keys(row).find(k =>
           k.trim().toLowerCase() === key.trim().toLowerCase()
         )
         if (caseInsensitiveKey) {
@@ -304,10 +304,10 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < data.length; i++) {
       const row = data[i] as any
 
-      const dealerName = getValue(row, ['CARİ ADI', 'CARI ADI', 'Dealer', 'DEALER', 'dealer', 'Bayi', 'BAYİ', 'Cari', 'CARI'])
-      const customerName = getValue(row, ['MÜŞTERİ ADI', 'MUSTERI ADI', 'Customer', 'CUSTOMER', 'customer', 'Müşteri', 'MUSTERI', 'Musteri', 'MUSTERI ADI'])
+      const dealerName = getValue(row, ['CARİ ADI', 'CARI ADI', 'Bayi', 'BAYİ', 'Dealer', 'DEALER', 'Cari', 'CARI'])
+      const customerName = getValue(row, ['ALAN KİŞİ', 'ALAN KISI', 'MÜŞTERİ ADI', 'MUSTERI ADI', 'Müşteri', 'MUSTERI', 'Customer', 'CUSTOMER'])
       const productName = getValue(row, [
-        'ÜRÜN ADI', 'URUN ADI', 'Product', 'PRODUCT', 'product', 'Ürün', 'URUN', 
+        'ÜRÜN ADI', 'URUN ADI', 'Product', 'PRODUCT', 'product', 'Ürün', 'URUN',
         'Ürün Adı', 'URUN ADI', 'ÜRÜN', 'URUN', 'Product Name', 'PRODUCT NAME',
         'Ürün Adi', 'URUN ADI', 'Ürün Ad', 'URUN AD', 'Ürün İsmi', 'URUN ISMI'
       ])
@@ -330,12 +330,12 @@ export async function POST(request: NextRequest) {
           console.log('Mevcut Excel kolonları:', availableColumns)
           columnsLogged = true
         }
-        
+
         // Hata mesajı (görseldeki formata uygun)
         errors.push(`Satır ${i + 2}: Ürün adı boş`)
         continue
       }
-      
+
       // Boş satır kontrolü - eğer tüm önemli alanlar boşsa atla
       if (!dealerName && !customerName && !productName && !quantity) {
         errors.push(`Satır ${i + 2}: Boş satır - atlandı`)
@@ -386,14 +386,22 @@ export async function POST(request: NextRequest) {
           // Excel serial date number kontrolü
           if (typeof orderDate === 'number') {
             // Excel serial date: 1 = 1900-01-01
-            const excelEpoch = new Date(1899, 11, 30) // Excel epoch: 1899-12-30
-            const date = new Date(excelEpoch.getTime() + orderDate * 24 * 60 * 60 * 1000)
+            const excelEpoch = new Date(1899, 11, 30, 0, 0, 0) // Excel epoch: 1899-12-30
+            const date = new Date(excelEpoch)
+            date.setDate(date.getDate() + Math.floor(orderDate))
+
+            // Eğer ondalık kısım varsa (saat bilgisi)
+            if (orderDate % 1 > 0) {
+              const seconds = Math.round((orderDate % 1) * 24 * 60 * 60)
+              date.setSeconds(date.getSeconds() + seconds)
+            }
+
             if (!isNaN(date.getTime())) {
               formattedOrderDate = date.toISOString().split('T')[0]
             }
           } else {
             const dateStr = String(orderDate).trim()
-            
+
             // YYYY-MM-DD formatı (öncelikli)
             if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
               const testDate = new Date(dateStr)
@@ -456,6 +464,15 @@ export async function POST(request: NextRequest) {
       // Sipariş numarası oluştur
       const orderNumber = `SIP-${Date.now()}-${randomUUID().substring(0, 8)}`
 
+      // Bayi User ID'sini bul (B2B portalda görünmesi için)
+      let customerId: string | null = null
+      if (dealerName) {
+        const dealerUser = db.prepare('SELECT id FROM users WHERE dealer_name = ? COLLATE NOCASE').get(dealerName) as { id: string } | undefined
+        if (dealerUser) {
+          customerId = dealerUser.id
+        }
+      }
+
       // Siparişi oluştur
       try {
         const orderId = randomUUID()
@@ -463,8 +480,8 @@ export async function POST(request: NextRequest) {
           INSERT INTO orders (
             id, order_number, dealer_name, customer_name, customer_code,
             product_id, product_name, product_sku, quantity, unit_price, total_amount,
-            order_date, status, configuration, notes, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            order_date, status, configuration, notes, created_at, updated_at, customer_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
         `).run(
           orderId,
           orderNumber,
@@ -479,7 +496,8 @@ export async function POST(request: NextRequest) {
           totalAmount,
           formattedOrderDate,
           configuration,
-          combinedNotes
+          combinedNotes,
+          customerId
         )
         insertedOrders.push({ id: orderId, order_number: orderNumber })
       } catch (dbError: any) {
@@ -492,8 +510,8 @@ export async function POST(request: NextRequest) {
               INSERT INTO orders (
                 id, order_number, dealer_name, customer_name, customer_code,
                 product_id, product_name, product_sku, quantity, unit_price, total_amount,
-                order_date, status, configuration, notes, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                order_date, status, configuration, notes, created_at, updated_at, customer_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
             `).run(
               orderId,
               newOrderNumber,
@@ -508,7 +526,8 @@ export async function POST(request: NextRequest) {
               totalAmount,
               formattedOrderDate,
               configuration,
-              combinedNotes
+              combinedNotes,
+              customerId
             )
             insertedOrders.push({ id: orderId, order_number: newOrderNumber })
           } catch (retryError: any) {
@@ -523,7 +542,7 @@ export async function POST(request: NextRequest) {
       if (productId) {
         try {
           const { generateBarcode, generateSerialNumber } = await import('@/lib/utils/barcodeGenerator')
-          
+
           // Ürün bilgisini al
           const product = db.prepare('SELECT * FROM active_products WHERE id = ?').get(productId) as any
           if (product) {
@@ -534,11 +553,11 @@ export async function POST(request: NextRequest) {
               FROM product_serial_numbers 
               WHERE product_id = ? AND date(created_at) = date(?)
             `).get(productId, today) as any
-            
+
             const sequence = (todayCount?.count || 0) + 1
             let barcode = generateBarcode(product.sku || productName, sequence)
             let serial = generateSerialNumber(sequence)
-            
+
             // Barkod benzersizliğini kontrol et
             let retryCount = 0
             const maxRetries = 10
@@ -553,7 +572,7 @@ export async function POST(request: NextRequest) {
               serial = generateSerialNumber(newSequence)
               retryCount++
             }
-            
+
             // Kart notlarını oluştur (Excel satırındaki tüm bilgiler)
             let cardNotes = `Sipariş: ${orderNumber} | Satır: ${i + 2}`
             if (dealerName) cardNotes += ` | Cari: ${dealerName}`
@@ -564,7 +583,7 @@ export async function POST(request: NextRequest) {
             if (legInfo) cardNotes += ` | Ayak: ${legInfo}`
             if (cushionInfo) cardNotes += ` | Kirlent: ${cushionInfo}`
             if (combinedNotes) cardNotes += ` | ${combinedNotes}`
-            
+
             // Her Excel satırı için 1 kart oluştur
             const cardId = randomUUID()
             db.prepare(`
@@ -602,8 +621,8 @@ export async function POST(request: NextRequest) {
     })
   } catch (err: any) {
     // RESİM 4'E GÖRE: FormData parse hatası için error handling
-    return NextResponse.json({ 
-      error: 'FormData ayrıştırılamadı' 
+    return NextResponse.json({
+      error: 'FormData ayrıştırılamadı'
     }, { status: 400 })
   }
 }

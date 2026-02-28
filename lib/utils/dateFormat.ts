@@ -51,8 +51,9 @@ export function formatOrderDateDisplay(
     if (!isNaN(num)) {
       if (num >= 1 && num <= 100000) {
         // Excel seri numarası (1899-12-30 + n gün)
-        const excelEpoch = new Date(1899, 11, 30)
-        date = new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000)
+        const excelEpoch = new Date(1899, 11, 30, 0, 0, 0)
+        date = new Date(excelEpoch)
+        date.setDate(date.getDate() + num)
       } else if (num >= 1e9 && num <= 2e9) {
         // Unix saniye
         date = new Date(num * 1000)
@@ -87,8 +88,9 @@ export function formatOrderDateDisplay(
           date = new Date(yearPart, month, day)
         } else if (yearPart >= 1 && yearPart <= 100000) {
           // Yıl yerine Excel seri numarası gelmiş (örn. 45992 = 31.12.2025)
-          const excelEpoch = new Date(1899, 11, 30)
-          date = new Date(excelEpoch.getTime() + yearPart * 24 * 60 * 60 * 1000)
+          const excelEpoch = new Date(1899, 11, 30, 0, 0, 0)
+          date = new Date(excelEpoch)
+          date.setDate(date.getDate() + yearPart)
         } else {
           date = new Date(yearPart, month, day)
         }
@@ -109,8 +111,9 @@ export function formatOrderDateDisplay(
     const y = date.getFullYear()
     if (y < 1900 || y > 2100) {
       if (!isNaN(num) && num >= 1 && num <= 100000) {
-        const excelEpoch = new Date(1899, 11, 30)
-        date = new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000)
+        const excelEpoch = new Date(1899, 11, 30, 0, 0, 0)
+        date = new Date(excelEpoch)
+        date.setDate(date.getDate() + num)
       }
       if (isNaN(date.getTime()) || date.getFullYear() < 1900 || date.getFullYear() > 2100) {
         return fallback ?? dateStr

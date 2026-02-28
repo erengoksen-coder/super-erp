@@ -77,14 +77,14 @@ export default function BayiShipmentsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Truck className="w-5 h-5" />
+        <h2 className="text-xl font-black bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent flex items-center gap-2 drop-shadow-sm">
+          <Truck className="w-6 h-6 text-emerald-400" />
           Sevkiyatlarım
         </h2>
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setStatusFilter('')}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${!statusFilter ? 'bg-blue-600 text-white' : 'bg-slate-700/60 text-slate-300 hover:bg-slate-600'}`}
+            className={`px-3 py-2 rounded-lg text-sm font-black transition-all duration-300 min-h-[44px] ${!statusFilter ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-blue-50 shadow-lg shadow-blue-500/20 scale-105' : 'bg-slate-700/60 text-sky-100/60 hover:bg-slate-600 hover:text-sky-100'}`}
           >
             Tümü
           </button>
@@ -92,7 +92,7 @@ export default function BayiShipmentsPage() {
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${statusFilter === s ? 'bg-blue-600 text-white' : 'bg-slate-700/60 text-slate-300 hover:bg-slate-600'}`}
+              className={`px-3 py-2 rounded-lg text-sm font-black transition-all duration-300 min-h-[44px] ${statusFilter === s ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-blue-50 shadow-lg shadow-blue-500/20 scale-105' : 'bg-slate-700/60 text-sky-100/60 hover:bg-slate-600 hover:text-sky-100'}`}
             >
               {statusLabels[s] || s}
             </button>
@@ -106,14 +106,14 @@ export default function BayiShipmentsPage() {
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
         />
         <span className="text-slate-500 text-sm">–</span>
         <input
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
         />
       </div>
 
@@ -144,33 +144,32 @@ export default function BayiShipmentsPage() {
             >
               <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono font-medium text-white">{s.shipment_number}</span>
-                  <span className="text-slate-400 text-sm">{formatDate(s.shipment_date)}</span>
+                  <span className="font-mono font-black text-blue-100">{s.shipment_number}</span>
+                  <span className="text-blue-200/40 text-sm font-medium">{formatDate(s.shipment_date)}</span>
                 </div>
-                <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${
-                  s.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' :
+                <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${s.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' :
                   s.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
-                  s.status === 'in_transit' ? 'bg-amber-500/20 text-amber-400' :
-                  'bg-slate-500/20 text-slate-400'
-                }`}>
+                    s.status === 'in_transit' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-slate-500/20 text-slate-400'
+                  }`}>
                   {statusLabels[s.status] || s.status}
                 </span>
               </div>
               <div className="p-4">
-                <div className="flex flex-wrap gap-4 text-sm text-slate-300 mb-3">
-                  <span>Toplam adet: <strong className="text-white">{s.total_quantity ?? 0}</strong></span>
+                <div className="flex flex-wrap gap-4 text-sm text-blue-100/60 mb-3 font-medium">
+                  <span>Toplam adet: <strong className="text-blue-100">{s.total_quantity ?? 0}</strong></span>
                   {s.final_amount != null && (
-                    <span>Tutar: <strong className="text-white">{new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(s.final_amount)}</strong></span>
+                    <span>Tutar: <strong className="text-blue-200 font-bold">{new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(s.final_amount)}</strong></span>
                   )}
                 </div>
                 {s.items && s.items.length > 0 && (
                   <div className="rounded-lg bg-slate-900/50 p-3">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Kalemler</p>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1">Kalem Detayları</p>
                     <ul className="space-y-1">
                       {s.items.map((item, i) => (
-                        <li key={i} className="flex justify-between text-sm text-slate-300 gap-2">
-                          <span className="min-w-0 truncate">{item.product_name || item.product_sku || 'Ürün'}</span>
-                          <span className="shrink-0">{item.quantity} adet · {item.total_price != null ? new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(item.total_price) : '–'}</span>
+                        <li key={i} className="flex justify-between text-sm text-blue-100/80 gap-2 px-1">
+                          <span className="min-w-0 truncate font-medium">{item.product_name || item.product_sku || 'Ürün'}</span>
+                          <span className="shrink-0 font-bold">{item.quantity} adet · {item.total_price != null ? new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(item.total_price) : '–'}</span>
                         </li>
                       ))}
                     </ul>

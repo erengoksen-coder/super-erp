@@ -6,6 +6,7 @@ import './mobile-optimization.css'
 import './animations.css'
 import './performance.css'
 import './print.css'
+import './premium-ui.css'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/SidebarContext'
 import AuthGuard from '@/components/AuthGuard'
@@ -20,6 +21,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import SuppressHydrationWarnings from './suppress-hydration-warnings'
 import SimpleToaster from '@/components/SimpleToaster'
 import OfflineBanner from '@/components/OfflineBanner'
+import { CommandPalette } from '@/components/ui/CommandPalette'
+import AiChatbot from '@/components/ui/AiChatbot'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -36,8 +39,10 @@ export default function RootLayout({
   return (
     <html lang="tr" className="dark" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
+        <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
         <meta name="theme-color" content="#0b0f19" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="manifest" href="/manifest.json" />
@@ -53,6 +58,8 @@ export default function RootLayout({
                 <OfflineBanner />
                 <ScrollToTop />
                 <SimpleToaster />
+                <CommandPalette />
+                <AiChatbot />
                 <SidebarProvider>
                   <Sidebar />
                   <MainShell>
@@ -60,9 +67,9 @@ export default function RootLayout({
                   </MainShell>
                 </SidebarProvider>
               </AuthGuard>
-          </SWRProvider>
-        </I18nProvider>
-      </ThemeProvider>
+            </SWRProvider>
+          </I18nProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

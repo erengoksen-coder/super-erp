@@ -6,7 +6,10 @@ import { useRouter } from 'next/navigation'
 export default function BayiPortalPage() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/bayi/dashboard')
+    const t = setTimeout(() => {
+      router.replace('/bayi/dashboard')
+    }, 0)
+    return () => clearTimeout(t)
   }, [router])
   return (
     <div className="min-h-[200px] flex items-center justify-center">

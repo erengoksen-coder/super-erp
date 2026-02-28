@@ -1,0 +1,1 @@
+import Database from "better-sqlite3"; const db = new Database("super-erp.db"); console.log("Fixed:", db.prepare(`UPDATE notifications SET type="info" WHERE type NOT IN ("info","warning","success","error") OR type IS NULL`).run().changes);  

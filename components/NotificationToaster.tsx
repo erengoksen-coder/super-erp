@@ -3,12 +3,12 @@
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast as sonnerToast } from 'sonner'
-import { fetchApi } from '@/lib/api/client'
+import { safeFetch } from '@/lib/api/fetch'
 import { useAuthStore } from '@/lib/store/authStore'
 import { usePreferencesStore } from '@/lib/store/preferencesStore'
 import { playNotificationSound } from '@/lib/notify-sound'
 
-const POLL_INTERVAL_MS = 12_000
+const POLL_INTERVAL_MS = 18000
 
 type NotifItem = { id: string; title: string; message: string; reference_type?: string | null; reference_id?: string | null }
 
@@ -20,7 +20,7 @@ function getNotificationHref(refType: string | null | undefined, refId: string |
     case 'shipment':
       return refId ? `/shipments/${refId}` : '/shipments'
     case 'bayi_order':
-      return '/orders'
+      return refId ? `/orders?highlight=${encodeURIComponent(refId)}` : '/orders'
     default:
       return null
   }
@@ -38,7 +38,7 @@ export default function NotificationToaster() {
 
     const poll = async () => {
       try {
-        const list = await fetchApi<NotifItem[]>('/api/notifications')
+        const list = await safeFetch<NotifItem[]>('/api/notifications')
         if (!Array.isArray(list)) return
 
         for (const n of list) {

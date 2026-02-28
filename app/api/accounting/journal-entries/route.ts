@@ -12,9 +12,10 @@ export const GET = withAuth(async (request: NextRequest) => {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
+    const referenceId = searchParams.get('reference_id')
 
     const db = getDatabase()
-    
+
     let query = `
       SELECT 
         je.*,
@@ -23,10 +24,20 @@ export const GET = withAuth(async (request: NextRequest) => {
       LEFT JOIN journal_entry_lines jel ON je.id = jel.journal_entry_id
     `
     const params: any[] = []
+    const where: string[] = []
 
     if (startDate && endDate) {
-      query += ' WHERE date(je.entry_date) >= date(?) AND date(je.entry_date) <= date(?)'
+      where.push('date(je.entry_date) >= date(?) AND date(je.entry_date) <= date(?)')
       params.push(startDate, endDate)
+    }
+
+    if (referenceId) {
+      where.push('je.reference_id = ?')
+      params.push(referenceId)
+    }
+
+    if (where.length > 0) {
+      query += ' WHERE ' + where.join(' AND ')
     }
 
     query += ' GROUP BY je.id ORDER BY je.entry_date DESC, je.entry_number DESC'
@@ -40,7 +51,7 @@ export const GET = withAuth(async (request: NextRequest) => {
         message: error?.message,
         stack: error?.stack,
       })
-    } catch {}
+    } catch { }
     return fail(error.message, { status: 500 })
   }
 })
@@ -61,7 +72,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     }
 
     const entryId = await createJournalEntry(body)
-    
+
     return ok({ id: entryId }, { message: 'Yevmiye kaydı oluşturuldu', status: 201 })
   } catch (error: any) {
     try {
@@ -69,7 +80,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         message: error?.message,
         stack: error?.stack,
       })
-    } catch {}
+    } catch { }
     return fail(error.message, { status: 500 })
   }
 })

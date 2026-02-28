@@ -23,6 +23,7 @@ type PaymentRow = {
   account_code?: string | null
   invoice_number?: string | null
   invoice_final_amount?: number | null
+  created_by_name?: string | null
 }
 
 type PaymentCreateInput = {
@@ -39,7 +40,7 @@ type PaymentCreateInput = {
   notes?: string | null
 }
 
-// GET: �deme/tahsilatları listele
+// GET: Ödeme/tahsilatları listele
 export const GET = withAuth(async (request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
@@ -56,10 +57,12 @@ export const GET = withAuth(async (request: NextRequest) => {
         a.name as account_name,
         a.code as account_code,
         i.invoice_number,
-        i.final_amount as invoice_final_amount
+        i.final_amount as invoice_final_amount,
+        COALESCE(u.full_name, u.username) as created_by_name
       FROM payments p
       LEFT JOIN accounts a ON p.account_id = a.id
       LEFT JOIN invoices i ON p.invoice_id = i.id
+      LEFT JOIN users u ON p.created_by = u.id
       WHERE p.deleted_at IS NULL
     `
     const params: string[] = []
@@ -94,8 +97,8 @@ export const GET = withAuth(async (request: NextRequest) => {
   }
 })
 
-// POST: �deme/tahsilat oluştur ve cari hareketi yaz
-export const POST = withAuth(async (request: NextRequest) => {
+// POST: Ödeme/tahsilat oluştur ve cari hareketi yaz
+export const POST = withAuth(async (request: NextRequest, user) => {
   try {
     const body = await parseJsonBody(request) as PaymentCreateInput
     const {
@@ -150,13 +153,13 @@ export const POST = withAuth(async (request: NextRequest) => {
     const normalizedAmount = Number(amount)
     const transactionType = type === 'receipt' ? 'credit' : 'debit'
     const paymentDate = payment_date || new Date().toISOString()
-    const description = notes || (type === 'receipt' ? 'Tahsilat' : '�deme')
+    const description = notes || (type === 'receipt' ? 'Tahsilat' : 'Ödeme')
 
     db.transaction(() => {
       db.prepare(`
         INSERT INTO payments
-        (id, account_id, invoice_id, amount, payment_date, method, type, cash_box_id, bank_id, reference_type, reference_id, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, account_id, invoice_id, amount, payment_date, method, type, cash_box_id, bank_id, reference_type, reference_id, notes, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         paymentId,
         account_id,
@@ -169,7 +172,8 @@ export const POST = withAuth(async (request: NextRequest) => {
         bank_id || null,
         reference_type || null,
         reference_id || null,
-        notes || null
+        notes || null,
+        user?.userId ?? null
       )
 
       db.prepare(`
@@ -226,7 +230,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       }
     })()
 
-    return ok({ id: paymentId }, { status: 201, message: '�deme kaydedildi' })
+    return ok({ id: paymentId }, { status: 201, message: 'Ödeme kaydedildi' })
   } catch (error: any) {
     apiLogger.error('Payments API POST failed', { error: error?.message })
     return fail(error.message, { status: 500 })

@@ -45,9 +45,10 @@ export function setAuthCookies(
   accessToken: string,
   refreshToken: string,
   accessMaxAgeSeconds: number,
-  refreshMaxAgeSeconds: number
+  refreshMaxAgeSeconds: number,
+  options?: { isSecure?: boolean }
 ) {
-  const isSecure = process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true'
+  const isSecure = options?.isSecure ?? (process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true')
   
   // Set primary HttpOnly cookie with access token
   response.cookies.set(AUTH_COOKIE, accessToken, {

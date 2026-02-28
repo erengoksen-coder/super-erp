@@ -12,7 +12,7 @@ export type PermissionLike = Pick<Permission, 'page_path' | 'can_view'> & Partia
 /** Admin/yönetici rolü tüm menü ve API erişimine sahip; izin kontrolü atlanır. */
 export function isAdminRole(role: string | undefined | null): boolean {
   const r = (role ?? '').toString().trim().toLowerCase()
-  return r === 'admin' || r === 'yönetici' || r === 'yonetici'
+  return r === 'admin' || r === 'yönetici' || r === 'yonetici' || r === 'manager' || r === 'planlama'
 }
 
 export type PermissionAction = 'view' | 'create' | 'edit' | 'delete'

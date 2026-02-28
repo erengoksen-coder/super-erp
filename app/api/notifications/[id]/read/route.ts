@@ -16,7 +16,7 @@ export const PATCH = withAuth(async (request: NextRequest, user, context?: unkno
     if (!row) return fail('Bildirim bulunamadı', { status: 404 })
     if (row.user_id !== user.userId) return fail('Bu bildirimi okuma yetkiniz yok', { status: 403 })
 
-    db.prepare('UPDATE notifications SET read = 1, read_at = CURRENT_TIMESTAMP WHERE id = ?').run(id)
+    db.prepare('UPDATE notifications SET is_read = 1, read_at = CURRENT_TIMESTAMP WHERE id = ?').run(id)
     return ok(null, { message: 'Okundu olarak işaretlendi' })
   } catch (e: any) {
     return fail(e?.message || 'İşlem başarısız', { status: 500 })

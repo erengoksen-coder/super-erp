@@ -24,6 +24,19 @@ type PriceRow = {
   created_at?: string | null
 }
 
+const KAYNAK_ETIKETLERI: Record<string, string> = {
+  material_update: 'Malzeme güncelleme',
+  material_create: 'Malzeme oluşturma',
+  stock_in: 'Stok girişi',
+  purchase: 'Satın alma',
+}
+
+function kaynakEtiketi(sourceType: string | null | undefined): string {
+  if (!sourceType || !sourceType.trim()) return '-'
+  const key = sourceType.trim().toLowerCase()
+  return KAYNAK_ETIKETLERI[key] ?? sourceType
+}
+
 export default function MaterialPriceHistoryPage() {
   const [materials, setMaterials] = useState<Material[]>([])
   const [prices, setPrices] = useState<PriceRow[]>([])
@@ -159,7 +172,7 @@ export default function MaterialPriceHistoryPage() {
                         {Number(row.price).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
                       </TableCell>
                       <TableCell className="text-gray-300 text-xs px-4 py-2">
-                        {row.source_type || '-'}
+                        {kaynakEtiketi(row.source_type)}
                       </TableCell>
                     </TableRow>
                   ))}

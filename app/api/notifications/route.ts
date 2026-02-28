@@ -1,37 +1,71 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/database/db'
-import { verifyToken } from '@/lib/auth/jwt'
+import { randomUUID } from 'crypto'
+import { ok, fail } from '@/lib/api/response'
+import { withAuth } from '@/lib/api/withAuth'
 
-/** GET: Token yoksa veya geçersizse 401 yerine boş liste döner (konsol 401 hatası önlenir). */
-export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.replace('Bearer ', '').trim() : authHeader?.trim()
-  const cookieToken = request.cookies.get('auth-token')?.value || request.cookies.get('access_token')?.value
-  const token = headerToken || cookieToken
-
-  if (!token) {
-    return NextResponse.json([])
-  }
-
-  const payload = await verifyToken(token)
-  const userId = (payload as any)?.userId ?? (payload as any)?.sub
-  if (!userId) {
-    return NextResponse.json([])
-  }
-
+export const GET = withAuth(async (req: NextRequest, user) => {
   try {
     const db = getDatabase()
-    const list = db.prepare(`
-      SELECT id, user_id, title, message, type, reference_type, reference_id, read, created_at
-      FROM notifications
-      WHERE user_id = ?
-      ORDER BY created_at DESC
-      LIMIT 50
-    `).all(userId) as any[]
-    return NextResponse.json(list)
-  } catch (e: unknown) {
-    const { apiLogger } = await import('@/lib/api/logger')
-    apiLogger.error('Notifications GET failed', { error: e instanceof Error ? e.message : String(e) })
-    return NextResponse.json([])
+    const url = new URL(req.url)
+    // Eğer user_id parametresi gelmezse, mevcut oturumdaki kullanıcıyı kullan
+    const targetUserId = url.searchParams.get('user_id') || user.userId
+    const unreadOnly = url.searchParams.get('unread_only') === 'true'
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200)
+
+    let sql = `SELECT * FROM notifications WHERE user_id = ?`
+    const params: any[] = [targetUserId]
+
+    if (unreadOnly) {
+      sql += ` AND (is_read = 0 OR is_read IS NULL)`
+    }
+
+    sql += ` ORDER BY created_at DESC LIMIT ?`
+    params.push(limit)
+
+    const rows = db.prepare(sql).all(...params)
+
+    // Okunmamış sayısını da dönelim (opsiyonel ama kullanışlı)
+    const unread = db.prepare(`SELECT COUNT(*) as c FROM notifications WHERE user_id = ? AND (is_read = 0 OR is_read IS NULL)`).get(targetUserId) as any
+
+    return ok(rows, { meta: { total: rows.length }, unread_count: unread?.c || 0 } as any)
+  } catch (e: any) {
+    return fail(e.message || 'Bildirimler alınamadı')
   }
-}
+})
+
+export const POST = withAuth(async (req: NextRequest) => {
+  try {
+    const db = getDatabase()
+    const body = await req.json()
+    const id = randomUUID()
+    db.prepare(`INSERT INTO notifications (id, user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(id, body.user_id || null, body.title || 'Bildirim', body.message || '', body.type || 'info', body.link || null)
+    return ok({ id, message: 'Bildirim oluşturuldu' }, { status: 201 })
+  } catch (e: any) {
+    return fail(e.message || 'Bildirim oluşturulamadı')
+  }
+})
+
+export const PATCH = withAuth(async (req: NextRequest, user) => {
+  try {
+    const db = getDatabase()
+    const body = await req.json()
+
+    if (body.mark_all_read) {
+      db.prepare(`UPDATE notifications SET is_read = 1, read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND (is_read = 0 OR is_read IS NULL)`).run(user.userId)
+      return ok({ message: 'Tüm bildirimler okundu' })
+    }
+
+    if (body.id) {
+      // Sadece kendi bildirimini okundu işaretleyebilir
+      const result = db.prepare(`UPDATE notifications SET is_read = 1, read_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`).run(body.id, user.userId)
+      if (result.changes === 0) return fail('Bildirim bulunamadı veya yetki yok', { status: 404 })
+      return ok({ message: 'Bildirim okundu' })
+    }
+
+    return fail('id veya mark_all_read gerekli', { status: 400 })
+  } catch (e: any) {
+    return fail(e.message || 'İşlem başarısız')
+  }
+})

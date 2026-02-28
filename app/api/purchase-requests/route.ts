@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3'
 import { randomUUID } from 'crypto'
 import { logger } from '@/lib/utils/logger'
 import { userWantsNotification } from '@/lib/notifications/preferences'
+import { logAudit } from '@/lib/audit/logger'
 
 /** Admin, yönetici ve satın alma ile ilgili rol/unvanı olan kullanıcı ID'lerini döndürür (bildirim için). Tercih açık olanlar filtrelenir. */
 function getPurchaseNotificationUserIds(db: Database.Database): string[] {
@@ -74,13 +75,13 @@ export const GET = withAuth(async (request: NextRequest) => {
         message: error?.message,
         stack: error?.stack,
       })
-    } catch {}
+    } catch { }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 })
 
 // POST: Yeni satın alma talebi oluştur
-export const POST = withAuth(async (request: NextRequest) => {
+export const POST = withAuth(async (request: NextRequest, user: { userId: string; role: string }) => {
   try {
     const body = await parseJsonBody(request)
     const { material_id, requested_quantity, unit_price, supplier_name, notes } = body
@@ -105,7 +106,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const year = today.getFullYear()
     const month = String(today.getMonth() + 1).padStart(2, '0')
     const day = String(today.getDate()).padStart(2, '0')
-    
+
     // Bugünkü talep sayısını al
     const todayStr = `${year}${month}${day}`
     const todayCount = db.prepare(`
@@ -116,7 +117,7 @@ export const POST = withAuth(async (request: NextRequest) => {
 
     let sequence = (todayCount?.count || 0) + 1
     let requestNumber = `SAT-${todayStr}-${String(sequence).padStart(4, '0')}`
-    
+
     // Unique kontrolü - eşer varsa sequence artır
     let attempts = 0
     while (attempts < 100) {
@@ -138,7 +139,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       const title = 'Yeni satın alma talebi'
       const message = `${reqNumber} - ${materialName || 'Malzeme'} için satın alma talebi oluşturuldu.`
       const insertNotif = db.prepare(`
-        INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, read, created_at)
+        INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, is_read, created_at)
         VALUES (?, ?, ?, ?, 'info', 'purchase_request', ?, 0, ?)
       `)
       const now = new Date().toISOString()
@@ -156,6 +157,15 @@ export const POST = withAuth(async (request: NextRequest) => {
 
       const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ? AND deleted_at IS NULL').get(id) as any
       insertNotificationForPurchaseRequest(id, requestNumber, material?.name ?? '')
+      try {
+        logAudit({
+          table: 'purchase_requests',
+          recordId: id,
+          action: 'INSERT',
+          newData: { request_number: requestNumber, material_id, requested_quantity, status: 'draft' },
+          userId: user.userId,
+        })
+      } catch (_) { }
 
       return NextResponse.json({
         success: true,
@@ -167,7 +177,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       if (dbError.message && dbError.message.includes('UNIQUE')) {
         sequence++
         requestNumber = `SAT-${todayStr}-${String(sequence).padStart(4, '0')}`
-        
+
         db.prepare(`
           INSERT INTO purchase_requests 
           (id, request_number, material_id, requested_quantity, unit_price, total_amount, status, supplier_name, notes)
@@ -176,7 +186,15 @@ export const POST = withAuth(async (request: NextRequest) => {
 
         const request = db.prepare('SELECT * FROM purchase_requests WHERE id = ?').get(id) as any
         insertNotificationForPurchaseRequest(id, requestNumber, material?.name ?? '')
-
+        try {
+          logAudit({
+            table: 'purchase_requests',
+            recordId: id,
+            action: 'INSERT',
+            newData: { request_number: requestNumber, material_id, requested_quantity, status: 'draft' },
+            userId: user.userId,
+          })
+        } catch (_) { }
         return NextResponse.json({
           success: true,
           request,

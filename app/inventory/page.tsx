@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { useRouter } from 'next/navigation'
-import { 
-  Package, 
-  Factory, 
-  Search, 
-  Filter, 
-  Grid, 
-  List, 
+import {
+  Package,
+  Factory,
+  Search,
+  Filter,
+  Grid,
+  List,
   Plus,
   AlertTriangle,
   TrendingUp,
@@ -28,15 +28,18 @@ import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
+import { DataTable, EditableCell } from '@/components/ui/DataTable'
+import { ColumnDef } from '@tanstack/react-table'
+import React from 'react'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { cn } from '@/lib/cn'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 
 // Barkod ve QR Kod Component
-function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip, onDelete, isAlreadyShipped }: { 
-  barcode: string; 
-  serialNumber: string; 
-  barcodeId: string; 
+function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrintLabel, onShip, onDelete, isAlreadyShipped }: {
+  barcode: string;
+  serialNumber: string;
+  barcodeId: string;
   entryDate: string;
   onPrintLabel: () => void;
   onShip: () => void;
@@ -51,19 +54,19 @@ function BarcodeAndQRCode({ barcode, serialNumber, barcodeId, entryDate, onPrint
     if (canvasRef.current && typeof window !== 'undefined' && !barcodeLoaded) {
       const canvas = canvasRef.current
       const barcodeValue = barcode.replace(/[^0-9]/g, '') || barcode
-      
+
       import('jsbarcode').then((JsBarcodeModule) => {
         const JsBarcode = JsBarcodeModule.default || JsBarcodeModule
-        
+
         canvas.width = 200
         canvas.height = 50
-        
+
         const ctx = canvas.getContext('2d')
         if (ctx) {
           ctx.fillStyle = '#ffffff'
           ctx.fillRect(0, 0, canvas.width, canvas.height)
         }
-        
+
         try {
           const options = {
             width: 1,
@@ -226,12 +229,12 @@ export function InventoryPage() {
     }
 
     const trimmedName = dealerName.trim()
-    
+
     // Önce accounts listesinde ara
-    const existingAccount = accounts.find(acc => 
+    const existingAccount = accounts.find(acc =>
       acc.name && acc.name.trim().toLowerCase() === trimmedName.toLowerCase()
     )
-    
+
     if (existingAccount) {
       return existingAccount.id
     }
@@ -240,10 +243,10 @@ export function InventoryPage() {
     try {
       // Önce accounts API'sinden tüm müşterileri al
       const allAccounts = await fetchApi('/api/accounts?type=customer')
-      const foundAccount = Array.isArray(allAccounts) 
+      const foundAccount = Array.isArray(allAccounts)
         ? allAccounts.find((acc: any) => acc.name && acc.name.trim().toLowerCase() === trimmedName.toLowerCase())
         : null
-      
+
       if (foundAccount) {
         setAccounts(prev => [...prev, foundAccount])
         return foundAccount.id
@@ -317,11 +320,11 @@ export function InventoryPage() {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       // Eğer tıklanan alan boşluk veya card dışındaysa sekmeyi kapat
-      if (target.classList.contains('space-y-4') || 
-          (target.tagName === 'DIV' && !target.closest('.bg-gray-800') && 
-           !target.closest('.cursor-pointer') && 
-           !target.closest('button') &&
-           !target.closest('input'))) {
+      if (target.classList.contains('space-y-4') ||
+        (target.tagName === 'DIV' && !target.closest('.bg-gray-800') &&
+          !target.closest('.cursor-pointer') &&
+          !target.closest('button') &&
+          !target.closest('input'))) {
         setSelectedDealerTab('all')
       }
     }
@@ -334,13 +337,13 @@ export function InventoryPage() {
   const categories = [...new Set(currentItems.map(item => item.category).filter(Boolean))]
 
   const filteredItems = currentItems.filter(item => {
-    const matchesSearch = !searchTerm || 
+    const matchesSearch = !searchTerm ||
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item as any).code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item as any).sku?.toLowerCase().includes(searchTerm.toLowerCase())
-    
+
     const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory
-    
+
     return matchesSearch && matchesCategory
   })
 
@@ -367,12 +370,128 @@ export function InventoryPage() {
     }
   }
 
+  const handleInlineEdit = async (originalRow: MaterialItem | ProductItem, columnId: string, newValue: any): Promise<boolean> => {
+    try {
+      const isMaterial = activeTab === 'materials'
+      const url = isMaterial ? `/api/materials/${originalRow.id}` : `/api/products/${originalRow.id}`
+
+      const payload: any = { ...originalRow }
+
+      // Haritalama: Tablodaki alan isimleri veritabanı ile eşleşmeli  
+      if (columnId === 'name') payload.name = newValue
+      else if (columnId === 'code_sku') {
+        if (isMaterial) payload.code = newValue
+        else payload.sku = newValue
+      }
+      else if (columnId === 'stock_amount') payload.stock_amount = Number(newValue)
+      else if (columnId === 'min_stock_level') payload.min_stock_level = Number(newValue)
+
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error?.error || 'Güncelleme başarısız')
+      }
+
+      toast.success('Hücre güncellendi')
+
+      // Update local state directly so the table re-renders instantly
+      if (isMaterial) {
+        setMaterials(prev => prev.map(m => m.id === originalRow.id ? { ...m, ...payload } : m))
+      } else {
+        setProducts(prev => prev.map(p => p.id === originalRow.id ? { ...p, ...payload } : p))
+      }
+      return true
+    } catch (err: any) {
+      toast.error(err.message || 'Hücre kaydedilemedi')
+      return false
+    }
+  }
+
+  // TanStack columns definition for List View
+  const listColumns = React.useMemo<ColumnDef<MaterialItem | ProductItem>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: activeTab === 'materials' ? 'Hammadde Adı' : 'Mamül Adı',
+      cell: EditableCell,
+    },
+    {
+      id: 'code_sku',
+      header: 'Kod/SKU',
+      accessorFn: (row: any) => row.code || row.sku || '',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'stock_amount',
+      header: 'Stok',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'min_stock_level',
+      header: 'Min. Stok',
+      cell: EditableCell,
+    },
+    {
+      id: 'status',
+      header: 'Durum',
+      cell: ({ row }: { row: { original: any } }) => {
+        const item = row.original
+        return (
+          <Badge
+            size="sm"
+            variant={item.critical_stock ? 'solid' : 'soft'}
+            color={item.critical_stock ? 'error' : 'success'}
+          >
+            {item.critical_stock ? 'Kritik' : 'Güvende'}
+          </Badge>
+        )
+      }
+    },
+    {
+      id: 'actions',
+      header: 'İşlemler',
+      cell: ({ row }: { row: { original: any } }) => {
+        const item = row.original
+        return (
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30"
+              onClick={(e) => {
+                e.stopPropagation()
+                router.push(`/inventory/${activeTab}/${item.id}`)
+              }}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/30"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDeleteItem(item, activeTab)
+              }}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        )
+      }
+    }
+  ], [activeTab])
+
   const InventoryCard = ({ item, type }: { item: MaterialItem | ProductItem, type: InventoryType }) => {
     const isMaterial = type === 'materials'
     const code = isMaterial ? (item as MaterialItem).code : (item as ProductItem).sku
     const price = isMaterial ? (item as MaterialItem).average_price : (item as ProductItem).cost_price
     const isExpanded = expandedItemId === item.id
-    
+
     return (
       <Card
         className={cn(
@@ -524,10 +643,10 @@ export function InventoryPage() {
       actions={
         <>
           {canExport && (
-          <Button variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" />
-            Excel İndir
-          </Button>
+            <Button variant="outline" size="sm">
+              <Download className="w-4 h-4 mr-2" />
+              Excel İndir
+            </Button>
           )}
           {activeTab === 'products' && (
             <Button
@@ -676,13 +795,13 @@ export function InventoryPage() {
 
       {/* Mamül Depo - Sipariş Kartları Görünümü */}
       {activeTab === 'products' ? (
-        <div 
+        <div
           className="space-y-4"
           onClick={(e) => {
             const target = e.target as HTMLElement
             // Boşluğa veya card dışına tıklandığında sekmeleri kapat
-            if (target.classList.contains('space-y-4') || 
-                (target.tagName === 'DIV' && !target.closest('.bg-gray-800') && !target.closest('.filter-dropdown-container') && !target.closest('.cursor-pointer'))) {
+            if (target.classList.contains('space-y-4') ||
+              (target.tagName === 'DIV' && !target.closest('.bg-gray-800') && !target.closest('.filter-dropdown-container') && !target.closest('.cursor-pointer'))) {
               setSelectedDealerTab('all')
             }
           }}
@@ -695,14 +814,14 @@ export function InventoryPage() {
               </CardBody>
             </Card>
           ) : (() => {
-            console.log('Rendering products tab:', { 
-              loading, 
-              warehouseItemsLength: warehouseItems.length, 
+            console.log('Rendering products tab:', {
+              loading,
+              warehouseItemsLength: warehouseItems.length,
               productsLength: products.length,
               warehouseItems: warehouseItems.slice(0, 3), // İlk 3 item'ı göster
-              activeTab 
+              activeTab
             })
-            
+
             // Ürünleri filtrele
             const filteredItems = warehouseItems.filter((item) => {
               if (!searchTerm) return true
@@ -732,317 +851,317 @@ export function InventoryPage() {
             const dealerNames = Object.keys(dealerGroups).sort()
 
             return filteredItems.length === 0 ? (
-            <Card>
-              <CardBody className="p-12 text-center">
-                <div className="text-gray-500">
-                  {searchTerm ? `"${searchTerm}" araması için sonuç bulunamadı.` : 'Mamül depoda ürün bulunmamaktadır.'}
-                </div>
-              </CardBody>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {/* Arama Sonuç Bilgisi */}
-              {searchTerm && (
+              <Card>
+                <CardBody className="p-12 text-center">
+                  <div className="text-gray-500">
+                    {searchTerm ? `"${searchTerm}" araması için sonuç bulunamadı.` : 'Mamül depoda ürün bulunmamaktadır.'}
+                  </div>
+                </CardBody>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {/* Arama Sonuç Bilgisi */}
+                {searchTerm && (
+                  <Card>
+                    <CardBody className="p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-gray-600">
+                          <span className="font-semibold">"{searchTerm}"</span> araması için <span className="font-semibold text-blue-600">{filteredItems.length}</span> adet mamül bulundu.
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          Toplam: <span className="font-semibold">{filteredItems.length} adet</span>
+                        </div>
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+
+                {/* CARİ ADI Sekmeleri */}
                 <Card>
                   <CardBody className="p-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm text-gray-600">
-                        <span className="font-semibold">"{searchTerm}"</span> araması için <span className="font-semibold text-blue-600">{filteredItems.length}</span> adet mamül bulundu.
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        Toplam: <span className="font-semibold">{filteredItems.length} adet</span>
-                      </div>
-                    </div>
-                  </CardBody>
-                </Card>
-              )}
-              
-              {/* CARİ ADI Sekmeleri */}
-              <Card>
-                <CardBody className="p-3">
-                  <div className="flex items-center justify-between">
-                    <div 
-                      className="flex items-center space-x-2 flex-wrap gap-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Badge
-                        variant={selectedDealerTab === 'all' ? 'solid' : 'outline'}
-                        color="primary"
-                        className="cursor-pointer"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedDealerTab('all')
-                        }}
+                      <div
+                        className="flex items-center space-x-2 flex-wrap gap-2"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        Tümü ({filteredItems.length})
-                      </Badge>
-                      {dealerNames.map((dealerName) => (
                         <Badge
-                          key={dealerName}
-                          variant={selectedDealerTab === dealerName ? 'solid' : 'outline'}
+                          variant={selectedDealerTab === 'all' ? 'solid' : 'outline'}
                           color="primary"
                           className="cursor-pointer"
                           onClick={(e) => {
                             e.stopPropagation()
-                            // Eğer zaten seçiliyse boş yap (hiçbir şey gösterme), değilse aç
-                            setSelectedDealerTab(selectedDealerTab === dealerName ? '' : dealerName)
+                            setSelectedDealerTab('all')
                           }}
                         >
-                          {dealerName} ({dealerGroups[dealerName].length})
+                          Tümü ({filteredItems.length})
                         </Badge>
-                      ))}
-                    </div>
-                    {/* CARİ sekmesi seçiliyse tüm mamülleri sevk et butonu */}
-                    {selectedDealerTab !== 'all' && selectedDealerTab !== '' && dealerGroups[selectedDealerTab] && (
-                      <Button
-                        variant="solid"
-                        color="success"
-                        size="sm"
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          try {
-                            const items = dealerGroups[selectedDealerTab]
-                            if (!items || items.length === 0) {
-                              toast.warning('Bu cariye ait mamül bulunamadı')
-                              return
-                            }
-                            
-                            if (!confirm(`${items.length} adet mamülü sevk edilebilir olarak işaretlemek istediğinize emin misiniz?`)) {
-                              return
-                            }
-
-                            let successCount = 0
-                            let errorCount = 0
-                            const errors: string[] = []
-
-                            for (const item of items) {
-                              try {
-                                let targetCustomerId = item.customer_id
-                                
-                                if (!targetCustomerId && item.dealer_name) {
-                                  targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
-                                }
-                                
-                                if (!item.barcode) {
-                                  errorCount++
-                                  errors.push(`${item.product_name || 'Ürün'}: Barkod bulunamadı`)
-                                  continue
-                                }
-                                
-                                // fetchApi başarılıysa data döndürür, hata varsa exception fırlatır
-                                await fetchApi('/api/shipments/ready-items', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    barcode: item.barcode,
-                                    customer_id: targetCustomerId,
-                                    ready: true
-                                  })
-                                })
-                                
-                                // Başarılı (exception fırlatılmadıysa)
-                                successCount++
-                              } catch (error: any) {
-                                console.error(`Sevk et hatası (${item.barcode || 'Bilinmeyen'}):`, error)
-                                errorCount++
-                                const errorMsg = error?.message || 'Bilinmeyen hata'
-                                errors.push(`${item.barcode || item.product_name || 'Ürün'}: ${errorMsg}`)
+                        {dealerNames.map((dealerName) => (
+                          <Badge
+                            key={dealerName}
+                            variant={selectedDealerTab === dealerName ? 'solid' : 'outline'}
+                            color="primary"
+                            className="cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              // Eğer zaten seçiliyse boş yap (hiçbir şey gösterme), değilse aç
+                              setSelectedDealerTab(selectedDealerTab === dealerName ? '' : dealerName)
+                            }}
+                          >
+                            {dealerName} ({dealerGroups[dealerName].length})
+                          </Badge>
+                        ))}
+                      </div>
+                      {/* CARİ sekmesi seçiliyse tüm mamülleri sevk et butonu */}
+                      {selectedDealerTab !== 'all' && selectedDealerTab !== '' && dealerGroups[selectedDealerTab] && (
+                        <Button
+                          variant="solid"
+                          color="success"
+                          size="sm"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            try {
+                              const items = dealerGroups[selectedDealerTab]
+                              if (!items || items.length === 0) {
+                                toast.warning('Bu cariye ait mamül bulunamadı')
+                                return
                               }
-                            }
 
-                            if (successCount > 0) {
-                              setShipSuccessMessage(
-                                `${successCount} adet mamül sevk edilebilir olarak işaretlendi.${errorCount > 0 ? ` ${errorCount} adet mamülde hata oluştu.` : ''} Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.`
-                              )
-                              loadInventory()
-                            } else {
-                              toast.error(`Hata: Hiçbir mamül sevk edilebilir olarak işaretlenemedi. Hatalar: ${errors.slice(0, 3).join(', ')}`)
-                            }
-                          } catch (error: unknown) {
-                            console.error('Toplu sevk et hatası:', error)
-                            toast.error('Hata: ' + (error instanceof Error ? error.message : 'Toplu sevk işlemi sırasında bir hata oluştu'))
-                          }
-                        }}
-                        className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white"
-                      >
-                        <Truck className="w-4 h-4" />
-                        <span>Tümünü Sevk Et ({dealerGroups[selectedDealerTab]?.length || 0})</span>
-                      </Button>
-                    )}
-                  </div>
-                </CardBody>
-              </Card>
+                              if (!confirm(`${items.length} adet mamülü sevk edilebilir olarak işaretlemek istediğinize emin misiniz?`)) {
+                                return
+                              }
 
-              {/* Seçili CARİ ADI'na göre ürünleri göster */}
-              {selectedDealerTab !== '' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(selectedDealerTab === 'all' ? filteredItems : dealerGroups[selectedDealerTab] || [])
-                    .map((item) => {
-                const notesText = item.order_notes || ''
-                const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
-                const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
-                const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
-                const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
-                const cleanedNotes = notesText
-                  .replace(/Kumaş:\s*[^|]+/gi, '')
-                  .replace(/Kasa:\s*[^|]+/gi, '')
-                  .replace(/Ayak:\s*[^|]+/gi, '')
-                  .replace(/Birim:\s*[^|]+/gi, '')
-                  .replace(/\|\s*\|\s*/g, '|')
-                  .replace(/^\|\s*|\s*\|$/g, '')
-                  .trim()
-                const quantityUnit = (unitMatch?.[1] || 'ADET').toString().trim()
+                              let successCount = 0
+                              let errorCount = 0
+                              const errors: string[] = []
 
-                return (
-                  <div
-                    key={item.barcode_id}
-                    className="bg-gray-800 rounded-lg p-2 border border-gray-700 overflow-hidden min-w-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 min-w-0">
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
-                        <div className="text-white text-sm truncate" title={item.dealer_name || '-'}>{item.dealer_name || '-'}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
-                        <div className="text-white text-sm truncate" title={item.product_name || '-'}>{item.product_name || '-'}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
-                        <div className="text-white text-sm truncate" title={item.configuration || '-'}>{item.configuration || '-'}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">Durum</div>
-                        <div>
-                          <span className="inline-block px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700 whitespace-nowrap">
-                            Mamül Depoda
-                          </span>
-                        </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
-                        <div className="text-white text-sm truncate" title={item.production_order_number || '-'}>{item.production_order_number || '-'}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
-                        <div className="text-white text-sm truncate" title={item.customer_name || '-'}>{item.customer_name || '-'}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
-                        <div className="text-white text-sm truncate" title={fabricMatch ? fabricMatch[1].trim() : '-'}>
-                          {fabricMatch ? fabricMatch[1].trim() : '-'}
-                        </div>
-                      </div>
-                      <div className="min-w-0 md:col-span-1">
-                        <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
-                        <div className="text-white text-sm break-words overflow-hidden max-h-9" title={cleanedNotes || '-'}>
-                          {cleanedNotes || '-'}
-                        </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
-                        <div className="text-white text-sm">1 {quantityUnit}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">KASA</div>
-                        <div className="text-white text-sm truncate" title={caseMatch ? caseMatch[1].trim() : '-'}>
-                          {caseMatch ? caseMatch[1].trim() : '-'}
-                        </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
-                        <div className="text-white text-sm">
-                          {formatDate(item.order_date)}
-                        </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-400 mb-1">AYAK</div>
-                        <div className="text-white text-sm truncate" title={legMatch ? legMatch[1].trim() : '-'}>
-                          {legMatch ? legMatch[1].trim() : '-'}
-                        </div>
-                      </div>
-                    </div>
+                              for (const item of items) {
+                                try {
+                                  let targetCustomerId = item.customer_id
 
-                    {/* Barkod ve QR Kod */}
-                    {item.barcode && (
-                      <BarcodeAndQRCode 
-                        barcode={item.barcode} 
-                        serialNumber={item.serial_number || ''}
-                        barcodeId={item.barcode_id}
-                        entryDate={formatDateTime(item.production_order_completed_at || item.barcode_created_at)}
-                        isAlreadyShipped={!!(item.shipment_id && String(item.shipment_id).trim())}
-                        onPrintLabel={() => {
-                          window.open(`/inventory/products/print-barcode-label?barcodeId=${item.barcode}`, '_blank')
-                        }}
-                        onDelete={async () => {
-                          if (!confirm('Bu mamülü depodan silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
-                          try {
-                            await fetchApi(`/api/inventory/products/warehouse?barcode_id=${encodeURIComponent(item.barcode_id)}`, { method: 'DELETE' })
-                            toast.success('Mamül depodan silindi.')
-                            loadInventory()
-                          } catch (err: any) {
-                            toast.error('Hata: ' + (err instanceof Error ? err.message : 'Silinemedi'))
-                          }
-                        }}
-                        onShip={async () => {
-                          try {
-                            // Önce customer_id varsa onu kullan
-                            let targetCustomerId = item.customer_id
-                            
-                            // Eğer customer_id yoksa ama dealer_name varsa, bayi adından account bul veya oluştur
-                            if (!targetCustomerId && item.dealer_name) {
-                              targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
+                                  if (!targetCustomerId && item.dealer_name) {
+                                    targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
+                                  }
+
+                                  if (!item.barcode) {
+                                    errorCount++
+                                    errors.push(`${item.product_name || 'Ürün'}: Barkod bulunamadı`)
+                                    continue
+                                  }
+
+                                  // fetchApi başarılıysa data döndürür, hata varsa exception fırlatır
+                                  await fetchApi('/api/shipments/ready-items', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      barcode: item.barcode,
+                                      customer_id: targetCustomerId,
+                                      ready: true
+                                    })
+                                  })
+
+                                  // Başarılı (exception fırlatılmadıysa)
+                                  successCount++
+                                } catch (error: any) {
+                                  console.error(`Sevk et hatası (${item.barcode || 'Bilinmeyen'}):`, error)
+                                  errorCount++
+                                  const errorMsg = error?.message || 'Bilinmeyen hata'
+                                  errors.push(`${item.barcode || item.product_name || 'Ürün'}: ${errorMsg}`)
+                                }
+                              }
+
+                              if (successCount > 0) {
+                                setShipSuccessMessage(
+                                  `${successCount} adet mamül sevk edilebilir olarak işaretlendi.${errorCount > 0 ? ` ${errorCount} adet mamülde hata oluştu.` : ''} Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.`
+                                )
+                                loadInventory()
+                              } else {
+                                toast.error(`Hata: Hiçbir mamül sevk edilebilir olarak işaretlenemedi. Hatalar: ${errors.slice(0, 3).join(', ')}`)
+                              }
+                            } catch (error: unknown) {
+                              console.error('Toplu sevk et hatası:', error)
+                              toast.error('Hata: ' + (error instanceof Error ? error.message : 'Toplu sevk işlemi sırasında bir hata oluştu'))
                             }
-                            
-                            // Ürünü sevk edilebilir olarak işaretle (barkod otomatik okunmuş olarak eklenmez)
-                            if (item.barcode) {
-                              await fetchApi('/api/shipments/ready-items', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  barcode: item.barcode,
-                                  customer_id: targetCustomerId,
-                                  ready: true
-                                })
-                              })
-                              
-                              setShipSuccessMessage('Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.')
-                              
-                              // Sayfayı yenile (sevk edilebilir ürünler listesini güncellemek için)
-                              loadInventory()
-                            }
-                          } catch (error: any) {
-                            console.error('Sevk et hatası:', error)
-                            toast.error('Hata: ' + (error instanceof Error ? error.message : 'Sevk edilebilir olarak işaretlenirken bir hata oluştu'))
-                          }
-                        }}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-                </div>
-              )}
-              {selectedDealerTab === '' && (
-                <Card>
-                  <CardBody className="p-12 text-center">
-                    <div className="text-gray-500">
-                      Bir CARİ seçin veya "Tümü"ne tıklayın.
+                          }}
+                          className="flex items-center justify-center space-x-2 !bg-green-600 hover:!bg-green-700 !text-white"
+                        >
+                          <Truck className="w-4 h-4" />
+                          <span>Tümünü Sevk Et ({dealerGroups[selectedDealerTab]?.length || 0})</span>
+                        </Button>
+                      )}
                     </div>
                   </CardBody>
                 </Card>
-              )}
-            </div>
-          )
+
+                {/* Seçili CARİ ADI'na göre ürünleri göster */}
+                {selectedDealerTab !== '' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(selectedDealerTab === 'all' ? filteredItems : dealerGroups[selectedDealerTab] || [])
+                      .map((item) => {
+                        const notesText = item.order_notes || ''
+                        const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
+                        const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
+                        const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
+                        const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
+                        const cleanedNotes = notesText
+                          .replace(/Kumaş:\s*[^|]+/gi, '')
+                          .replace(/Kasa:\s*[^|]+/gi, '')
+                          .replace(/Ayak:\s*[^|]+/gi, '')
+                          .replace(/Birim:\s*[^|]+/gi, '')
+                          .replace(/\|\s*\|\s*/g, '|')
+                          .replace(/^\|\s*|\s*\|$/g, '')
+                          .trim()
+                        const quantityUnit = (unitMatch?.[1] || 'ADET').toString().trim()
+
+                        return (
+                          <div
+                            key={item.barcode_id}
+                            className="bg-gray-800 rounded-lg p-2 border border-gray-700 overflow-hidden min-w-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 min-w-0">
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">CARİ ADI</div>
+                                <div className="text-white text-sm truncate" title={item.dealer_name || '-'}>{item.dealer_name || '-'}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div>
+                                <div className="text-white text-sm truncate" title={item.product_name || '-'}>{item.product_name || '-'}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div>
+                                <div className="text-white text-sm truncate" title={item.configuration || '-'}>{item.configuration || '-'}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">Durum</div>
+                                <div>
+                                  <span className="inline-block px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700 whitespace-nowrap">
+                                    Mamül Depoda
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">Üretim Emri</div>
+                                <div className="text-white text-sm truncate" title={item.production_order_number || '-'}>{item.production_order_number || '-'}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div>
+                                <div className="text-white text-sm truncate" title={item.customer_name || '-'}>{item.customer_name || '-'}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div>
+                                <div className="text-white text-sm truncate" title={fabricMatch ? fabricMatch[1].trim() : '-'}>
+                                  {fabricMatch ? fabricMatch[1].trim() : '-'}
+                                </div>
+                              </div>
+                              <div className="min-w-0 md:col-span-1">
+                                <div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div>
+                                <div className="text-white text-sm break-words overflow-hidden max-h-9" title={cleanedNotes || '-'}>
+                                  {cleanedNotes || '-'}
+                                </div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div>
+                                <div className="text-white text-sm">1 {quantityUnit}</div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">KASA</div>
+                                <div className="text-white text-sm truncate" title={caseMatch ? caseMatch[1].trim() : '-'}>
+                                  {caseMatch ? caseMatch[1].trim() : '-'}
+                                </div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">SİP TRH</div>
+                                <div className="text-white text-sm">
+                                  {formatDate(item.order_date)}
+                                </div>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs text-gray-400 mb-1">AYAK</div>
+                                <div className="text-white text-sm truncate" title={legMatch ? legMatch[1].trim() : '-'}>
+                                  {legMatch ? legMatch[1].trim() : '-'}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Barkod ve QR Kod */}
+                            {item.barcode && (
+                              <BarcodeAndQRCode
+                                barcode={item.barcode}
+                                serialNumber={item.serial_number || ''}
+                                barcodeId={item.barcode_id}
+                                entryDate={formatDateTime(item.production_order_completed_at || item.barcode_created_at)}
+                                isAlreadyShipped={!!(item.shipment_id && String(item.shipment_id).trim())}
+                                onPrintLabel={() => {
+                                  window.open(`/inventory/products/print-barcode-label?barcodeId=${item.barcode}`, '_blank')
+                                }}
+                                onDelete={async () => {
+                                  if (!confirm('Bu mamülü depodan silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return
+                                  try {
+                                    await fetchApi(`/api/inventory/products/warehouse?barcode_id=${encodeURIComponent(item.barcode_id)}`, { method: 'DELETE' })
+                                    toast.success('Mamül depodan silindi.')
+                                    loadInventory()
+                                  } catch (err: any) {
+                                    toast.error('Hata: ' + (err instanceof Error ? err.message : 'Silinemedi'))
+                                  }
+                                }}
+                                onShip={async () => {
+                                  try {
+                                    // Önce customer_id varsa onu kullan
+                                    let targetCustomerId = item.customer_id
+
+                                    // Eğer customer_id yoksa ama dealer_name varsa, bayi adından account bul veya oluştur
+                                    if (!targetCustomerId && item.dealer_name) {
+                                      targetCustomerId = await findOrCreateAccountByDealerName(item.dealer_name)
+                                    }
+
+                                    // Ürünü sevk edilebilir olarak işaretle (barkod otomatik okunmuş olarak eklenmez)
+                                    if (item.barcode) {
+                                      await fetchApi('/api/shipments/ready-items', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          barcode: item.barcode,
+                                          customer_id: targetCustomerId,
+                                          ready: true
+                                        })
+                                      })
+
+                                      setShipSuccessMessage('Sevkiyat sayfasından sevk fişi oluşturabilirsiniz.')
+
+                                      // Sayfayı yenile (sevk edilebilir ürünler listesini güncellemek için)
+                                      loadInventory()
+                                    }
+                                  } catch (error: any) {
+                                    console.error('Sevk et hatası:', error)
+                                    toast.error('Hata: ' + (error instanceof Error ? error.message : 'Sevk edilebilir olarak işaretlenirken bir hata oluştu'))
+                                  }
+                                }}
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+                {selectedDealerTab === '' && (
+                  <Card>
+                    <CardBody className="p-12 text-center">
+                      <div className="text-gray-500">
+                        Bir CARİ seçin veya "Tümü"ne tıklayın.
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+              </div>
+            )
           })()}
         </div>
       ) : filteredItems.length === 0 ? (
         <Card>
           <CardBody className="p-12 text-center">
             <div className="text-gray-500">
-              {searchTerm || selectedCategory !== 'all' 
+              {searchTerm || selectedCategory !== 'all'
                 ? 'Arama kriterlerinize uygun stok bulunamadı'
                 : `Henüz ${activeTab === 'materials' ? 'hammadde' : 'mamül'} bulunmamaktadır`
               }
@@ -1052,90 +1171,21 @@ export function InventoryPage() {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredItems.map((item) => (
-            <InventoryCard 
-              key={item.id} 
-              item={item} 
+            <InventoryCard
+              key={item.id}
+              item={item}
               type={activeTab}
             />
           ))}
         </div>
       ) : (
         <Card>
-          <CardBody>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead>
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {activeTab === 'materials' ? 'Hammadde' : 'Mamül'}
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Kod/SKU
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Stok
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Min. Stok
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Durum
-                    </th>
-                    <th className="relative px-6 py-3">
-                      <span className="sr-only">İşlemler</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredItems.map((item) => (
-                    <tr 
-                      key={item.id}
-                      className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => router.push(`/inventory/${activeTab}/${item.id}`)}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {item.name}
-                        </div>
-                        {item.category && (
-                          <div className="text-xs text-gray-500">{item.category}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {(item as any).code || (item as any).sku || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {item.stock_amount} {item.unit}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.min_stock_level} {item.unit}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge
-                          size="sm"
-                          variant={item.critical_stock ? 'solid' : 'soft'}
-                          color={item.critical_stock ? 'error' : 'success'}
-                        >
-                          {item.critical_stock ? 'Kritik' : 'Güvende'}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            // Handle actions
-                          }}
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <CardBody className="p-0">
+            <DataTable
+              columns={listColumns}
+              data={filteredItems}
+              onRowEdit={handleInlineEdit}
+            />
           </CardBody>
         </Card>
       )}

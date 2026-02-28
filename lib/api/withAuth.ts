@@ -23,9 +23,9 @@ export const withAuth = <TContext = unknown>(
     try {
       // FormData request'leri için özel işlem - body'yi okumadan önce auth kontrolü yap
       const contentType = req.headers.get('content-type') || ''
-      const isFormData = contentType.toLowerCase().includes('multipart/form-data') || 
-                         contentType.includes('boundary')
-      
+      const isFormData = contentType.toLowerCase().includes('multipart/form-data') ||
+        contentType.includes('boundary')
+
       // Auth kontrolü (body okumadan önce)
       const authHeader = req.headers.get('authorization')
       const headerToken = authHeader?.startsWith('Bearer ')
@@ -43,6 +43,25 @@ export const withAuth = <TContext = unknown>(
         return NextResponse.json({ error: 'Geçersiz token' }, { status: 401, headers: { 'Content-Type': 'application/json' } })
       }
 
+      // === TEK OTURUM KONTROLÜ ===
+      // JWT içinde sessionToken varsa DB'deki aktif oturumla karşılaştır.
+      // Kullanıcı başka bir yerden giriş yapmışsa active_session_token güncellenir
+      // ve bu JWT geçersiz hale gelir → 401 döndür.
+      if (payload.sessionToken) {
+        try {
+          const db = getDatabase()
+          const userRow = db.prepare(`SELECT active_session_token FROM users WHERE id = ?`).get(payload.userId) as { active_session_token: string | null } | undefined
+          if (!userRow || userRow.active_session_token !== payload.sessionToken) {
+            return NextResponse.json(
+              { error: 'Oturum sonlandırıldı. Başka bir cihaz/tarayıcıdan giriş yapıldı.', code: 'SESSION_DISPLACED' },
+              { status: 401, headers: { 'Content-Type': 'application/json' } }
+            )
+          }
+        } catch {
+          // DB hatası durumunda devam et (sıkı olmayan fallback)
+        }
+      }
+
       if (allowedRoles && allowedRoles.length > 0) {
         const normalizedRoles = allowedRoles.map((role) => normalizeRole(role))
         const normalizedRole = normalizeRole(payload.role)
@@ -56,17 +75,17 @@ export const withAuth = <TContext = unknown>(
       let response: Response
       try {
         response = await handler(req, { userId: payload.userId, role: payload.role }, context)
-        
+
         // Response'un geçerli olup olmadığını kontrol et
         // NextResponse, Response'un bir alt sınıfıdır, bu yüzden instanceof Response kontrolü yeterli
         if (!response) {
           console.error('[withAuth] Handler returned null/undefined response')
-          return NextResponse.json({ 
+          return NextResponse.json({
             error: 'Handler response döndürmedi',
             details: process.env.NODE_ENV === 'development' ? 'Handler returned null or undefined' : undefined
           }, { status: 500, headers: { 'Content-Type': 'application/json' } })
         }
-        
+
         // Response'un bir Response objesi olduğundan emin ol
         // NextResponse, Response'un bir alt sınıfıdır, bu yüzden instanceof Response kontrolü yeterli
         if (!(response instanceof Response)) {
@@ -74,7 +93,7 @@ export const withAuth = <TContext = unknown>(
           console.error('[withAuth] Handler returned invalid response type:', typeof resp, resp)
           console.error('[withAuth] Response constructor:', resp?.constructor?.name)
           console.error('[withAuth] Response value:', JSON.stringify(resp, null, 2))
-          return NextResponse.json({ 
+          return NextResponse.json({
             error: 'Handler geçersiz response tipi döndürdü',
             details: process.env.NODE_ENV === 'development' ? `Response type: ${typeof resp}, constructor: ${resp?.constructor?.name}` : undefined
           }, { status: 500, headers: { 'Content-Type': 'application/json' } })
@@ -83,12 +102,12 @@ export const withAuth = <TContext = unknown>(
         console.error('[withAuth] Handler error:', handlerError)
         console.error('[withAuth] Handler error stack:', handlerError?.stack)
         const handlerErrorMessage = handlerError?.message || handlerError?.toString() || 'Handler hatası'
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: handlerErrorMessage,
           details: process.env.NODE_ENV === 'development' ? handlerError?.stack : undefined
         }, { status: 500, headers: { 'Content-Type': 'application/json' } })
       }
-      
+
       // Eğer response bir NextResponse ise ve header yoksa ekle
       if (response instanceof NextResponse) {
         const contentType = response.headers.get('Content-Type')
@@ -122,19 +141,19 @@ export const withAuth = <TContext = unknown>(
             })
           } catch (textError: any) {
             console.error('[withAuth] Response text read error:', textError)
-            return NextResponse.json({ 
+            return NextResponse.json({
               error: 'Response işlenirken hata oluştu',
               details: process.env.NODE_ENV === 'development' ? textError?.message : undefined
             }, { status: 500, headers: { 'Content-Type': 'application/json' } })
           }
         }
       }
-      
+
       return response
     } catch (error: any) {
       console.error('[withAuth] Error:', error)
       const errorMessage = error?.message || 'Auth hatası'
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: errorMessage,
         details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       }, { status: 500, headers: { 'Content-Type': 'application/json' } })

@@ -6,6 +6,15 @@ import { FileSpreadsheet, CheckCircle, XCircle, Clock, Factory, Download, Search
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TableSkeleton } from '@/components/ui/TableSkeleton'
 import { Breadcrumb } from '@/components/ui/Breadcrumb'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from '@/components/ui/ContextMenu'
+import { Copy, PlusCircle, FileText, ShoppingCart, User } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +22,8 @@ import { fetchApi, useApi, getAuthHeaders } from '@/lib/api/client'
 import { useDebounce } from '@/lib/hooks/useDebounce'
 import { toast } from '@/lib/notify'
 import { formatDate, formatOrderDateDisplay } from '@/lib/utils/dateFormat'
+import { DataTable, EditableCell } from '@/components/ui/DataTable'
+import { ColumnDef } from '@tanstack/react-table'
 import { usePolling } from '@/lib/hooks/usePolling'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { orderSchemas } from '@/lib/validation/schemas'
@@ -32,14 +43,18 @@ interface Order {
   total_amount: number
   order_date: string | null // SİP TRH (Sipariş Tarihi)
   delivery_date: string | null // Teslim Tarihi
-  status: 'pending' | 'in_production' | 'completed' | 'cancelled'
+  status: 'pending' | 'approval_pending' | 'in_production' | 'completed' | 'cancelled'
   production_order_id: string | null
   production_order_number: string | null
   production_order_due_date: string | null
   production_status: string | null
+  configuration?: string | null
   notes: string | null
   created_at: string
+  cancel_reason?: string | null
 }
+
+const CANCELLED_BY_DEALER = 'bayi_tarafindan_iptal'
 
 interface Account {
   id: string
@@ -49,6 +64,69 @@ interface Account {
 }
 
 const APP_TITLE = 'LIVASOFA ERP'
+
+// Inline Edit Component for Cards
+const InlineEdit = ({
+  value,
+  onSave,
+  label,
+  type = "text",
+  className = ""
+}: {
+  value: string | number,
+  onSave: (val: any) => void,
+  label: string,
+  type?: "text" | "number",
+  className?: string
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [val, setVal] = useState(value);
+
+  useEffect(() => {
+    setVal(value);
+  }, [value]);
+
+  const handleSave = () => {
+    if (val !== value) {
+      onSave(val);
+    }
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex flex-col gap-1 w-full animate-in fade-in zoom-in-95 duration-200 min-w-[120px]">
+        <label className="text-[11px] text-blue-400 uppercase font-black tracking-tight">{label}</label>
+        <input
+          autoFocus
+          type={type}
+          className="bg-gray-800 border-b-2 border-blue-500 text-white text-base py-1.5 px-2 outline-none w-full rounded-t shadow-lg font-bold"
+          value={val}
+          onChange={e => setVal(type === "number" ? Number(e.target.value) : e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={e => {
+            if (e.key === 'Enter') handleSave();
+            if (e.key === 'Escape') { setVal(value); setIsEditing(false); }
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`group cursor-pointer hover:bg-white/5 p-1.5 rounded-lg transition-all -ml-1.5 flex flex-col gap-0.5 border border-transparent hover:border-gray-700 ${className}`}
+      onClick={() => setIsEditing(true)}
+    >
+      <span className="text-[11px] text-slate-400 uppercase font-black tracking-tight group-hover:text-blue-400 transition-colors uppercase">
+        {label}
+      </span>
+      <span className="text-white text-[15px] font-black truncate leading-tight mt-0.5">
+        {type === "number" ? value : (value || '-')}
+      </span>
+    </div>
+  );
+};
 
 export default function OrdersPage() {
   const router = useRouter()
@@ -64,12 +142,15 @@ export default function OrdersPage() {
   useEffect(() => {
     const o = searchParams.get('overdue')
     const w = searchParams.get('delivery_week')
+    const n = searchParams.get('new')
     if (o === '1') setFilterStatus('overdue')
     else if (w === '1') setFilterStatus('delivery_week')
+    if (n === '1') setShowCreateModal(true)
   }, []) // Sadece ilk yüklemede URL'den filtre uygula (örn. /orders?overdue=1)
   const [sortKey, setSortKey] = useState<'order_date' | 'order_number' | 'total_amount' | 'dealer_name'>('order_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const createOrderFormRef = useRef<HTMLFormElement>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -81,6 +162,8 @@ export default function OrdersPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submittingOrder, setSubmittingOrder] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const orderCardRef = useRef<HTMLDivElement>(null)
+  const highlightId = searchParams.get('highlight')
   const [orderSummary, setOrderSummary] = useState<{
     pending: number
     in_production: number
@@ -120,7 +203,7 @@ export default function OrdersPage() {
     const minutes = String(now.getMinutes()).padStart(2, '0')
     return `${year}-${month}-${day}T${hours}:${minutes}`
   }
-  
+
   const [newOrder, setNewOrder] = useState({
     order_number: '', // TAKİP NO
     dealer_name: '', // CARİ ADI (Bayi)
@@ -139,6 +222,202 @@ export default function OrdersPage() {
     unit: '', // BRİM (Birim)
     notes: '' // AÇIKLAMA
   })
+
+  const [applyDiscountToShipments, setApplyDiscountToShipments] = useState(false)
+
+  const handleInlineEdit = async (originalRow: Order, columnId: string, newValue: any): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/orders/${originalRow.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...originalRow,
+          [columnId]: newValue
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error?.error || 'Güncelleme başarısız')
+      }
+
+      toast.success('Hücre güncellendi')
+
+      mutate((prev) => {
+        if (!prev) return prev
+        return prev.map((o) => (o.id === originalRow.id ? { ...o, [columnId]: newValue } : o))
+      }, false)
+
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Hücre kaydedilemedi')
+      return false
+    }
+  }
+
+  // Helper for parsing complex notes field for the columns
+  const parseNotes = (notes: string | null) => {
+    const defaultNotes = {
+      fabric: '-',
+      caseInfo: '-',
+      legInfo: '-',
+      cushionInfo: '-',
+      details: '-'
+    }
+    if (!notes) return defaultNotes
+
+    // Normalize newlines
+    const n = notes.replace(/\r/g, '\n').replace(/\n+/g, ' ')
+
+    const fabricMatch = n.match(/Kumaş:\s*([^|]+)/i)
+    const caseMatch = n.match(/Kasa:\s*([^|]+)/i)
+    const legMatch = n.match(/Ayak:\s*([^|]+)/i)
+    const cushionMatch = n.match(/Kirlent:\s*([^|]+)/i)
+
+    const details = n
+      .replace(/Kumaş:\s*[^|]+/gi, '')
+      .replace(/Kasa:\s*[^|]+/gi, '')
+      .replace(/Ayak:\s*[^|]+/gi, '')
+      .replace(/Kirlent:\s*[^|]+/gi, '')
+      .replace(/Birim:\s*[^|]+/gi, '')
+      .replace(/\|\s*\|\s*/g, '|')
+      .replace(/^\|\s*|\s*\|$/g, '')
+      .trim()
+
+    return {
+      fabric: fabricMatch ? fabricMatch[1].trim() : '-',
+      caseInfo: caseMatch ? caseMatch[1].trim() : '-',
+      legInfo: legMatch ? legMatch[1].trim() : '-',
+      cushionInfo: cushionMatch ? cushionMatch[1].trim() : '-',
+      details: details || '-'
+    }
+  }
+
+  const columns = useMemo<ColumnDef<Order>[]>(() => [
+    {
+      id: 'select',
+      header: 'Seç',
+      cell: ({ row }) => {
+        const order = row.original
+        return (
+          <input
+            type="checkbox"
+            checked={selectedOrders.has(order.id)}
+            onChange={(e) => {
+              e.stopPropagation()
+              toggleOrderSelection(order.id)
+            }}
+            disabled={order.status === 'in_production' || order.status === 'completed'}
+            className="rounded border-gray-600 bg-gray-800"
+          />
+        )
+      }
+    },
+    {
+      accessorKey: 'order_number',
+      header: 'TAKİP NO',
+      cell: info => <div className="text-xs font-mono font-bold whitespace-nowrap">{info.getValue() as string}</div>,
+    },
+    {
+      accessorKey: 'dealer_name',
+      header: 'CARİ ADI',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'product_name',
+      header: 'ÜRÜN ADI',
+      cell: EditableCell,
+    },
+    {
+      id: 'configuration',
+      accessorFn: row => (row as any).configuration,
+      header: 'KONFİGÜRASYON',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'quantity',
+      header: 'MİKTAR',
+      cell: EditableCell,
+    },
+    {
+      id: 'fabric_code',
+      header: 'KUMAŞ',
+      accessorFn: row => parseNotes(row.notes).fabric,
+      cell: ({ row }) => <div className="text-xs truncate max-w-[100px]">{parseNotes(row.original.notes).fabric}</div>
+    },
+    {
+      id: 'case_info',
+      header: 'KASA',
+      accessorFn: row => parseNotes(row.notes).caseInfo,
+      cell: ({ row }) => <div className="text-xs truncate max-w-[100px]">{parseNotes(row.original.notes).caseInfo}</div>
+    },
+    {
+      id: 'leg_info',
+      header: 'AYAK',
+      accessorFn: row => parseNotes(row.notes).legInfo,
+      cell: ({ row }) => <div className="text-xs truncate max-w-[100px]">{parseNotes(row.original.notes).legInfo}</div>
+    },
+    {
+      id: 'details',
+      header: 'AÇIKLAMA',
+      accessorFn: row => parseNotes(row.notes).details,
+      cell: ({ row }) => <div className="text-xs truncate max-w-[150px]">{parseNotes(row.original.notes).details}</div>
+    },
+    {
+      accessorKey: 'status',
+      header: 'Durum',
+      cell: ({ row }) => {
+        const status = row.original.status
+        const statusColors: Record<string, string> = {
+          pending: 'bg-yellow-900/30 text-yellow-500 border-yellow-700/50',
+          in_production: 'bg-blue-900/30 text-blue-400 border-blue-700/50',
+          completed: 'bg-green-900/30 text-green-400 border-green-700/50',
+          cancelled: 'bg-red-900/30 text-red-400 border-red-700/50'
+        }
+        const statusLabels: Record<string, string> = {
+          pending: 'Beklemede',
+          approval_pending: 'Onay Bekliyor',
+          in_production: 'Üretimde',
+          completed: 'Sevk Edildi',
+          cancelled: 'İptal'
+        }
+        return <span className={`px-2 py-1 rounded text-xs border whitespace-nowrap ${statusColors[status] || ''}`}>{statusLabels[status] || status}</span>
+      }
+    },
+    {
+      accessorKey: 'order_date',
+      header: 'SİP TRH',
+      cell: ({ row }) => <div className="text-xs whitespace-nowrap">{formatOrderDateDisplay(row.original.order_date, row.original.created_at ?? null)}</div>
+    },
+    {
+      id: 'actions',
+      header: 'İşlemler',
+      cell: ({ row }) => {
+        const order = row.original
+        return (
+          <div className="flex items-center space-x-2 whitespace-nowrap">
+            {order.status === 'pending' && !order.production_order_id && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleEditOrder(order); }}
+                className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition"
+                title="Düzenle"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order); }}
+              className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition"
+              title="Sil"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        )
+      }
+    }
+  ], [selectedOrders])
 
   const ordersKey = useMemo(() => {
     if (filterStatus === 'all') return '/api/orders'
@@ -184,6 +463,32 @@ export default function OrdersPage() {
     window.addEventListener('open-create-order-modal', openModal)
     return () => window.removeEventListener('open-create-order-modal', openModal)
   }, [])
+
+  // Bildirimden "Yeni bayi siparişi"ne tıklanınca /orders?highlight=id ile gelir; veriyi tazele, ilgili siparişi seç ve kaydır
+  useEffect(() => {
+    if (!highlightId) return
+    setFilterStatus('all') // Filtre yüzünden sipariş listeden çıkmasın
+    setSearchTerm('')
+    void mutate() // Yeni eklenen sipariş listede olsun diye taze veri çek
+  }, [highlightId, mutate])
+
+  useEffect(() => {
+    const h = searchParams.get('highlight')
+    if (!h) return
+    const list = ordersData ?? []
+    if (list.some((o) => o.id === h)) {
+      setSelectedOrderId(h)
+      setSearchTerm('')
+    }
+  }, [searchParams, ordersData])
+
+  useEffect(() => {
+    if (!highlightId || selectedOrderId !== highlightId) return
+    const t = setTimeout(() => {
+      orderCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 600)
+    return () => clearTimeout(t)
+  }, [highlightId, selectedOrderId])
 
   useEffect(() => {
     const list = ordersData ?? []
@@ -232,7 +537,7 @@ export default function OrdersPage() {
       return
     }
     const search = searchText.toLowerCase()
-    const filtered = accounts.filter(account => 
+    const filtered = accounts.filter(account =>
       account.name.toLowerCase().includes(search)
     )
     setFilteredAccounts(filtered)
@@ -291,7 +596,7 @@ export default function OrdersPage() {
           const min = String(d.getMinutes()).padStart(2, '0')
           dateLocal = `${y}-${m}-${day}T${h}:${min}`
         }
-      } catch {}
+      } catch { }
     }
     if (!dateLocal) dateLocal = getCurrentDateTimeLocal()
     setNewOrder({
@@ -347,169 +652,169 @@ export default function OrdersPage() {
 
     setSubmittingOrder(true)
     try {
-    // Bayi adı cari hesaplarda var mı kontrol et
-    const existingAccount = accounts.find(
-      acc => acc.name.toLowerCase() === newOrder.dealer_name.toLowerCase()
-    )
+      // Bayi adı cari hesaplarda var mı kontrol et
+      const existingAccount = accounts.find(
+        acc => acc.name.toLowerCase() === newOrder.dealer_name.toLowerCase()
+      )
 
-    let dealerAccountId = existingAccount?.id
+      let dealerAccountId = existingAccount?.id
 
-    // Eğer bayi yoksa otomatik oluştur
-    if (!existingAccount) {
-      try {
-        const data = await fetchApi('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+      // Eğer bayi yoksa otomatik oluştur
+      if (!existingAccount) {
+        try {
+          const data = await fetchApi('/api/accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: newOrder.dealer_name,
+              type: 'customer'
+            })
+          }) as any
+          dealerAccountId = data.id
+          const newAccount: Account = {
+            id: data.id,
+            code: data.code,
             name: newOrder.dealer_name,
             type: 'customer'
+          }
+          setAccounts([...accounts, newAccount])
+        } catch (error) {
+          console.error('Cari hesap oluşturulurken hata:', error)
+        }
+      }
+
+      // Müşteri kodu otomatik oluştur (eğer boşsa) - sıralamada boş olan ilk numarayı bul
+      let customerCode = newOrder.customer_code.trim()
+      if (!customerCode) {
+        // Tüm müşteri kodlarını al ve numaraları çıkar
+        const customerCodes = orders
+          .filter(o => o.customer_code?.startsWith('MUS-'))
+          .map((o: any) => parseInt(o.customer_code?.replace(/[^0-9]/g, '') || '') || 0)
+          .filter(num => num > 0)
+          .sort((a, b) => a - b)
+
+        // Boş olan ilk numarayı bul
+        let codeNumber = 1
+        for (let i = 0; i < customerCodes.length; i++) {
+          if (customerCodes[i] !== i + 1) {
+            codeNumber = i + 1
+            break
+          }
+          codeNumber = i + 2 // Eğer hiç boşluk yoksa, son numaradan devam et
+        }
+
+        customerCode = `MUS-${String(codeNumber).padStart(4, '0')}`
+      }
+
+      // Sipariş oluştur (AYAK, KASA, KİRLENT boşsa KATALOG; Ürün kodu boşsa BOM’daki ürün adına göre otomatik)
+      try {
+        const caseInfo = (newOrder.case_info || '').trim() || 'KATALOG'
+        const legInfo = (newOrder.leg_info || '').trim() || 'KATALOG'
+        const cushionInfo = (newOrder.cushion_info || '').trim() || 'KATALOG'
+        let productSku = (newOrder.product_sku || '').trim()
+        if (!productSku && (newOrder.product_name || '').trim()) {
+          const skuFromName = findSkuByProductName(newOrder.product_name)
+          if (skuFromName) productSku = skuFromName
+          else productSku = `PRD-${Date.now().toString().slice(-6)}`
+        }
+        if (!productSku) productSku = `PRD-${Date.now().toString().slice(-6)}`
+
+        if (editingOrder) {
+          const response = await fetch('/api/orders', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({
+              id: editingOrder.id,
+              dealer_name: newOrder.dealer_name,
+              customer_name: newOrder.customer_name,
+              customer_code: customerCode,
+              product_name: newOrder.product_name,
+              product_sku: productSku,
+              quantity: parseInt(String(newOrder.quantity)) || 1,
+              unit_price: parseFloat(String(newOrder.unit_price)) || 0,
+              order_date: newOrder.order_date,
+              configuration: newOrder.configuration,
+              fabric_code: newOrder.fabric_code,
+              case_info: caseInfo,
+              leg_info: legInfo,
+              cushion_info: cushionInfo,
+              unit: newOrder.unit,
+              notes: newOrder.notes
+            }),
+            credentials: 'include',
           })
-        }) as any
-        dealerAccountId = data.id
-        const newAccount: Account = {
-          id: data.id,
-          code: data.code,
-          name: newOrder.dealer_name,
-          type: 'customer'
+          if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.error || 'Sipariş güncellenemedi')
+          }
+          toast.success('Sipariş güncellendi')
+          setEditingOrder(null)
+          setShowCreateModal(false)
+          setFormErrors({})
+          setNewOrder({
+            order_number: '', dealer_name: '', customer_name: '', customer_code: '',
+            product_name: '', product_sku: '', quantity: 1, unit_price: 0,
+            order_date: getCurrentDateTimeLocal(), configuration: '', fabric_code: '',
+            case_info: '', leg_info: '', cushion_info: '', unit: '', notes: ''
+          })
+          await mutate()
+          return
         }
-        setAccounts([...accounts, newAccount])
-      } catch (error) {
-        console.error('Cari hesap oluşturulurken hata:', error)
-      }
-    }
 
-    // Müşteri kodu otomatik oluştur (eğer boşsa) - sıralamada boş olan ilk numarayı bul
-    let customerCode = newOrder.customer_code.trim()
-    if (!customerCode) {
-      // Tüm müşteri kodlarını al ve numaraları çıkar
-      const customerCodes = orders
-        .filter(o => o.customer_code?.startsWith('MUS-'))
-        .map((o: any) => parseInt(o.customer_code?.replace(/[^0-9]/g, '') || '') || 0)
-        .filter(num => num > 0)
-        .sort((a, b) => a - b)
-      
-      // Boş olan ilk numarayı bul
-      let codeNumber = 1
-      for (let i = 0; i < customerCodes.length; i++) {
-        if (customerCodes[i] !== i + 1) {
-          codeNumber = i + 1
-          break
-        }
-        codeNumber = i + 2 // Eğer hiç boşluk yoksa, son numaradan devam et
-      }
-      
-      customerCode = `MUS-${String(codeNumber).padStart(4, '0')}`
-    }
-
-    // Sipariş oluştur (AYAK, KASA, KİRLENT boşsa KATALOG; Ürün kodu boşsa BOM’daki ürün adına göre otomatik)
-    try {
-      const caseInfo = (newOrder.case_info || '').trim() || 'KATALOG'
-      const legInfo = (newOrder.leg_info || '').trim() || 'KATALOG'
-      const cushionInfo = (newOrder.cushion_info || '').trim() || 'KATALOG'
-      let productSku = (newOrder.product_sku || '').trim()
-      if (!productSku && (newOrder.product_name || '').trim()) {
-        const skuFromName = findSkuByProductName(newOrder.product_name)
-        if (skuFromName) productSku = skuFromName
-        else productSku = `PRD-${Date.now().toString().slice(-6)}`
-      }
-      if (!productSku) productSku = `PRD-${Date.now().toString().slice(-6)}`
-
-      if (editingOrder) {
-        const response = await fetch('/api/orders', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            id: editingOrder.id,
-            dealer_name: newOrder.dealer_name,
-            customer_name: newOrder.customer_name,
-            customer_code: customerCode,
-            product_name: newOrder.product_name,
+        const orderData = {
+          orders: [{
+            ...newOrder,
             product_sku: productSku,
-            quantity: parseInt(String(newOrder.quantity)) || 1,
-            unit_price: parseFloat(String(newOrder.unit_price)) || 0,
-            order_date: newOrder.order_date,
-            configuration: newOrder.configuration,
-            fabric_code: newOrder.fabric_code,
             case_info: caseInfo,
             leg_info: legInfo,
             cushion_info: cushionInfo,
-            unit: newOrder.unit,
-            notes: newOrder.notes
-          }),
+            customer_code: customerCode,
+            quantity: parseInt(String(newOrder.quantity)) || 1,
+            unit_price: parseFloat(String(newOrder.unit_price)) || 0
+          }]
+        }
+
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(orderData),
           credentials: 'include',
         })
+
         if (!response.ok) {
           const error = await response.json()
-          throw new Error(error.error || 'Sipariş güncellenemedi')
+          throw new Error(error.error || 'Sipariş oluşturulamadı')
         }
-        toast.success('Sipariş güncellendi')
-        setEditingOrder(null)
+
+        const result = await response.json()
+        const data = result?.data ?? result
+        const createdOrders = data?.orders ?? result?.orders ?? []
+        toast.success(createdOrders.length > 0 ? `${createdOrders.length} sipariş oluşturuldu. Üretime almak için "Üretime Al" veya Üretim sayfasını kullanın.` : 'Sipariş oluşturuldu.')
+
         setShowCreateModal(false)
         setFormErrors({})
         setNewOrder({
-          order_number: '', dealer_name: '', customer_name: '', customer_code: '',
-          product_name: '', product_sku: '', quantity: 1, unit_price: 0,
-          order_date: getCurrentDateTimeLocal(), configuration: '', fabric_code: '',
-          case_info: '', leg_info: '', cushion_info: '', unit: '', notes: ''
+          order_number: '',
+          dealer_name: '',
+          customer_name: '',
+          customer_code: '',
+          product_name: '',
+          product_sku: '',
+          quantity: 1,
+          unit_price: 0,
+          order_date: getCurrentDateTimeLocal(),
+          configuration: '',
+          fabric_code: '',
+          case_info: '',
+          leg_info: '',
+          cushion_info: '',
+          unit: '',
+          notes: ''
         })
         await mutate()
-        return
+      } catch (error: any) {
+        toast.error(error.message || 'İşlem başarısız')
       }
-
-      const orderData = {
-        orders: [{
-          ...newOrder,
-          product_sku: productSku,
-          case_info: caseInfo,
-          leg_info: legInfo,
-          cushion_info: cushionInfo,
-          customer_code: customerCode,
-          quantity: parseInt(String(newOrder.quantity)) || 1,
-          unit_price: parseFloat(String(newOrder.unit_price)) || 0
-        }]
-      }
-
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(orderData),
-        credentials: 'include',
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Sipariş oluşturulamadı')
-      }
-
-      const result = await response.json()
-      const data = result?.data ?? result
-      const createdOrders = data?.orders ?? result?.orders ?? []
-      toast.success(createdOrders.length > 0 ? `${createdOrders.length} sipariş oluşturuldu. Üretime almak için "Üretime Al" veya Üretim sayfasını kullanın.` : 'Sipariş oluşturuldu.')
-
-      setShowCreateModal(false)
-      setFormErrors({})
-      setNewOrder({
-        order_number: '',
-        dealer_name: '',
-        customer_name: '',
-        customer_code: '',
-        product_name: '',
-        product_sku: '',
-        quantity: 1,
-        unit_price: 0,
-        order_date: getCurrentDateTimeLocal(),
-        configuration: '',
-        fabric_code: '',
-        case_info: '',
-        leg_info: '',
-        cushion_info: '',
-        unit: '',
-        notes: ''
-      })
-      await mutate()
-    } catch (error: any) {
-      toast.error(error.message || 'İşlem başarısız')
-    }
     } finally {
       setSubmittingOrder(false)
     }
@@ -531,19 +836,19 @@ export default function OrdersPage() {
       // KESİN ÇÖZÜM: Chunk-based upload - Dosyayı küçük parçalara böl
       const CHUNK_SIZE = 8 * 1024 * 1024 // 8MB chunks (10MB limit'in altında)
       const fileSize = file.size
-      
+
       if (fileSize <= CHUNK_SIZE) {
         // Küçük dosyalar için direkt FormData gönder
         const formData = new FormData()
         formData.append('file', file)
-        
+
         const response = await fetch('/api/orders/import', {
           method: 'POST',
           headers: getAuthHeaders(),
           body: formData,
           credentials: 'include',
         })
-        
+
         if (!response.ok) {
           const errorText = await response.text()
           let error: any = {}
@@ -585,22 +890,22 @@ export default function OrdersPage() {
         if (fileInputRef.current) fileInputRef.current.value = ''
         return
       }
-      
+
       // Büyük dosyalar için chunk-based upload
       toast.info(`Dosya ${(fileSize / 1024 / 1024).toFixed(2)}MB, parçalara bölünüyor...`)
-      
+
       const arrayBuffer = await file.arrayBuffer()
       const buffer = new Uint8Array(arrayBuffer)
       const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
       const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      
+
       // Her chunk'ı gönder
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         const start = chunkIndex * CHUNK_SIZE
         const end = Math.min(start + CHUNK_SIZE, buffer.length)
         const chunk = buffer.slice(start, end)
         const chunkBlob = new Blob([chunk], { type: file.type })
-        
+
         const chunkFormData = new FormData()
         chunkFormData.append('chunk', chunkBlob)
         chunkFormData.append('chunkIndex', chunkIndex.toString())
@@ -609,14 +914,14 @@ export default function OrdersPage() {
         chunkFormData.append('fileName', file.name)
         chunkFormData.append('fileSize', fileSize.toString())
         chunkFormData.append('isLastChunk', (chunkIndex === totalChunks - 1).toString())
-        
+
         const chunkResponse = await fetch('/api/orders/import/chunk', {
           method: 'POST',
           headers: getAuthHeaders(),
           body: chunkFormData,
           credentials: 'include',
         })
-        
+
         if (!chunkResponse.ok) {
           const errorText = await chunkResponse.text()
           let error: any = {}
@@ -627,12 +932,12 @@ export default function OrdersPage() {
           }
           throw new Error(`Parça ${chunkIndex + 1}/${totalChunks} yüklenemedi: ${error.error || 'Bilinmeyen hata'}`)
         }
-        
+
         // Progress göstergesi
         const progress = ((chunkIndex + 1) / totalChunks * 100).toFixed(0)
         console.log(`Yükleme ilerlemesi: ${progress}% (${chunkIndex + 1}/${totalChunks})`)
       }
-      
+
       // Tüm chunk'lar yüklendikten sonra birleştirme ve işleme isteği gönder
       const mergeResponse = await fetch('/api/orders/import/merge', {
         method: 'POST',
@@ -648,7 +953,7 @@ export default function OrdersPage() {
           fileSize: fileSize
         })
       })
-      
+
       if (!mergeResponse.ok) {
         const errorText = await mergeResponse.text()
         let error: any = {}
@@ -659,7 +964,7 @@ export default function OrdersPage() {
         }
         throw new Error(`Dosya birleştirilemedi: ${error.error || 'Bilinmeyen hata'}`)
       }
-      
+
       const mergeResult = await mergeResponse.json()
       const created = mergeResult.inserted_count ?? 0
       const skipped = mergeResult.skipped_count ?? (mergeResult.errors?.length ?? 0)
@@ -703,7 +1008,7 @@ export default function OrdersPage() {
     const orderIds = Array.from(selectedOrders)
     const queryParams = new URLSearchParams()
     queryParams.set('from_orders', orderIds.join(','))
-    
+
     // Üretim emirleri sayfasına yönlendir
     router.push(`/production?${queryParams.toString()}`)
   }
@@ -755,6 +1060,7 @@ export default function OrdersPage() {
 
   // Özet sayıları (API'den; yoksa mevcut listeden)
   const pendingCount = orderSummary?.pending ?? orders.filter(o => o.status === 'pending').length
+  const approvalPendingCount = (orderSummary as any)?.approval_pending ?? orders.filter(o => o.status === 'approval_pending').length
   const inProductionCount = orderSummary?.in_production ?? orders.filter(o => o.status === 'in_production').length
   const completedCount = orderSummary?.completed ?? orders.filter(o => o.status === 'completed').length
   const deliveriesThisWeek = orderSummary?.deliveriesThisWeek ?? 0
@@ -777,8 +1083,24 @@ export default function OrdersPage() {
     return true
   })
 
-  const statusColors = {
+  const displayOrders = useMemo(() => {
+    const list = [...filteredOrders]
+    list.sort((a, b) => {
+      const aVal = a[sortKey]
+      const bVal = b[sortKey]
+      if (aVal === bVal) return 0
+      if (aVal === null || aVal === undefined) return 1
+      if (bVal === null || bVal === undefined) return -1
+
+      const comp = aVal < bVal ? -1 : 1
+      return sortDir === 'asc' ? comp : -comp
+    })
+    return list
+  }, [filteredOrders, sortKey, sortDir])
+
+  const statusColors: Record<string, string> = {
     pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-700',
+    approval_pending: 'bg-purple-900/30 text-purple-400 border-purple-700',
     in_production: 'bg-blue-900/30 text-blue-400 border-blue-700',
     completed: 'bg-green-900/30 text-green-400 border-green-700',
     cancelled: 'bg-red-900/30 text-red-400 border-red-700'
@@ -786,6 +1108,7 @@ export default function OrdersPage() {
 
   const statusLabels = {
     pending: 'Beklemede',
+    approval_pending: 'Onay Bekliyor',
     in_production: 'Üretimde',
     completed: 'Tamamlandı',
     cancelled: 'İptal Edildi'
@@ -795,6 +1118,12 @@ export default function OrdersPage() {
     if (showCreateModal) { setShowCreateModal(false); setEditingOrder(null) }
     else setSelectedOrderId(null)
   })
+  useKeyboardShortcut('n', () => {
+    if (!showCreateModal) { setEditingOrder(null); setFormErrors({}); setShowCreateModal(true) }
+  }, { ctrlOrMeta: true })
+  useKeyboardShortcut('s', () => {
+    if (showCreateModal && createOrderFormRef.current) createOrderFormRef.current.requestSubmit()
+  }, { ctrlOrMeta: true, enabled: showCreateModal })
   useKeyboardShortcut('Enter', () => {
     if (!selectedOrderId) return
     const order = filteredOrders.find(o => o.id === selectedOrderId)
@@ -944,11 +1273,19 @@ export default function OrdersPage() {
       <Breadcrumb items={[{ label: 'Panel', href: '/dashboard' }, { label: 'Siparişler' }]} className="mb-4" />
 
       {/* Özet kartları */}
-      <div className="mb-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="mb-4 grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <button
+          type="button"
+          onClick={() => setFilterStatus('approval_pending')}
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'approval_pending' ? 'border-purple-500 bg-purple-900/20' : 'border-gray-800 bg-gray-900 hover:border-purple-600/50'}`}
+        >
+          <div className="text-sm text-gray-400 mb-1">Onay Bekliyor</div>
+          <div className="text-2xl font-bold text-purple-400">{approvalPendingCount}</div>
+        </button>
         <button
           type="button"
           onClick={() => setFilterStatus('pending')}
-          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-yellow-600/50 transition-colors"
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'pending' ? 'border-yellow-500 bg-yellow-900/20' : 'border-gray-800 bg-gray-900 hover:border-yellow-600/50'}`}
         >
           <div className="text-sm text-gray-400 mb-1">Beklemede</div>
           <div className="text-2xl font-bold text-yellow-400">{pendingCount}</div>
@@ -956,7 +1293,7 @@ export default function OrdersPage() {
         <button
           type="button"
           onClick={() => setFilterStatus('in_production')}
-          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-blue-600/50 transition-colors"
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'in_production' ? 'border-blue-500 bg-blue-900/20' : 'border-gray-800 bg-gray-900 hover:border-blue-600/50'}`}
         >
           <div className="text-sm text-gray-400 mb-1">Üretimde</div>
           <div className="text-2xl font-bold text-blue-400">{inProductionCount}</div>
@@ -968,7 +1305,7 @@ export default function OrdersPage() {
           title="Bu hafta teslim tarihli sipariş sayısı"
         >
           <div className="text-sm text-gray-400 mb-1 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5" /> Bu Hafta Teslim
+            <Calendar className="w-3.5 h-3.5" /> Bu Hafta
           </div>
           <div className="text-2xl font-bold text-sky-400">{deliveriesThisWeek}</div>
         </button>
@@ -986,7 +1323,7 @@ export default function OrdersPage() {
         <button
           type="button"
           onClick={() => setFilterStatus('shipped')}
-          className="bg-gray-900 rounded-lg border border-gray-800 p-4 text-left hover:border-green-600/50 transition-colors"
+          className={`rounded-lg border p-4 text-left transition-colors ${filterStatus === 'shipped' ? 'border-green-500 bg-green-900/20' : 'border-gray-800 bg-gray-900 hover:border-green-600/50'}`}
         >
           <div className="text-sm text-gray-400 mb-1">Sevk Edilen</div>
           <div className="text-2xl font-bold text-green-400">{completedCount}</div>
@@ -1013,6 +1350,7 @@ export default function OrdersPage() {
             className="px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
           >
             <option value="all">Tümü</option>
+            <option value="approval_pending">Onay Bekliyor</option>
             <option value="pending">Beklemede</option>
             <option value="in_production">Üretimde</option>
             <option value="delivery_week">Bu Hafta Teslim</option>
@@ -1043,10 +1381,14 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Siparişler Tablosu */}
+      {/* Siparişler Kart Görünümü */}
       {isLoading ? (
-        <TableSkeleton rows={8} cols={8} />
-      ) : filteredOrders.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-pulse">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="h-64 bg-gray-900/50 border border-gray-800 rounded-2xl" />
+          ))}
+        </div>
+      ) : displayOrders.length === 0 ? (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
           <EmptyState
             title={debouncedSearchTerm ? 'Arama sonucu bulunamadı' : 'Henüz sipariş yok'}
@@ -1061,50 +1403,149 @@ export default function OrdersPage() {
           />
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredOrders.map((order) => (
-            <div
-              key={order.id}
-              role="button"
-              tabIndex={0}
-              className={`bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30 cursor-pointer ${
-                selectedOrders.has(order.id) ? 'bg-blue-900/20 border-blue-500' : selectedOrderId === order.id ? 'ring-2 ring-blue-500' : ''
-              }`}
-              onClick={() => setSelectedOrderId(order.id)}
-            >
-              <div className="flex justify-between items-start gap-3 mb-4">
-                <span className="text-xl font-bold text-white font-mono tracking-tight">{order.order_number}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  {order.status === 'pending' && !order.production_order_id && (
-                    <button type="button" onClick={() => handleEditOrder(order)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-blue-400 bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 rounded-md text-xs font-medium" title="Siparişi düzenle">
-                      <Pencil className="w-3.5 h-3.5" /> Düzenle
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {displayOrders.map(order => {
+            const notes = parseNotes(order.notes)
+            const isSelected = selectedOrders.has(order.id)
+
+            return (
+              <div
+                key={order.id}
+                ref={order.id === highlightId ? orderCardRef : null}
+                className={`relative bg-gray-900/40 backdrop-blur-xl border-2 ${isSelected ? 'border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.2)]' : 'border-gray-800/50'} rounded-3xl p-6 hover:border-gray-500 transition-all duration-500 group overflow-hidden flex flex-col`}
+              >
+                {/* Visual Flair */}
+                <div className={`absolute -top-12 -right-12 w-24 h-24 blur-[60px] rounded-full transition-all duration-700 opacity-20 ${order.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`} />
+
+                {/* Header Aliign */}
+                <div className="flex justify-between items-start mb-5 relative z-10">
+                  <div className="flex items-center gap-3">
+                    <div
+                      onClick={() => toggleOrderSelection(order.id)}
+                      className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${isSelected ? 'bg-blue-600 border-blue-600 shadow-lg shadow-blue-500/50' : 'border-gray-600 hover:border-blue-400'}`}
+                    >
+                      {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-black font-mono text-blue-400 bg-blue-400/10 px-2.5 py-1 rounded-md tracking-tight uppercase border border-blue-400/20">{order.order_number}</span>
+                        <div className={`text-[11px] px-2.5 py-1 rounded-md border font-black uppercase tracking-tight shadow-sm ${statusColors[order.status] || ''}`}>
+                          {order.status === 'cancelled' && order.cancel_reason === CANCELLED_BY_DEALER
+                            ? 'Bayi tarafından iptal edilmiştir'
+                            : (statusLabels[order.status] || order.status)}
+                        </div>
+                        {order.status === 'cancelled' && (
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            {order.cancel_reason === CANCELLED_BY_DEALER ? 'Bayi portalından iptal edildi.' : 'İptal edildi.'}
+                          </p>
+                        )}
+                        {order.status === 'approval_pending' && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-red-900/40 text-red-400 border border-red-500/50 rounded-md text-[10px] font-black animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.2)]">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>ONAY GEREKİYOR</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-1">
+                    <button onClick={() => handleEditOrder(order)} className="p-2 hover:bg-gray-800 rounded-xl text-gray-500 hover:text-white transition-all transform hover:scale-110">
+                      <Pencil className="w-4 h-4" />
                     </button>
-                  )}
-                  <button type="button" onClick={() => handleDeleteOrder(order)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded-md text-xs font-medium" title="Siparişi sil">
-                    <Trash2 className="w-3.5 h-3.5" /> Sil
-                  </button>
+                    <button onClick={() => handleDeleteOrder(order)} className="p-2 hover:bg-red-900/30 rounded-xl text-gray-500 hover:text-red-400 transition-all transform hover:scale-110">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
+
+                <div className="space-y-4 flex-1 relative z-10">
+                  <InlineEdit
+                    label="CARİ HESAP / BAYİ"
+                    value={order.dealer_name || ''}
+                    onSave={(v) => handleInlineEdit(order, 'dealer_name', v)}
+                    className="!p-0 !bg-transparent border-none"
+                  />
+
+                  <InlineEdit
+                    label="MÜŞTERİ ADI (Satın Alan)"
+                    value={order.customer_name || ''}
+                    onSave={(v) => handleInlineEdit(order, 'customer_name', v)}
+                    className="!p-0 !bg-transparent border-none mt-2"
+                  />
+
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-800/50">
+                    <InlineEdit
+                      label="ÜRÜN ADI"
+                      value={order.product_name}
+                      onSave={(v) => handleInlineEdit(order, 'product_name', v)}
+                    />
+                    <InlineEdit
+                      label="MİKTAR"
+                      value={order.quantity}
+                      type="number"
+                      onSave={(v) => handleInlineEdit(order, 'quantity', v)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-800/50">
+                    <InlineEdit
+                      label="KONFİGÜRASYON"
+                      value={order.configuration || ''}
+                      onSave={(v) => handleInlineEdit(order, 'configuration', v)}
+                    />
+                    <div className="flex flex-col gap-0.5 p-1.5 -ml-1.5 transition-all">
+                      <span className="text-[11px] text-slate-400 uppercase font-black tracking-tight">SİPARİŞ TARİHİ</span>
+                      <span className="text-white text-[15px] font-black leading-tight mt-0.5">{formatOrderDateDisplay(order.order_date)}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 border-t border-gray-800/50">
+                    <InlineEdit label="KUMAŞ" value={notes.fabric} onSave={(v) => handleInlineEdit(order, 'fabric_code', v)} />
+                    <InlineEdit label="KASA" value={notes.caseInfo} onSave={(v) => handleInlineEdit(order, 'case_info', v)} />
+                    <InlineEdit label="AYAK" value={notes.legInfo} onSave={(v) => handleInlineEdit(order, 'leg_info', v)} />
+                    <InlineEdit label="KİRLENT" value={notes.cushionInfo} onSave={(v) => handleInlineEdit(order, 'cushion_info', v)} />
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-800/50">
+                    <InlineEdit
+                      label="NOTLAR / DETAYLAR"
+                      value={notes.details}
+                      onSave={(v) => handleInlineEdit(order, 'notes', v)}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Footer Section */}
+                {order.production_order_number ? (
+                  <div className="mt-6 pt-4 border-t border-gray-800/50 flex items-center justify-between text-[11px] relative z-10">
+                    <div className="flex items-center gap-2 text-gray-400 font-medium">
+                      <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                      <span>Üretim Emri: <span className="text-blue-400 font-bold">{order.production_order_number}</span></span>
+                    </div>
+                    <button
+                      onClick={() => router.push(`/production/${order.production_order_id}`)}
+                      className="bg-gray-800/50 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-xl transition-all font-bold hover:text-white"
+                    >
+                      DETAY →
+                    </button>
+                  </div>
+                ) : (
+                  order.status === 'pending' && (
+                    <div className="mt-6 pt-4 border-t border-gray-800/50 relative z-10">
+                      <button
+                        onClick={() => { setSelectedOrders(new Set([order.id])); convertToProduction(); }}
+                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-2 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg hover:shadow-blue-500/20 active:scale-[0.98]"
+                      >
+                        Üretim Emri Oluştur
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-                <div><div className="text-xs text-gray-400 mb-1">Seç</div><input type="checkbox" checked={selectedOrders.has(order.id)} onChange={() => toggleOrderSelection(order.id)} disabled={order.status === 'in_production' || order.status === 'completed'} className="rounded border-gray-600" /></div>
-                <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kasa:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className={`px-2 py-1 rounded text-xs border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span></div></div>
-                <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; return n.replace(/Kumaş:\s*[^|]+/gi, '').replace(/Kasa:\s*[^|]+/gi, '').replace(/Ayak:\s*[^|]+/gi, '').replace(/Kirlent:\s*[^|]+/gi, '').replace(/Birim:\s*[^|]+/gi, '').replace(/\|\s*\|\s*/g, '|').replace(/^\|\s*|\s*\|$/g, '').trim() || '-'; })()}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kumaş:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_number ? <><a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number}</a>{order.status === 'in_production' && order.production_order_due_date && <span className="block text-gray-400 text-xs mt-0.5">Emir tarihi: {formatDate(order.production_order_due_date) || '-'}</span>}</> : '-'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity} ADET</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{(order as any).configuration || '-'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, order.created_at ?? null)}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Ayak:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
-                <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{(() => { const n = normalizeNotes(order.notes).trim(); if (!n) return '-'; const m = n.match(/Kirlent:\s*([^|]+)/i); return m ? m[1].trim() : '-'; })()}</div></div>
-                <div />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -1143,6 +1584,7 @@ export default function OrdersPage() {
               </button>
             </div>
             <form
+              ref={createOrderFormRef}
               onSubmit={(e) => {
                 e.preventDefault()
                 handleCreateOrder()
@@ -1229,12 +1671,12 @@ export default function OrdersPage() {
                       let newCustomerCode = newOrder.customer_code
                       if (customerName.trim() && !newOrder.customer_code.trim()) {
                         // Tüm müşteri kodlarını al ve numaraları çıkar
-      const customerCodes = orders
-        .filter((o: any) => o.customer_code?.startsWith('MUS-'))
-        .map((o: any) => parseInt(o.customer_code!.replace(/[^0-9]/g, '') || '') || 0)
+                        const customerCodes = orders
+                          .filter((o: any) => o.customer_code?.startsWith('MUS-'))
+                          .map((o: any) => parseInt(o.customer_code!.replace(/[^0-9]/g, '') || '') || 0)
                           .filter(num => num > 0)
                           .sort((a, b) => a - b)
-                        
+
                         // Boş olan ilk numarayı bul
                         let codeNumber = 1
                         for (let i = 0; i < customerCodes.length; i++) {
@@ -1244,7 +1686,7 @@ export default function OrdersPage() {
                           }
                           codeNumber = i + 2 // Eğer hiç boşluk yoksa, son numaradan devam et
                         }
-                        
+
                         newCustomerCode = `MUS-${String(codeNumber).padStart(4, '0')}`
                       }
                       setNewOrder({ ...newOrder, customer_name: customerName, customer_code: newCustomerCode })
@@ -1258,7 +1700,7 @@ export default function OrdersPage() {
               {/* Üçüncü Satır: Müşteri Kodu */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Müşteri Kodu 
+                  Müşteri Kodu
                   <span className="text-gray-400 text-xs ml-2">(Otomatik oluşturulacak)</span>
                 </label>
                 <input
@@ -1409,30 +1851,30 @@ export default function OrdersPage() {
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false)
-      setNewOrder({
-        order_number: '',
-        dealer_name: '',
-        customer_name: '',
-        customer_code: '',
-        product_name: '',
-        product_sku: '',
-        quantity: 1,
-        unit_price: 0,
-        order_date: '',
-        configuration: '',
-        fabric_code: '',
-        case_info: '',
-        leg_info: '',
-        cushion_info: '',
-        unit: '',
-        notes: ''
-      })
+                    setNewOrder({
+                      order_number: '',
+                      dealer_name: '',
+                      customer_name: '',
+                      customer_code: '',
+                      product_name: '',
+                      product_sku: '',
+                      quantity: 1,
+                      unit_price: 0,
+                      order_date: '',
+                      configuration: '',
+                      fabric_code: '',
+                      case_info: '',
+                      leg_info: '',
+                      cushion_info: '',
+                      unit: '',
+                      notes: ''
+                    })
                   }}
                   className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
                 >
                   İptal
                 </button>
-                  <button
+                <button
                   type="submit"
                   disabled={submittingOrder}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"

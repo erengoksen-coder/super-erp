@@ -54,8 +54,15 @@ export const GET = withAuth(async () => {
         AND status = 'completed'
     `).get(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as CountRow | undefined
 
+    const approvalPendingRow = db.prepare(`
+      SELECT COUNT(*) as count FROM orders
+      WHERE deleted_at IS NULL AND company_id = ? AND (branch_id = ? OR branch_id IS NULL OR branch_id = '')
+        AND status = 'approval_pending'
+    `).get(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as CountRow | undefined
+
     return NextResponse.json({
       pending: Number(pendingRow?.count ?? 0),
+      approval_pending: Number(approvalPendingRow?.count ?? 0),
       in_production: Number(inProductionRow?.count ?? 0),
       completed: Number(completedRow?.count ?? 0),
       deliveriesThisWeek: Number(deliveriesThisWeekRow?.count ?? 0),

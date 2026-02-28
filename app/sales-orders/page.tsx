@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Plus, X, ClipboardList } from 'lucide-react'
+import { useMemo, useState, useRef } from 'react'
+import { Plus, X, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react'
+import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Button } from '@/components/ui/Button'
 import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi, useApi } from '@/lib/api/client'
@@ -39,17 +41,59 @@ type ItemForm = {
   unit_price: string
 }
 
+const DURUM_ETIKETLERI: Record<string, string> = {
+  pending: 'Beklemede',
+  in_production: 'Üretimde',
+  completed: 'Tamamlandı',
+  cancelled: 'İptal',
+  confirmed: 'Onaylandı',
+  reclamation: 'Reklamede',
+  in_reclamation: 'Reklamede',
+  reklamede: 'Reklamede'
+}
+
 export default function SalesOrdersPage() {
   const { data: ordersData, isLoading, mutate } = useApi<SalesOrder[]>('/api/sales-orders')
   const { data: customersData } = useApi<Account[]>('/api/accounts?type=customer')
   const { data: productsData } = useApi<Product[]>('/api/products')
 
-  const orders = useMemo(() => ordersData ?? [], [ordersData])
+  const rawOrders = useMemo(() => ordersData ?? [], [ordersData])
   const customers = useMemo(() => customersData ?? [], [customersData])
   const products = useMemo(() => productsData ?? [], [productsData])
 
+  type SortKey = 'order_number' | 'order_date' | 'customer_name' | 'total_items' | 'total_amount' | 'status'
+  const [sortKey, setSortKey] = useState<SortKey>('order_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const orders = useMemo(() => {
+    const list = [...rawOrders]
+    list.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'order_date') {
+        const da = (a.order_date || '').toString()
+        const db = (b.order_date || '').toString()
+        cmp = da.localeCompare(db)
+      } else if (sortKey === 'order_number') {
+        cmp = (a.order_number || '').toString().localeCompare((b.order_number || '').toString())
+      } else if (sortKey === 'customer_name') {
+        cmp = (a.customer_name || '').localeCompare(b.customer_name || '')
+      } else if (sortKey === 'total_items') {
+        cmp = (a.total_items ?? 0) - (b.total_items ?? 0)
+      } else if (sortKey === 'total_amount' || sortKey === 'status') {
+        const amtA = Number(a.total_amount ?? a.final_amount ?? 0)
+        const amtB = Number(b.total_amount ?? b.final_amount ?? 0)
+        cmp = sortKey === 'total_amount' ? amtA - amtB : (a.status || '').localeCompare(b.status || '')
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return list
+  }, [rawOrders, sortKey, sortDir])
+
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const salesOrderFormRef = useRef<HTMLFormElement>(null)
+  useKeyboardShortcut('Escape', () => setShowModal(false))
+  useKeyboardShortcut('n', () => { if (!showModal) setShowModal(true) }, { ctrlOrMeta: true })
+  useKeyboardShortcut('s', () => { if (showModal && salesOrderFormRef.current) salesOrderFormRef.current.requestSubmit() }, { ctrlOrMeta: true, enabled: showModal })
   const [form, setForm] = useState({
     customer_id: '',
     order_date: '',
@@ -167,20 +211,35 @@ export default function SalesOrdersPage() {
           <div className="p-8">
             <EmptyState
               title="Henüz satış siparişi yok"
-              description="Yeni satış siparişi oluşturmak için yukarıdaki butonu kullanın."
+              description="Müşteri siparişlerini burada oluşturup takip edebilirsiniz."
               icon={ClipboardList}
+              action={
+                <Button variant="solid" color="primary" size="sm" onClick={() => setShowModal(true)} className="inline-flex items-center gap-2">
+                  <Plus size={18} />
+                  İlk satış siparişini oluştur
+                </Button>
+              }
             />
           </div>
         ) : (
         <Table>
           <TableHeader>
             <TableRow className="border-gray-800">
-              <TableHead className="h-8 px-4 py-2 text-xs">Sipariş No</TableHead>
-              <TableHead className="h-8 px-4 py-2 text-xs">Tarih</TableHead>
-              <TableHead className="h-8 px-4 py-2 text-xs">Müşteri</TableHead>
-              <TableHead className="h-8 px-4 py-2 text-xs">Kalem</TableHead>
-              <TableHead className="h-8 px-4 py-2 text-xs">Tutar</TableHead>
-              <TableHead className="h-8 px-4 py-2 text-xs">Durum</TableHead>
+              {(['order_number', 'order_date', 'customer_name', 'total_items', 'total_amount', 'status'] as const).map((key) => (
+                <TableHead
+                  key={key}
+                  className="h-8 px-4 py-2 text-xs cursor-pointer select-none hover:bg-gray-800/50"
+                  onClick={() => {
+                    setSortKey(key)
+                    setSortDir((d) => (sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'desc'))
+                  }}
+                >
+                  <span className="inline-flex items-center">
+                    {{ order_number: 'Sipariş No', order_date: 'Tarih', customer_name: 'Müşteri', total_items: 'Kalem', total_amount: 'Tutar', status: 'Durum' }[key]}
+                    {sortKey === key && (sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 ml-0.5" /> : <ChevronUp className="w-3.5 h-3.5 ml-0.5" />)}
+                  </span>
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -209,7 +268,7 @@ export default function SalesOrdersPage() {
                     ₺{Number(order.total_amount ?? order.final_amount ?? 0).toFixed(2)}
                   </TableCell>
                   <TableCell className="text-gray-300 text-xs px-4 py-2">
-                    {order.status || 'pending'}
+                    {DURUM_ETIKETLERI[order.status || 'pending'] ?? order.status}
                   </TableCell>
                 </TableRow>
               ))
@@ -231,7 +290,7 @@ export default function SalesOrdersPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form ref={salesOrderFormRef} onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">

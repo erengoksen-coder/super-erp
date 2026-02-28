@@ -1,14 +1,21 @@
 const isLocalhost = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1'
-const CACHE_NAME = isLocalhost ? 'super-erp-dev-nocache' : 'super-erp-static-v2'
+const CACHE_NAME = isLocalhost ? 'super-erp-dev-nocache' : 'super-erp-static-v3'
+const API_CACHE_NAME = 'super-erp-api-v1'
 const STATIC_ASSETS = [
   '/',
   '/offline',
+  '/dashboard',
   '/logo.png',
   '/manifest.json',
 ]
+// API endpoints to cache with stale-while-revalidate
+const CACHEABLE_APIS = [
+  '/api/dashboard/stats',
+  '/api/reports/stock-summary',
+]
 
 if (isLocalhost) {
-  // Dev ortamında cache'i kapatıp SW'yi kaldır.
+  // Dev ortamında cache kapatık; SW push bildirimleri için açık kalır.
   self.addEventListener('install', () => {
     self.skipWaiting()
   })
@@ -18,7 +25,6 @@ if (isLocalhost) {
       caches
         .keys()
         .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-        .then(() => self.registration.unregister())
         .then(() => self.clients.claim())
     )
   })
@@ -58,6 +64,24 @@ if (isLocalhost) {
     const url = new URL(request.url)
 
     if (url.origin === self.location.origin) {
+      // Stale-while-revalidate for cacheable APIs
+      const isCacheableApi = CACHEABLE_APIS.some(api => url.pathname.startsWith(api))
+      if (isCacheableApi) {
+        event.respondWith(
+          caches.open(API_CACHE_NAME).then(cache =>
+            cache.match(request).then(cached => {
+              const fetchPromise = fetch(request).then(response => {
+                if (response.ok) cache.put(request, response.clone())
+                return response
+              }).catch(() => cached)
+              return cached || fetchPromise
+            })
+          )
+        )
+        return
+      }
+
+      // Cache-first for static assets
       event.respondWith(
         caches.match(request).then((cached) => {
           if (cached) return cached

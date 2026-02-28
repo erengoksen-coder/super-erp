@@ -34,7 +34,7 @@ export function PasswordStrengthBar({ password }: { password: string }) {
       </div>
       <p className={`text-xs ${TEXT_COLORS[score]}`}>
         Şifre gücü: {LABELS[score]}
-        {score < 2 && password.length > 0 && ' (en az 8 karakter, büyük/küçük harf ve rakam önerilir)'}
+        {score < 2 && password.length > 0 && ' (en az 8 karakter, büyük/küçük harf ve rakam; özel karakter güçlendirir)'}
       </p>
     </div>
   )

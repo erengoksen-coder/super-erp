@@ -9,6 +9,7 @@ import { UserPlus, User, Lock, Mail, Briefcase, AlertCircle } from 'lucide-react
 import { toast } from '@/lib/notify'
 import { userSchemas } from '@/lib/validation/schemas'
 import { PasswordStrengthBar } from '@/components/ui/PasswordStrengthBar'
+import { GoogleLoginButton } from '@/components/auth/GoogleLoginButton'
 
 const registerFormSchema = userSchemas.register.extend({
   confirmPassword: z.string().min(1, 'Şifre tekrar gerekli'),
@@ -193,7 +194,7 @@ export default function RegisterPage() {
                 />
               </div>
               {errors.password && <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>}
-            <PasswordStrengthBar password={watch('password') ?? ''} />
+              <PasswordStrengthBar password={watch('password') ?? ''} />
             </div>
 
             <div>
@@ -223,6 +224,17 @@ export default function RegisterPage() {
               <span>{loading ? 'Kayıt yapılıyor...' : 'Kayıt Ol'}</span>
             </button>
           </form>
+
+          <div className="relative my-6 text-center">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-gray-700"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-800 text-gray-400">Veya</span>
+            </div>
+          </div>
+
+          <GoogleLoginButton onLoading={setLoading} />
 
           <div className="mt-6 text-center">
             <a

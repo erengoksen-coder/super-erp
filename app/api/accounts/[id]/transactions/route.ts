@@ -2,6 +2,17 @@ import { NextRequest } from 'next/server'
 import { withAuth } from '@/lib/api/withAuth'
 import { getDatabase } from '@/lib/database/db'
 import { ok, fail } from '@/lib/api/response'
+import { parseJsonBody } from '@/lib/api/validate'
+import { randomUUID } from 'crypto'
+
+function recalcAccountBalance(db: ReturnType<typeof getDatabase>, accountId: string) {
+  const balanceRow = db.prepare(`
+    SELECT COALESCE(SUM(CASE WHEN transaction_type = 'debit' THEN amount ELSE 0 END), 0) -
+           COALESCE(SUM(CASE WHEN transaction_type = 'credit' THEN amount ELSE 0 END), 0) AS balance
+    FROM account_transactions WHERE account_id = ?
+  `).get(accountId) as { balance: number }
+  db.prepare('UPDATE accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(balanceRow.balance, accountId)
+}
 
 type AccountTransactionRow = {
   id: string
@@ -165,4 +176,55 @@ export const GET = withAuth(async (
   } catch (error: any) {
     return fail(error.message, { status: 500 })
   }
-});
+})
+
+// POST: Cariye manuel borç veya alacak girişi (serbest hareket)
+export const POST = withAuth(async (
+  request: NextRequest,
+  user: { role?: string },
+  context?: unknown
+) => {
+  const role = (user?.role ?? '').toString().trim().toLowerCase()
+  if (role === 'bayi') {
+    return fail('Bayi kullanıcıları manuel borç/alacak girişi yapamaz.', { status: 403 })
+  }
+  try {
+    const db = getDatabase()
+    const resolvedParams = await Promise.resolve(
+      (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
+    )
+    const accountId = (resolvedParams?.id != null ? resolvedParams.id : new URL(request.url).pathname.split('/').filter(Boolean).pop()) as string
+    if (!accountId) {
+      return fail('Cari hesap ID gerekli', { status: 400 })
+    }
+
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL').get(accountId)
+    if (!account) {
+      return fail('Cari hesap bulunamadı', { status: 404 })
+    }
+
+    const body = await parseJsonBody(request) as { transaction_type?: string; amount?: number; description?: string }
+    const transaction_type = (body?.transaction_type ?? '').toString().toLowerCase()
+    const amount = Number(body?.amount)
+    const description = (body?.description ?? '').toString().trim() || (transaction_type === 'debit' ? 'Manuel borç girişi' : 'Manuel alacak girişi')
+
+    if (transaction_type !== 'debit' && transaction_type !== 'credit') {
+      return fail("transaction_type 'debit' veya 'credit' olmalı", { status: 400 })
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return fail('Geçerli bir tutar girin (0\'dan büyük)', { status: 400 })
+    }
+
+    const id = randomUUID()
+    db.prepare(`
+      INSERT INTO account_transactions
+      (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
+      VALUES (?, ?, ?, ?, 'manual', ?, ?, CURRENT_TIMESTAMP)
+    `).run(id, accountId, transaction_type, amount, id, description)
+    recalcAccountBalance(db, accountId)
+
+    return ok({ id }, { status: 201, message: transaction_type === 'debit' ? 'Borç girişi kaydedildi' : 'Alacak girişi kaydedildi' })
+  } catch (error: any) {
+    return fail(error?.message ?? 'İşlem başarısız', { status: 500 })
+  }
+})

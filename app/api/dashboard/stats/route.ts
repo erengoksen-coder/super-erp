@@ -103,7 +103,7 @@ export const GET = withAuth(async (request) => {
           AND COALESCE(psn.current_station, po.current_station) IS NOT NULL
         GROUP BY COALESCE(psn.current_station, po.current_station)
       `).all() as StationStatRow[]
-      
+
       // Mamül Depo: sadece depoda ve henüz sevk edilmemiş mamüller (sevk edilenler hariç)
       const completedStats = db.prepare(`
         SELECT COUNT(id) as count FROM product_serial_numbers psn
@@ -112,7 +112,7 @@ export const GET = withAuth(async (request) => {
           AND (psn.status IS NULL OR psn.status != 'shipped')
       `).get() as { count: number | null }
       const completedCount = Number(completedStats?.count ?? 0)
-      
+
       const shippedStats = db.prepare(`
         SELECT COUNT(id) as count FROM product_serial_numbers psn
         WHERE psn.shipment_id IS NOT NULL AND psn.shipment_id != ''
@@ -209,7 +209,14 @@ export const GET = withAuth(async (request) => {
         WHERE deleted_at IS NULL AND status != 'completed'
       `).get() as CountRow | undefined
       const pendingPurchaseRequests = Number(pendingPurchaseRequestsRow?.count ?? 0)
-      
+
+      // Sevkiyat bekleyen ürün sayısı
+      const readyForShipmentRow = db.prepare(`
+        SELECT COUNT(*) as count FROM production_orders 
+        WHERE current_station = 'Sevkiyat' AND status != 'completed'
+      `).get() as CountRow | undefined
+      const readyForShipment = Number(readyForShipmentRow?.count ?? 0)
+
       const stationOrder = ['pending', 'iskelet', 'terzihane', 'berjer', 'döseme', 'montaj', 'sevkiyat', 'completed']
       const stationNames: Record<string, string> = {
         pending: 'Bekleyen',
@@ -244,10 +251,48 @@ export const GET = withAuth(async (request) => {
       })
 
       // Darboğaz (en çok biriken istasyon)
-      const bottleneck = formattedStationStats.reduce((max, stat) => 
-        stat.count > max.count ? stat : max, 
+      const bottleneck = formattedStationStats.reduce((max, stat) =>
+        stat.count > max.count ? stat : max,
         formattedStationStats[0] || { station: '', station_name: '', count: 0, total_quantity: 0 }
       )
+
+      // Alacak Yaşlandırma (Aging Analysis)
+      let aging = { range_0_30: 0, range_30_60: 0, range_60_90: 0, range_90_plus: 0 }
+      try {
+        const agingRows = db.prepare(`
+          SELECT
+            SUM(CASE WHEN julianday('now') - julianday(created_at) <= 30 THEN CAST(amount AS REAL) ELSE 0 END) as r0,
+            SUM(CASE WHEN julianday('now') - julianday(created_at) > 30 AND julianday('now') - julianday(created_at) <= 60 THEN CAST(amount AS REAL) ELSE 0 END) as r30,
+            SUM(CASE WHEN julianday('now') - julianday(created_at) > 60 AND julianday('now') - julianday(created_at) <= 90 THEN CAST(amount AS REAL) ELSE 0 END) as r60,
+            SUM(CASE WHEN julianday('now') - julianday(created_at) > 90 THEN CAST(amount AS REAL) ELSE 0 END) as r90
+          FROM account_transactions
+          WHERE transaction_type = 'debit' AND deleted_at IS NULL
+        `).get() as { r0: number; r30: number; r60: number; r90: number } | undefined
+        if (agingRows) {
+          aging = {
+            range_0_30: Math.round(agingRows.r0 || 0),
+            range_30_60: Math.round(agingRows.r30 || 0),
+            range_60_90: Math.round(agingRows.r60 || 0),
+            range_90_plus: Math.round(agingRows.r90 || 0),
+          }
+        }
+      } catch { }
+
+      // Son 6 Ay Ciro Trendi
+      let salesTrend: Array<{ month: string; total: number }> = []
+      try {
+        const trendRows = db.prepare(`
+          SELECT
+            strftime('%Y-%m', shipment_date) as month,
+            COALESCE(SUM(CAST(final_amount AS REAL)), 0) as total
+          FROM shipments
+          WHERE deleted_at IS NULL
+            AND shipment_date >= date('now', '-6 months')
+          GROUP BY strftime('%Y-%m', shipment_date)
+          ORDER BY month ASC
+        `).all() as Array<{ month: string; total: number }>
+        salesTrend = trendRows.map(r => ({ month: r.month, total: Math.round(r.total || 0) }))
+      } catch { }
 
       return {
         totalStockValue,
@@ -267,6 +312,9 @@ export const GET = withAuth(async (request) => {
         overdueOrders,
         overdueChecksNotes,
         pendingPurchaseRequests,
+        readyForShipment,
+        aging,
+        salesTrend,
       }
     })
 

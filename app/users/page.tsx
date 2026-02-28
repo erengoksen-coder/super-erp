@@ -98,7 +98,7 @@ const AVAILABLE_PAGES: PageOption[] = [
 ]
 
 /** Rol şablonları: Hızlı seçim ile kullanıcının görebileceği alanlar ve yetkiler. */
-type RoleTemplateId = 'full' | 'satis' | 'uretim' | 'depo' | 'muhasebe' | 'sevkiyat' | 'viewer' | 'bayi' | 'custom'
+type RoleTemplateId = 'full' | 'satis' | 'uretim' | 'depo' | 'muhasebe' | 'sevkiyat' | 'viewer' | 'bayi' | 'bulut_temsilcisi' | 'custom'
 const ROLE_TEMPLATES: { id: RoleTemplateId; label: string; description: string; categories: string[]; canCreateEdit: boolean; canDelete: boolean }[] = [
   { id: 'full', label: 'Tam yetki', description: 'Tüm sayfalara tam erişim', categories: [], canCreateEdit: true, canDelete: true },
   { id: 'satis', label: 'Satış', description: 'Siparişler, Faturalar, Cari, CRM, Sevkiyat', categories: ['Ana', 'Satış', 'Sevkiyat', 'Finans', 'Rapor'], canCreateEdit: true, canDelete: false },
@@ -108,6 +108,7 @@ const ROLE_TEMPLATES: { id: RoleTemplateId; label: string; description: string; 
   { id: 'sevkiyat', label: 'Sevkiyat', description: 'Sevkiyat, Siparişler, Stok', categories: ['Ana', 'Sevkiyat', 'Satış', 'Stok'], canCreateEdit: true, canDelete: false },
   { id: 'viewer', label: 'Sadece görüntüleme', description: 'Tüm modülleri görebilir; ekleme/düzenleme/silme yok', categories: ['Ana', 'Stok', 'Üretim', 'Satış', 'Sevkiyat', 'Finans', 'Rapor', 'Satın Alma', 'Mobil', 'Sistem'], canCreateEdit: false, canDelete: false },
   { id: 'bayi', label: 'Bayi', description: 'Sadece bayi portalı (yeni sipariş girişi)', categories: ['Bayi'], canCreateEdit: true, canDelete: false },
+  { id: 'bulut_temsilcisi', label: 'Bulut Temsilcisi', description: 'Satış, Cari, CRM, Rapor (temsilci erişimi)', categories: ['Ana', 'Satış', 'Finans', 'Rapor', 'Sevkiyat'], canCreateEdit: true, canDelete: false },
   { id: 'custom', label: 'Özel', description: 'Mevcut izinlere dokunma', categories: [], canCreateEdit: false, canDelete: false },
 ]
 
@@ -174,6 +175,7 @@ function getDefaultPermissionsForRoleAndPosition(
   else if (p === 'usta' || p === 'terzi') allowedCategories.push('Üretim', 'Stok', 'Mobil')
   else if (p === 'kalite_kontrol') allowedCategories.push('Üretim', 'Stok')
   else if (r === 'user') allowedCategories.push('Üretim', 'Stok', 'Satış', 'Sevkiyat')
+  else if (r === 'bulut_temsilcisi') allowedCategories.push('Satış', 'Finans', 'Rapor', 'Sevkiyat')
 
   const result: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
   AVAILABLE_PAGES.forEach(page => {
@@ -235,8 +237,8 @@ export default function UsersPage() {
     if (user === undefined) return
     if (user === null) return
     if (!isAdminRole(user.role)) {
-      router.replace('/')
-      return
+      const t = setTimeout(() => router.replace('/'), 0)
+      return () => clearTimeout(t)
     }
   }, [user, router])
 
@@ -727,6 +729,8 @@ export default function UsersPage() {
                     applyRoleTemplate('full')
                   } else if (newRole === 'bayi') {
                     applyRoleTemplate('bayi')
+                  } else if (newRole === 'bulut_temsilcisi') {
+                    applyRoleTemplate('bulut_temsilcisi')
                   } else {
                     setRoleTemplateId('custom')
                   }
@@ -739,6 +743,7 @@ export default function UsersPage() {
                 <option value="yönetici">Yönetici (tüm yetkiler)</option>
                 <option value="manager">Yönetici yardımcısı</option>
                 <option value="bayi">Bayi (sadece sipariş girişi)</option>
+                <option value="bulut_temsilcisi">Bulut Temsilcisi</option>
               </select>
               <p className="mt-1 text-xs text-gray-500">Rol, menü ve sayfa erişimini belirler. Engellemeler aşağıdaki izinlerle ayarlanır.</p>
             </div>
@@ -873,7 +878,7 @@ export default function UsersPage() {
                       const checked = e.target.checked
                       setFormData({ ...formData, view_only: checked })
                       if (checked) {
-                        const viewOnlyPerms: Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }> = {}
+                        const viewOnlyPerms = {} as Record<string, { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }>
                         Object.keys(selectedPermissions).forEach(path => {
                           viewOnlyPerms[path] = {
                             can_view: selectedPermissions[path]?.can_view ?? false,
@@ -881,7 +886,7 @@ export default function UsersPage() {
                             can_edit: false,
                             can_delete: false,
                           }
-                        }
+                        })
                         setSelectedPermissions(viewOnlyPerms)
                       }
                     }}
@@ -1156,7 +1161,9 @@ export default function UsersPage() {
                             yönetici: { label: 'Yönetici', className: 'bg-red-800 text-red-200', icon: Shield },
                             yonetici: { label: 'Yönetici', className: 'bg-red-800 text-red-200', icon: Shield },
                             user: { label: 'Kullanıcı', className: 'bg-blue-900 text-blue-300', icon: Users },
+                            manager: { label: 'Yönetici yardımcısı', className: 'bg-indigo-900 text-indigo-300', icon: Shield },
                             bayi: { label: 'Bayi', className: 'bg-emerald-900 text-emerald-300', icon: Users },
+                            bulut_temsilcisi: { label: 'Bulut Temsilcisi', className: 'bg-sky-900 text-sky-300', icon: Users },
                           }
                           const roleInfo = roleLabels[userRow.role] || { label: userRow.role, className: 'bg-gray-900 text-gray-300', icon: Users }
                           const Icon = roleInfo.icon

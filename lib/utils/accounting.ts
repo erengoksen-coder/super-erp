@@ -84,11 +84,40 @@ export async function createJournalEntry(entry: JournalEntry): Promise<string> {
       WHERE id = ?
     `)
 
+    const updateDealerBalance = db.prepare(`
+      UPDATE accounts
+      SET balance = balance + ? - ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE code = ?
+    `)
+
     for (const line of entry.lines) {
-      // Hesap kodundan hesap ID'sini bul
-      const account = db.prepare('SELECT id, account_type, balance FROM chart_of_accounts WHERE code = ?').get(line.account_code) as any
+      // 1. Hesap bul veya oluştur
+      let account = db.prepare('SELECT id, account_type, balance, code FROM chart_of_accounts WHERE code = ?').get(line.account_code) as any
+
       if (!account) {
-        throw new Error(`Hesap bulunamadı: ${line.account_code}`)
+        // Eğer hesap planında yoksa, 'accounts' tablosunda var mı bak
+        const dealer = db.prepare('SELECT name, type FROM accounts WHERE code = ?').get(line.account_code) as any
+        if (dealer) {
+          // Otomatik olarak hesap planına ekle
+          const parentCode = dealer.type === 'supplier' ? '320' : '120'
+          const parent = db.prepare('SELECT id, account_type FROM chart_of_accounts WHERE code = ?').get(parentCode) as any
+
+          if (!parent) {
+            // Parent da yoksa (çok düşük ihtimal ama güvenli olalım)
+            throw new Error(`Ana hesap bulunamadı: ${parentCode}`)
+          }
+
+          const newAccountId = randomUUID()
+          db.prepare(`
+            INSERT INTO chart_of_accounts (id, code, name, account_type, parent_id, balance)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(newAccountId, line.account_code, dealer.name, parent.account_type, parent.id, 0)
+
+          account = { id: newAccountId, account_type: parent.account_type, balance: 0, code: line.account_code }
+        } else {
+          throw new Error(`Hesap bulunamadı: ${line.account_code}`)
+        }
       }
 
       const lineId = randomUUID()
@@ -101,8 +130,7 @@ export async function createJournalEntry(entry: JournalEntry): Promise<string> {
         line.description || entry.description
       )
 
-      // Hesap bakiyesini güncelle (Asset ve Expense: debit artırır, credit azaltır)
-      // Liability, Equity, Revenue: credit artırır, debit azaltır
+      // 2. Bakiyeleri güncelle
       let balanceChange = 0
       if (account.account_type === 'asset' || account.account_type === 'expense') {
         balanceChange = (line.debit || 0) - (line.credit || 0)
@@ -110,7 +138,7 @@ export async function createJournalEntry(entry: JournalEntry): Promise<string> {
         balanceChange = (line.credit || 0) - (line.debit || 0)
       }
 
-      const newBalance = account.balance + balanceChange
+      const newBalance = (account.balance || 0) + balanceChange
 
       // Defter-i Kebir kaydı
       const ledgerId = randomUUID()
@@ -128,11 +156,18 @@ export async function createJournalEntry(entry: JournalEntry): Promise<string> {
         entry.reference_id || null
       )
 
-      // Hesap bakiyesini güncelle
+      // Hesap planı bakiyesini güncelle
       updateAccountBalance.run(
         line.debit || 0,
         line.credit || 0,
         account.id
+      )
+
+      // Dealer (accounts tablosu) bakiyesini de güncelle
+      updateDealerBalance.run(
+        line.debit || 0,
+        line.credit || 0,
+        account.code
       )
     }
 
@@ -168,31 +203,31 @@ export async function createSaleJournalEntry(
     reference_id: saleId,
     lines: [
       {
-        account_code: customer.code, // Alacak (Müşteri)
-        debit: 0,
-        credit: totalAmount,
-        description: 'Satış alacağı'
+        account_code: customer.code, // Müşteri (120 - Alacaklar) -> BORÇ
+        debit: totalAmount,
+        credit: 0,
+        description: 'Satış borcu'
       },
       {
-        account_code: '600', // Gelir (Satış Geliri)
+        account_code: '600', // Gelir (Satış Geliri) -> ALACAK
         debit: 0,
         credit: amount,
         description: 'Satış geliri'
       },
       {
-        account_code: '191', // KDV Alacak
+        account_code: '391', // Hesaplanan KDV -> ALACAK
         debit: 0,
         credit: taxAmount,
-        description: 'KDV'
+        description: 'Hesaplanan KDV'
       },
       {
-        account_code: '620', // Satılan Malın Maliyeti
+        account_code: '620', // Satılan Malın Maliyeti -> BORÇ
         debit: costOfGoodsSold,
         credit: 0,
         description: 'Satılan malın maliyeti'
       },
       {
-        account_code: '150', // Stok
+        account_code: '150', // Stok (Mamül) -> ALACAK
         debit: 0,
         credit: costOfGoodsSold,
         description: 'Stok çıkışı'
@@ -228,21 +263,21 @@ export async function createPurchaseJournalEntry(
     reference_id: purchaseId,
     lines: [
       {
-        account_code: '150', // Stok
+        account_code: '150', // Stok (Hammadde) -> BORÇ
         debit: amount,
         credit: 0,
         description: 'Stok girişi'
       },
       {
-        account_code: '191', // KDV Borç
+        account_code: '191', // İndirilecek KDV -> BORÇ
         debit: taxAmount,
         credit: 0,
-        description: 'KDV'
+        description: 'İndirilecek KDV'
       },
       {
-        account_code: supplier.code, // Borç (Tedarikçi)
-        debit: totalAmount,
-        credit: 0,
+        account_code: supplier.code, // Tedarikçi (320 - Satıcılar) -> ALACAK
+        debit: 0,
+        credit: totalAmount,
         description: 'Satın alma borcu'
       }
     ]
@@ -300,18 +335,18 @@ export function initializeChartOfAccounts() {
     { code: '150', name: 'Stoklar', account_type: 'asset', parent_id: '100' },
     { code: '120', name: 'Alacaklar', account_type: 'asset', parent_id: '100' },
     { code: '191', name: 'KDV', account_type: 'asset', parent_id: '100' },
-    
+
     // Yükümlülükler (Liabilities)
     { code: '200', name: 'Kısa Vadeli Yükümlülükler', account_type: 'liability', parent_id: null },
     { code: '320', name: 'Satıcılar', account_type: 'liability', parent_id: '200' },
-    
+
     // Özkaynaklar (Equity)
     { code: '500', name: 'Özkaynaklar', account_type: 'equity', parent_id: null },
     { code: '590', name: 'Dönem Net Karı', account_type: 'equity', parent_id: '500' },
-    
+
     // Gelirler (Revenue)
     { code: '600', name: 'Satış Gelirleri', account_type: 'revenue', parent_id: null },
-    
+
     // Giderler (Expenses)
     { code: '620', name: 'Satılan Malın Maliyeti', account_type: 'expense', parent_id: null },
     { code: '720', name: 'Üretim Giderleri', account_type: 'expense', parent_id: null },
@@ -325,7 +360,7 @@ export function initializeChartOfAccounts() {
   `)
 
   for (const account of accounts) {
-    const parent = account.parent_id 
+    const parent = account.parent_id
       ? db.prepare('SELECT id FROM chart_of_accounts WHERE code = ?').get(account.parent_id) as any
       : null
 

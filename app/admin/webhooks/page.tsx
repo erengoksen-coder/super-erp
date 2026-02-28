@@ -16,6 +16,8 @@ import { isAdminRole } from '@/lib/auth/permissions-check'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { LoadingState } from '@/components/ui/LoadingState'
 import { toast } from '@/lib/notify'
 
 type WebhookEndpoint = {
@@ -53,8 +55,8 @@ export default function AdminWebhooksPage() {
   useEffect(() => {
     if (!user) return
     if (!isAdmin) {
-      router.replace('/')
-      return
+      const t = setTimeout(() => router.replace('/'), 0)
+      return () => clearTimeout(t)
     }
     load()
   }, [user, isAdmin, router])
@@ -172,9 +174,19 @@ export default function AdminWebhooksPage() {
         <CardHeader title="Kayıtlı Webhook URL'leri" />
         <CardBody>
           {loading ? (
-            <p className="text-gray-400 text-sm">Yükleniyor...</p>
+            <LoadingState message="Webhook listesi yükleniyor…" />
           ) : list.length === 0 ? (
-            <p className="text-gray-400 text-sm">Henüz webhook eklenmemiş. Olaylar (sipariş oluşturma, sevkiyat onayı vb.) tetiklendiğinde kayıtlı URL’lere POST atılır.</p>
+            <EmptyState
+              title="Henüz webhook yok"
+              description="Sipariş, sevkiyat veya stok gibi olaylar tetiklendiğinde kayıtlı URL'lere POST atılır. İlk webhook'u ekleyerek entegrasyonları başlatın."
+              icon={Webhook}
+              action={
+                <Button variant="solid" color="primary" size="sm" onClick={() => setShowForm(true)} className="inline-flex items-center gap-2">
+                  <Plus size={18} />
+                  İlk webhook ekle
+                </Button>
+              }
+            />
           ) : (
             <div className="space-y-3">
               {list.map((item) => (
@@ -240,7 +252,7 @@ export default function AdminWebhooksPage() {
                     type="text"
                     value={form.events}
                     onChange={(e) => setForm((f) => ({ ...f, events: e.target.value }))}
-                    placeholder="order.created, shipment.approved"
+                    placeholder="Örn: order.created, shipment.approved"
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -248,7 +260,7 @@ export default function AdminWebhooksPage() {
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Secret (isteğe bağlı, X-Webhook-Signature header)</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Gizli anahtar (isteğe bağlı, X-Webhook-Signature başlığı)</label>
                   <input
                     type="password"
                     value={form.secret}

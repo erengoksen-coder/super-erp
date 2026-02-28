@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Package, Clock, CheckCircle, XCircle, Search } from 'lucide-react'
-import { fetchApi } from '@/lib/api/client'
+import { Package, Clock, CheckCircle, XCircle, Search, Trash2 } from 'lucide-react'
+import { fetchApi, getAuthHeaders } from '@/lib/api/client'
+import { toast } from '@/lib/notify'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 type Order = {
   id: string
@@ -19,11 +21,18 @@ type Order = {
   status: string
   production_order_number: string | null
   created_at: string
+  cancel_reason?: string | null
 }
+
+const CANCELLED_BY_DEALER = 'bayi_tarafindan_iptal'
+const NOT_CANCELLABLE_STATUSES = ['in_production', 'ready_for_dispatch', 'dispatched', 'completed']
 
 const statusLabels: Record<string, string> = {
   pending: 'Beklemede',
+  approval_pending: 'Onay Bekliyor',
   in_production: 'Üretimde',
+  ready_for_dispatch: 'Sevkiyata Hazır',
+  dispatched: 'Sevk Edildi',
   completed: 'Tamamlandı',
   cancelled: 'İptal',
 }
@@ -51,6 +60,8 @@ export default function BayiOrdersPage() {
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   useEffect(() => {
     setError(null)
@@ -90,21 +101,49 @@ export default function BayiOrdersPage() {
     return list
   }, [orders, search, dateFrom, dateTo])
 
+  const handleCancelOrder = async (orderId: string) => {
+    setCancelOrderId(orderId)
+  }
+
+  const confirmCancelOrder = async () => {
+    if (!cancelOrderId) return
+    setCancelLoading(true)
+    try {
+      const response = await fetch(`/api/bayi/orders/${cancelOrderId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        credentials: 'include'
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'İptal işlemi başarısız.')
+      }
+
+      toast.success('Sipariş iptal edildi.')
+      setOrders(prev => prev.map(o => o.id === cancelOrderId ? { ...o, status: 'cancelled', cancel_reason: CANCELLED_BY_DEALER } : o))
+      setCancelOrderId(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Package className="w-5 h-5" />
+        <h2 className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent flex items-center gap-2 drop-shadow-sm">
+          <Package className="w-6 h-6 text-blue-400" />
           Siparişlerim
         </h2>
         <div className="flex gap-2 flex-wrap">
-          {['all', 'pending', 'in_production', 'completed', 'cancelled'].map((s) => (
+          {['all', 'approval_pending', 'pending', 'in_production', 'completed', 'cancelled'].map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
-                statusFilter === s ? 'bg-blue-600 text-white' : 'bg-slate-700/60 text-slate-300 hover:bg-slate-600'
-              }`}
+              className={`px-3 py-2 rounded-lg text-sm font-black transition-all duration-300 min-h-[44px] ${statusFilter === s ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-blue-50 shadow-lg shadow-blue-500/20 scale-105' : 'bg-slate-700/60 text-sky-100/60 hover:bg-slate-600 hover:text-sky-100'
+                }`}
             >
               {s === 'all' ? 'Tümü' : statusLabels[s] || s}
             </button>
@@ -121,7 +160,7 @@ export default function BayiOrdersPage() {
             placeholder="Sipariş no, ürün, müşteri..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sky-50 placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
           />
         </div>
         <div className="flex flex-wrap gap-2 items-center">
@@ -129,14 +168,14 @@ export default function BayiOrdersPage() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
           />
           <span className="text-slate-500 text-sm">–</span>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
           />
         </div>
       </div>
@@ -166,37 +205,52 @@ export default function BayiOrdersPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 text-sm">
-                    <th className="p-3 font-medium">Sipariş No</th>
-                    <th className="p-3 font-medium">Ürün</th>
-                    <th className="p-3 font-medium">Miktar</th>
-                    <th className="p-3 font-medium">Tutar</th>
-                    <th className="p-3 font-medium">Sipariş Tarihi</th>
-                    <th className="p-3 font-medium">Durum</th>
+                  <tr className="border-b border-slate-700 text-blue-200/60 text-sm">
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Sipariş No</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Ürün</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Miktar</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Tutar</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Tarih</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider">Durum</th>
+                    <th className="p-3 font-extrabold uppercase tracking-wider text-right">İşlem</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredOrders.map((o) => (
                     <tr key={o.id} className="border-b border-slate-700/60 hover:bg-slate-700/20">
-                      <td className="p-3 font-mono text-sm text-white">{o.order_number || '–'}</td>
-                      <td className="p-3 text-slate-200">{o.product_name || '–'}</td>
-                      <td className="p-3 text-slate-200">{o.quantity ?? '–'}</td>
-                      <td className="p-3 text-slate-200">
+                      <td className="p-3 font-mono text-sm font-black text-blue-100">{o.order_number || '–'}</td>
+                      <td className="p-3 text-sky-100 font-medium">{o.product_name || '–'}</td>
+                      <td className="p-3 text-sky-100 font-bold">{o.quantity ?? '–'}</td>
+                      <td className="p-3 text-blue-200 font-black">
                         {o.total_amount != null ? new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(o.total_amount) : '–'}
                       </td>
-                      <td className="p-3 text-slate-400 text-sm">{formatDate(o.order_date)}</td>
+                      <td className="p-3 text-slate-400/80 text-sm font-medium">{formatDate(o.order_date)}</td>
                       <td className="p-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                          o.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${o.status === 'completed' || o.status === 'dispatched' ? 'bg-emerald-500/20 text-emerald-400' :
                           o.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
-                          o.status === 'in_production' ? 'bg-amber-500/20 text-amber-400' :
-                          'bg-slate-500/20 text-slate-400'
-                        }`}>
+                            o.status === 'in_production' || o.status === 'ready_for_dispatch' ? 'bg-amber-500/20 text-amber-400' :
+                              o.status === 'approval_pending' ? 'bg-blue-500/20 text-blue-400' :
+                                'bg-slate-500/20 text-slate-400'
+                          }`}>
                           {o.status === 'completed' && <CheckCircle className="w-3.5 h-3.5" />}
                           {o.status === 'cancelled' && <XCircle className="w-3.5 h-3.5" />}
                           {(o.status === 'pending' || o.status === 'in_production') && <Clock className="w-3.5 h-3.5" />}
-                          {statusLabels[o.status] || o.status}
+                          {o.status === 'cancelled' && o.cancel_reason === CANCELLED_BY_DEALER ? 'Bayi tarafından iptal edilmiştir' : (statusLabels[o.status] || o.status)}
                         </span>
+                        {NOT_CANCELLABLE_STATUSES.includes(o.status) && (
+                          <p className="text-[11px] text-slate-500 mt-1">Bu sipariş iptal edilemez</p>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        {(o.status === 'pending' || o.status === 'approval_pending') && (
+                          <button
+                            onClick={() => handleCancelOrder(o.id)}
+                            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+                            title="Siparişi İptal Et"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -210,18 +264,31 @@ export default function BayiOrdersPage() {
             {filteredOrders.map((o) => (
               <div
                 key={o.id}
-                className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-2"
+                className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-2 relative"
               >
                 <div className="flex justify-between items-start gap-2">
-                  <span className="font-mono text-sm font-medium text-white">{o.order_number || '–'}</span>
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium shrink-0 ${
-                    o.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
-                    o.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
-                    o.status === 'in_production' ? 'bg-amber-500/20 text-amber-400' :
-                    'bg-slate-500/20 text-slate-400'
-                  }`}>
-                    {statusLabels[o.status] || o.status}
-                  </span>
+                  <span className="font-mono text-sm font-bold text-sky-100">{o.order_number || '–'}</span>
+                  <div className="flex items-center gap-2">
+                    {(o.status === 'pending' || o.status === 'approval_pending') && (
+                      <button
+                        onClick={() => handleCancelOrder(o.id)}
+                        className="p-1.5 text-red-500 bg-red-500/10 rounded-lg"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium shrink-0 ${o.status === 'completed' || o.status === 'dispatched' ? 'bg-emerald-500/20 text-emerald-400' :
+                      o.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+                        o.status === 'in_production' || o.status === 'ready_for_dispatch' ? 'bg-amber-500/20 text-amber-400' :
+                          o.status === 'approval_pending' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-slate-500/20 text-slate-400'
+                      }`}>
+                      {o.status === 'cancelled' && o.cancel_reason === CANCELLED_BY_DEALER ? 'Bayi tarafından iptal edilmiştir' : (statusLabels[o.status] || o.status)}
+                    </span>
+                    {NOT_CANCELLABLE_STATUSES.includes(o.status) && (
+                      <p className="text-[11px] text-slate-500 w-full mt-1">Bu sipariş iptal edilemez</p>
+                    )}
+                  </div>
                 </div>
                 <p className="text-slate-200 text-sm">{o.product_name || '–'}</p>
                 <div className="flex justify-between text-sm text-slate-400">
@@ -238,6 +305,18 @@ export default function BayiOrdersPage() {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        isOpen={cancelOrderId !== null}
+        onClose={() => !cancelLoading && setCancelOrderId(null)}
+        onConfirm={confirmCancelOrder}
+        title="Siparişi İptal Et"
+        message="Bu siparişi iptal etmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+        confirmText="Evet, İptal Et"
+        cancelText="Vazgeç"
+        variant="danger"
+        loading={cancelLoading}
+      />
     </div>
   )
 }

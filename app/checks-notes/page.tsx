@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Pencil, Trash2, FileText, RefreshCw, Users, ChevronDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, FileText, RefreshCw, Users, ChevronDown, Wallet } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -39,10 +39,14 @@ export default function ChecksNotesPage() {
   const [filterType, setFilterType] = useState<string>('')
   const [filterDirection, setFilterDirection] = useState<string>('')
   const [filterAccountId, setFilterAccountId] = useState<string>('')
+  const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterOverdue, setFilterOverdue] = useState<boolean>(() => searchParams.get('overdue') === '1')
+  const [collectModalRow, setCollectModalRow] = useState<CheckNote | null>(null)
+  const [collectCashBoxId, setCollectCashBoxId] = useState('')
+  const [cashBoxes, setCashBoxes] = useState<{ id: string; name: string; balance: number }[]>([])
   const [saving, setSaving] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<{ given_to: string; given_at: string; status: string; given_to_account_id: string }>({ given_to: '', given_at: '', status: 'pending', given_to_account_id: '' })
+  const [editForm, setEditForm] = useState<{ given_to: string; given_at: string; status: string; given_to_account_id: string; cash_box_id: string }>({ given_to: '', given_at: '', status: 'pending', given_to_account_id: '', cash_box_id: '' })
   const [showGivenToSuggestions, setShowGivenToSuggestions] = useState(false)
   const [showAccountDropdown, setShowAccountDropdown] = useState(false)
   const [accountSearchTerm, setAccountSearchTerm] = useState('')
@@ -67,10 +71,11 @@ export default function ChecksNotesPage() {
     if (filterType) params.set('type', filterType)
     if (filterDirection) params.set('direction', filterDirection)
     if (filterAccountId) params.set('account_id', filterAccountId)
+    if (filterStatus) params.set('status', filterStatus)
     if (filterOverdue) params.set('overdue', '1')
     const q = params.toString()
     return `/api/checks-notes${q ? `?${q}` : ''}`
-  }, [filterType, filterDirection, filterAccountId, filterOverdue])
+  }, [filterType, filterDirection, filterAccountId, filterStatus, filterOverdue])
 
   const { data: listData, isLoading, mutate } = useApi<CheckNote[]>(listUrl)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -106,6 +111,12 @@ export default function ChecksNotesPage() {
   useEffect(() => {
     loadAccounts()
   }, [loadAccounts])
+
+  useEffect(() => {
+    if (collectModalRow || editId) {
+      fetchApi<{ id: string; name: string; balance: number }[]>('/api/cash-boxes').then(setCashBoxes).catch(() => setCashBoxes([]))
+    }
+  }, [collectModalRow, editId])
 
   const mutateAccounts = useCallback(() => {
     loadAccounts()
@@ -225,6 +236,7 @@ export default function ChecksNotesPage() {
       given_at: row.given_at ? row.given_at.split('T')[0] : today,
       status: row.status || 'pending',
       given_to_account_id: row.given_to_account_id ?? '',
+      cash_box_id: row.cash_box_id ?? '',
     })
     setShowGivenToSuggestions(false)
   }
@@ -232,6 +244,10 @@ export default function ChecksNotesPage() {
   async function handleEditSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!editId) return
+    if (editForm.status === 'collected' && !editForm.cash_box_id) {
+      toast.warning('Tahsilat için kasa seçin')
+      return
+    }
     setSaving(true)
     try {
       await fetchApi(`/api/checks-notes/${editId}`, {
@@ -242,6 +258,7 @@ export default function ChecksNotesPage() {
           given_at: editForm.given_at || null,
           status: editForm.status,
           given_to_account_id: editForm.given_to_account_id.trim() || null,
+          cash_box_id: editForm.status === 'collected' ? (editForm.cash_box_id || null) : null,
         }),
       })
       setEditId(null)
@@ -249,6 +266,30 @@ export default function ChecksNotesPage() {
       toast.success('Kayıt güncellendi')
     } catch (err: unknown) {
       toast.error('Hata: ' + (err instanceof Error ? err.message : 'Güncellenemedi'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleCollectSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!collectModalRow || !collectCashBoxId) {
+      toast.warning('Kasa seçin')
+      return
+    }
+    setSaving(true)
+    try {
+      await fetchApi(`/api/checks-notes/${collectModalRow.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'collected', cash_box_id: collectCashBoxId }),
+      })
+      setCollectModalRow(null)
+      setCollectCashBoxId('')
+      await mutate()
+      toast.success('Çek/Senet tahsil edildi, kasa güncellendi')
+    } catch (err: unknown) {
+      toast.error('Hata: ' + (err instanceof Error ? err.message : 'Tahsilat yapılamadı'))
     } finally {
       setSaving(false)
     }
@@ -262,7 +303,7 @@ export default function ChecksNotesPage() {
             <h1 className="text-3xl font-bold text-white">Çek ve Senet</h1>
             <LogoWithBackground size="sm" />
           </div>
-          <p className="text-gray-400 mt-1">Alındığı ve verildiği cariye göre çek/senet takibi</p>
+          <p className="text-gray-400 mt-1">Portföy, kasa ve tahsilat takibi</p>
         </div>
       </div>
 
@@ -525,6 +566,18 @@ export default function ChecksNotesPage() {
               <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
             ))}
           </select>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg text-sm"
+          >
+            <option value="">Tüm durumlar</option>
+            <option value="pending">Portföy (Beklemede)</option>
+            <option value="collected">Kasa (Tahsil edildi)</option>
+            <option value="given">Verildi</option>
+            <option value="bounced">Karşılıksız</option>
+            <option value="cancelled">İptal</option>
+          </select>
           <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 cursor-pointer hover:bg-gray-700/80">
             <input
               type="checkbox"
@@ -563,6 +616,7 @@ export default function ChecksNotesPage() {
                   <TableHead>Banka</TableHead>
                   <TableHead>No</TableHead>
                   <TableHead>Durum</TableHead>
+                  <TableHead>Kasa</TableHead>
                   <TableHead>Verildiği Yer</TableHead>
                   <TableHead>Verildiği Tarih</TableHead>
                   <TableHead className="w-24">İşlem</TableHead>
@@ -605,6 +659,7 @@ export default function ChecksNotesPage() {
                     <TableCell className="text-gray-300">
                       {STATUS_LABELS[row.status] ?? row.status}
                     </TableCell>
+                    <TableCell className="text-gray-300">{(row as CheckNote & { cash_box_name?: string }).cash_box_name || '-'}</TableCell>
                     <TableCell>
                       {row.given_to ? (
                         <span className="text-red-300">
@@ -618,6 +673,16 @@ export default function ChecksNotesPage() {
                     <TableCell className="text-gray-300">{row.given_at ? formatDate(row.given_at) : '-'}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
+                        {row.direction === 'received' && row.status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => setCollectModalRow(row)}
+                            className="p-2 text-green-400 hover:bg-green-900/30 rounded"
+                            title="Tahsil et"
+                          >
+                            <Wallet size={16} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openEdit(row)}
@@ -643,6 +708,37 @@ export default function ChecksNotesPage() {
           </div>
         )}
       </div>
+
+      {collectModalRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setCollectModalRow(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl max-w-sm w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-white mb-2">Tahsil et</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              {collectModalRow.account_code} - {collectModalRow.account_name}: {Number(collectModalRow.amount).toLocaleString('tr-TR')} {collectModalRow.currency}
+            </p>
+            <form onSubmit={handleCollectSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Kasa <span className="text-red-400">*</span></label>
+                <select
+                  value={collectCashBoxId}
+                  onChange={(e) => setCollectCashBoxId(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
+                  required
+                >
+                  <option value="">Seçin</option>
+                  {cashBoxes.map((cb) => (
+                    <option key={cb.id} value={cb.id}>{cb.name} ({Number(cb.balance).toLocaleString('tr-TR')} TL)</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => { setCollectModalRow(null); setCollectCashBoxId('') }} className="px-4 py-2 text-gray-300 hover:text-white border border-gray-600 rounded-lg">İptal</button>
+                <button type="submit" disabled={saving || !collectCashBoxId} className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50">{saving ? 'İşleniyor...' : 'Tahsil et'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {editId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditId(null)}>
@@ -716,6 +812,21 @@ export default function ChecksNotesPage() {
                   className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
                 />
               </div>
+              {editForm.status === 'collected' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Kasa <span className="text-red-400">*</span></label>
+                  <select
+                    value={editForm.cash_box_id}
+                    onChange={(e) => setEditForm({ ...editForm, cash_box_id: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg"
+                  >
+                    <option value="">Seçin</option>
+                    {cashBoxes.map((cb) => (
+                      <option key={cb.id} value={cb.id}>{cb.name} ({Number(cb.balance).toLocaleString('tr-TR')} TL)</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"

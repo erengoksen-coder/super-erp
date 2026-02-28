@@ -29,8 +29,8 @@ type ReportFiltersProps = {
 }
 
 const defaultPresetDates = () => {
-  const { from, to } = getPresetDates('week')
-  return { preset: 'week' as DateRangePreset, from, to }
+  const { from, to } = getPresetDates('month')
+  return { preset: 'month' as DateRangePreset, from, to }
 }
 
 export function getDefaultReportFilters(): ReportFiltersValue {

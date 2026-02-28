@@ -1,262 +1,212 @@
-import { NextRequest } from 'next/server'
-import { withAuth } from '@/lib/api/withAuth'
-import { getDatabase } from '@/lib/database/db'
-import { ok, fail } from '@/lib/api/response'
-import { CACHE_HEADERS_SHORT } from '@/lib/api/cache'
-import { parseJsonBody } from '@/lib/api/validate'
-import { DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID } from '@/lib/database/db'
-import { randomUUID } from 'crypto'
+import { NextRequest, NextResponse } from 'next/server';
+import { getDatabase } from '@/lib/database/db';
+import { withAuth, AuthUser } from '@/lib/api/withAuth';
+import { v4 as uuidv4 } from 'uuid';
+import { sendOrderNotificationToChannels } from '@/lib/messaging/order-notification';
 
-type Db = ReturnType<typeof getDatabase>
-
-type BayiOrderInput = {
-  product_name?: string
-  product_sku?: string | null
-  product_id?: string | null
-  quantity?: number
-  unit_price?: number
-  customer_name?: string | null
-  customer_code?: string | null
-  order_date?: string | null
-  notes?: string | null
-  configuration?: string | null
-  fabric_code?: string | null
-  case_info?: string | null
-  leg_info?: string | null
-  cushion_info?: string | null
-  unit?: string | null
-}
-
-function createAccountIfNotExists(db: Db, dealerName: string | null): void {
-  if (!dealerName || dealerName.trim() === '') return
-  const trimmedName = dealerName.trim()
-  const existing = db.prepare('SELECT id FROM accounts WHERE name = ? COLLATE NOCASE').get(trimmedName) as { id: string } | undefined
-  if (existing) return
+// Bayiler için e-ticaret tarzı sipariş oluşturma
+export const POST = withAuth(async (request: NextRequest, user: AuthUser) => {
   try {
-    const lastRow = db.prepare('SELECT code FROM accounts WHERE type = ? AND deleted_at IS NULL ORDER BY code DESC LIMIT 1').get('customer') as { code: string } | undefined
-    let codeNum = 1
-    if (lastRow?.code) {
-      const n = parseInt(lastRow.code.replace(/[^0-9]/g, ''), 10) || 0
-      codeNum = n + 1
+    const body = await request.json();
+    const { items } = body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: 'Sepet boş olamaz.' }, { status: 400 });
     }
-    const code = `MUS-${String(codeNum).padStart(4, '0')}`
-    const id = `acc-${Date.now()}-${Math.random().toString(36).substring(7)}`
-    db.prepare('INSERT INTO accounts (id, code, name, type, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)').run(id, code, trimmedName, 'customer', null, null)
-  } catch (e) {
-    console.error('Cari oluşturulamadı:', trimmedName, e)
-  }
-}
 
-/** BOM’da kayıtlı ürün ID’lerini döndürür (aktif versiyon). */
-function getProductIdsWithBom(db: Db): Set<string> {
-  try {
-    const rows = db.prepare(`
-      SELECT DISTINCT b.product_id
-      FROM bom b
-      JOIN bom_versions bv ON b.version_id = bv.id AND bv.is_active = 1 AND bv.deleted_at IS NULL
-      WHERE b.deleted_at IS NULL
-    `).all() as Array<{ product_id: string }>
-    return new Set(rows.map((r) => r.product_id))
-  } catch {
-    try {
-      const rows = db.prepare('SELECT DISTINCT product_id FROM bom WHERE deleted_at IS NULL').all() as Array<{ product_id: string }>
-      return new Set(rows.map((r) => r.product_id))
-    } catch {
-      return new Set()
-    }
-  }
-}
+    const db = getDatabase();
+    db.pragma('foreign_keys = OFF'); // İşlem bütünlüğü (transaction) öncesi pragma ayarlamaları
 
-/** Kumaş kodu/adı hammadde depoda (materials) var mı kontrol eder. */
-function isMaterialInStore(db: Db, fabricCode: string | null): boolean {
-  if (!fabricCode || !fabricCode.trim()) return true
-  const trimmed = fabricCode.trim()
-  const row = db.prepare('SELECT id FROM materials WHERE (code = ? OR name = ? COLLATE NOCASE) AND deleted_at IS NULL').get(trimmed, trimmed) as { id: string } | undefined
-  return !!row
-}
+    let orderId = '';
+    let orderNumber = '';
+    let totalAmount = 0;
 
-/**
- * Bayi kullanıcısının kendi cari adına ait siparişleri.
- * Sadece role=bayi ve dealer_name dolu kullanıcılar erişir.
- */
-export const GET = withAuth(async (request: NextRequest, user: { userId: string; role: string }) => {
-  const normalizedRole = (user.role || '').toString().trim().toLowerCase()
-  if (normalizedRole !== 'bayi') {
-    return fail('Bu alan sadece bayi kullanıcıları içindir', { status: 403 })
-  }
+    // Transaction başlat
+    const transaction = db.transaction(() => {
+      orderId = `ord_${uuidv4().replace(/-/g, '')}`;
 
-  const db = getDatabase()
-  const u = db.prepare('SELECT dealer_name FROM users WHERE id = ? AND deleted_at IS NULL').get(user.userId) as { dealer_name: string | null } | undefined
-  const dealerName = (u?.dealer_name || '').trim()
-  if (!dealerName) {
-    return ok([])
-  }
+      // Bayinin şirket ve şube ID'si veya default
+      const companyId = 'company_default';
+      const branchId = 'branch_default';
 
-  const { searchParams } = new URL(request.url)
-  const status = searchParams.get('status')
+      // Sipariş numarası oluştur (Örn: ORD-BAYI-202X)
+      const countRow = db.prepare('SELECT count(*) as c FROM orders WHERE company_id = ?').get(companyId) as { c: number };
+      orderNumber = `ORD-B2B-${new Date().getFullYear()}${(countRow.c + 1).toString().padStart(4, '0')}`;
 
-  let query = `
-    SELECT 
-      o.id, o.order_number, o.dealer_name, o.customer_name, o.customer_code,
-      o.product_name, o.product_sku, o.product_id, o.quantity, o.unit_price, o.total_amount,
-      o.order_date, o.delivery_date, o.status, o.production_order_id, o.configuration, o.notes, o.created_at,
-      po.order_number as production_order_number,
-      po.due_date as production_order_due_date
-    FROM active_orders o
-    LEFT JOIN production_orders po ON po.id = o.production_order_id AND (po.deleted_at IS NULL OR po.deleted_at = '')
-    WHERE TRIM(o.dealer_name) = ? AND o.company_id = ? AND o.branch_id = ?
-  `
-  const params: (string | number)[] = [dealerName, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID]
+      // Siparişi (Kasa Fişi mantığı) oluştur
+      let subtotal = 0;
 
-  if (status && ['pending', 'in_production', 'completed', 'cancelled'].includes(status)) {
-    query += ' AND o.status = ?'
-    params.push(status)
-  }
-
-  query += ' ORDER BY COALESCE(o.order_date, o.created_at) DESC'
-
-  const orders = db.prepare(query).all(...params)
-  return ok(orders, { headers: CACHE_HEADERS_SHORT })
-})
-
-/**
- * Bayi sipariş girişi. Sadece role=bayi; dealer_name kullanıcıdan alınır, body'de gönderilmez.
- */
-export const POST = withAuth(async (request: NextRequest, user: { userId: string; role: string }) => {
-  const normalizedRole = (user.role || '').toString().trim().toLowerCase()
-  if (normalizedRole !== 'bayi') {
-    return fail('Bu alan sadece bayi kullanıcıları içindir', { status: 403 })
-  }
-
-  const db = getDatabase()
-  const u = db.prepare('SELECT dealer_name FROM users WHERE id = ? AND deleted_at IS NULL').get(user.userId) as { dealer_name: string | null } | undefined
-  const dealerName = (u?.dealer_name || '').trim()
-  if (!dealerName) {
-    return fail('Bayi cari adı tanımlı değil. Yönetici ile iletişime geçin.', { status: 400 })
-  }
-
-  let body: { orders?: BayiOrderInput[] }
-  try {
-    body = await parseJsonBody(request) as { orders?: BayiOrderInput[] }
-  } catch {
-    return fail('Geçersiz JSON', { status: 400 })
-  }
-  const manualOrders = body?.orders
-  if (!Array.isArray(manualOrders) || manualOrders.length === 0) {
-    return fail('En az bir sipariş kalemi gerekli.', { status: 400 })
-  }
-
-  const productIdsWithBom = getProductIdsWithBom(db)
-
-  for (const order of manualOrders) {
-    const quantity = Number(order.quantity) || 0
-    if (quantity <= 0) continue
-
-    let productId: string | null = order.product_id || null
-    if (!productId && order.product_sku) {
-      const row = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(order.product_sku) as { id: string } | undefined
-      if (row) productId = row.id
-    }
-    if (!productId && order.product_name) {
-      const row = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${order.product_name}%`) as { id: string } | undefined
-      if (row) productId = row.id
-    }
-    if (!productId || !productIdsWithBom.has(productId)) {
-      return fail('Ürün adı yanlış', { status: 400 })
-    }
-    if (order.fabric_code?.trim() && !isMaterialInStore(db, order.fabric_code)) {
-      return fail('Kumaş adı yanlış', { status: 400 })
-    }
-  }
-
-  createAccountIfNotExists(db, dealerName)
-
-  const inserted: { id: string; order_number: string; product_name?: string; quantity?: number }[] = []
-
-  const run = db.transaction(() => {
-    for (const order of manualOrders) {
-      const quantity = Number(order.quantity) || 0
-      const unitPrice = Number(order.unit_price) || 0
-      if (quantity <= 0) continue
-
-      let combinedNotes = (order.notes || '').trim()
-      if (order.fabric_code?.trim()) combinedNotes += (combinedNotes ? ' | ' : '') + `Kumaş: ${order.fabric_code.trim()}`
-      if (order.case_info?.trim()) combinedNotes += (combinedNotes ? ' | ' : '') + `Kasa: ${order.case_info.trim()}`
-      if (order.leg_info?.trim()) combinedNotes += (combinedNotes ? ' | ' : '') + `Ayak: ${order.leg_info.trim()}`
-      if (order.cushion_info?.trim()) combinedNotes += (combinedNotes ? ' | ' : '') + `Kirlent: ${order.cushion_info.trim()}`
-      if (order.unit?.trim()) combinedNotes += (combinedNotes ? ' | ' : '') + `Birim: ${order.unit.trim()}`
-
-      let productId: string | null = order.product_id || null
-      if (!productId && order.product_sku) {
-        const row = db.prepare('SELECT id FROM active_products WHERE sku = ?').get(order.product_sku) as { id: string } | undefined
-        if (row) productId = row.id
+      for (const item of items) {
+        const sub = (item.dealer_price || 0) * (item.quantity || 1);
+        subtotal += sub;
       }
-      if (!productId && order.product_name) {
-        const row = db.prepare('SELECT id FROM active_products WHERE name LIKE ?').get(`%${order.product_name}%`) as { id: string } | undefined
-        if (row) productId = row.id
-      }
+      // %20 KDV varsayımıyla vergileme
+      const taxAmount = subtotal * 0.20;
+      totalAmount = subtotal + taxAmount;
 
-      const orderId = randomUUID()
-      const orderNumber = `SIP-${Date.now()}-${randomUUID().substring(0, 8)}`
-      const productName = order.product_name || order.product_sku || ''
-      const totalAmount = quantity * unitPrice
+      // Bayinin dealer_name bilgisini al
+      const userInfo = db.prepare('SELECT dealer_name FROM users WHERE id = ?').get(user.userId) as { dealer_name: string | null } | undefined;
+      const dealerName = userInfo?.dealer_name || user.userId || 'Bayi';
 
+      // `orders` tablosuna kayıt
       db.prepare(`
-        INSERT INTO orders (
-          id, order_number, dealer_name, customer_name, customer_code, product_name, product_sku,
-          product_id, quantity, unit_price, total_amount, order_date, delivery_date, status,
-          configuration, notes, company_id, branch_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `).run(
+                INSERT INTO orders (
+                    id, order_number, dealer_name, type, status, customer_id, branch_id, company_id,
+                    subtotal, tax_amount, total_amount, currency, exchange_rate,
+                    sales_representative_id, created_by, order_date, expected_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
         orderId,
         orderNumber,
         dealerName,
-        order.customer_name ?? null,
-        order.customer_code ?? null,
-        productName,
-        order.product_sku ?? null,
-        productId,
-        quantity,
-        unitPrice,
-        totalAmount,
-        order.order_date ?? null,
-        order.configuration ?? null,
-        combinedNotes || null,
-        DEFAULT_COMPANY_ID,
-        DEFAULT_BRANCH_ID
-      )
-      inserted.push({ id: orderId, order_number: orderNumber, product_name: productName, quantity })
-    }
-  })
-  run()
+        'sales',             // type
+        'approval_pending',  // status (onay bekliyor)
+        user.userId,         // customer_id = bayi_id
+        branchId,
+        companyId,
+        subtotal,            // subtotal
+        taxAmount,           // tax
+        totalAmount,         // total
+        'TRY',               // currency
+        1,                   // exchange rate
+        user.userId,         // satıcı temsilcisi yine bayi olarak kaydediliyor ki kendi bilsin
+        user.userId,         // created_by
+        new Date().toISOString(), // order date
+        new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() // 14 gün sonrası expected_date
+      );
 
-  // Planlama, admin ve yönetici rollerine anlık bildirim gönder (Tamam’a basana kadar ekranda kalsın)
-  try {
-    const targetUsers = db.prepare(`
-      SELECT id FROM users
-      WHERE deleted_at IS NULL
-        AND (
-          LOWER(TRIM(COALESCE(role, ''))) IN ('admin', 'yönetici', 'yonetici')
-          OR LOWER(TRIM(COALESCE(position, ''))) = 'planlama'
-        )
-    `).all() as Array<{ id: string }>
-    const title = 'Yeni bayi siparişi'
-    const message = `${dealerName} tarafından ${inserted.length} adet sipariş girildi.`
-    const refType = 'bayi_order'
-    const refId = inserted[0]?.id ?? ''
-    const { userWantsNotification } = await import('@/lib/notifications/preferences')
-    for (const { id: targetUserId } of targetUsers) {
-      if (targetUserId === user.userId) continue
-      if (!userWantsNotification(db, targetUserId, 'new_order')) continue
-      const notifId = randomUUID()
+      // Sipariş Kalemlerini (`order_items`) kaydet
+      const insertItem = db.prepare(`
+                INSERT INTO order_items (
+                    id, order_id, product_id, quantity, unit_price, tax_rate, tax_amount, total_price, status, company_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+      for (const item of items) {
+        const itemId = `oi_${uuidv4().replace(/-/g, '')}`;
+        const uPrice = item.dealer_price || 0;
+        const qty = item.quantity || 1;
+        const tPrice = uPrice * qty;
+        const tTax = tPrice * 0.20;
+
+        const isManual = !item.id || item.id.startsWith('manual_');
+        const productId = isManual ? null : item.id;
+
+        insertItem.run(
+          itemId,
+          orderId,
+          productId,
+          qty,
+          uPrice,
+          20,               // %20 kdv
+          tTax,
+          tPrice + tTax,
+          'pending',        // kalem durumu (production tracking için lazım)
+          companyId
+        );
+      }
+
+      // Onay Eşiği Kontrolü (app_settings'den oku - varsayılan olarak tutarı yazmak için)
+      const thresholdRow = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?').get('order_approval_threshold') as { setting_value: string } | undefined;
+      const threshold = Number(thresholdRow?.setting_value ?? '0');
+
+      // Bayi siparişleri HER ZAMAN order_approvals tablosuna kayıt atar
+      const approvalId = `apr_${uuidv4().replace(/-/g, '')}`;
       db.prepare(`
-        INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, read, created_at)
-        VALUES (?, ?, ?, ?, 'bayi_order', ?, ?, 0, CURRENT_TIMESTAMP)
-      `).run(notifId, targetUserId, title, message, refType, refId)
-    }
-  } catch (e) {
-    console.warn('[bayi/orders] Bildirim yazılamadı:', e)
-  }
+        INSERT INTO order_approvals (
+          id, order_id, requested_by, requested_at, status, order_amount, threshold_amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        approvalId,
+        orderId,
+        user.userId,
+        new Date().toISOString(),
+        'pending',
+        totalAmount,
+        threshold
+      );
+    });
 
-  return ok({ orders: inserted }, { message: `${inserted.length} sipariş oluşturuldu` })
-})
+    // Transaction'ı çalıştır
+    transaction();
+
+    // Telegram / WhatsApp Bildirimi Gönder (Async)
+    try {
+      sendOrderNotificationToChannels({
+        orders: items.map(it => ({
+          order_number: orderNumber,
+          product_name: it.name || 'Bilinmeyen Ürün',
+          quantity: it.quantity || 1,
+          customer_name: (user as any)?.dealer_name || user.userId
+        }))
+      }).catch(err => console.error('Telegram notification error:', err));
+    } catch (e) {
+      console.error('Notification dispatch error:', e);
+    }
+
+    return NextResponse.json({ success: true, message: 'Sipariş başarıyla oluşturuldu.', orderId, orderNumber });
+
+  } catch (error: any) {
+    console.error('B2B Sipariş Hatası:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+});
+
+// Bayinin kendi siparişlerini listeleme
+export const GET = withAuth(async (request: NextRequest, user: AuthUser) => {
+  try {
+    const db = getDatabase();
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+
+    // Bayinin dealer_name bilgisini al
+    const userInfo = db.prepare('SELECT dealer_name FROM users WHERE id = ?').get(user.userId) as { dealer_name: string | null } | undefined;
+    const dealerName = userInfo?.dealer_name || '';
+
+    let query = `
+      SELECT 
+        o.*,
+        (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
+        (SELECT p.name FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = o.id LIMIT 1) as first_product_name,
+        (SELECT SUM(quantity) FROM order_items WHERE order_id = o.id) as total_quantity
+      FROM orders o
+      WHERE (o.customer_id = ? OR (o.customer_id IS NULL AND o.dealer_name = ?)) 
+        AND o.deleted_at IS NULL
+    `;
+    const params: any[] = [user.userId, dealerName];
+
+    if (status && status !== 'all') {
+      query += ' AND o.status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY o.created_at DESC';
+
+    const rows = db.prepare(query).all(...params) as any[];
+
+    // Frontend beklentilerine göre veriyi map'le
+    const orders = rows.map(row => ({
+      id: row.id,
+      order_number: row.order_number,
+      dealer_name: row.dealer_name,
+      customer_name: row.customer_name,
+      product_name: row.item_count > 1
+        ? `${row.first_product_name || 'Ürün'} (+${row.item_count - 1} ürün daha)`
+        : (row.first_product_name ? String(row.first_product_name).trim() || '—' : '—'),
+      product_sku: row.item_count > 1 ? 'MULTI' : 'SINGLE',
+      quantity: row.total_quantity || 0,
+      unit_price: row.subtotal / (row.total_quantity || 1),
+      total_amount: row.total_amount,
+      order_date: row.order_date || row.created_at,
+      status: row.status,
+      cancel_reason: row.cancel_reason || null,
+      created_at: row.created_at
+    }));
+
+    return NextResponse.json({ success: true, data: orders });
+  } catch (error: any) {
+    console.error('B2B Sipariş Listesi Hatası:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+});
+

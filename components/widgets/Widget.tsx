@@ -41,44 +41,59 @@ export const StatWidget = ({
     )
   }
 
-  const colorClasses = {
-    primary: 'text-primary bg-primary/10',
-    success: 'text-emerald-600 bg-emerald-50',
-    warning: 'text-amber-600 bg-amber-50',
-    error: 'text-red-600 bg-red-50'
+  const colorPrefix =
+    color === 'primary' ? 'blue' :
+      color === 'success' ? 'emerald' :
+        color === 'warning' ? 'amber' : 'red';
+
+  const iconColors = {
+    primary: 'text-blue-400 bg-blue-500/20',
+    success: 'text-emerald-400 bg-emerald-500/20',
+    warning: 'text-amber-400 bg-amber-500/20',
+    error: 'text-red-400 bg-red-500/20',
+  }
+
+  const textColors = {
+    primary: 'text-blue-400',
+    success: 'text-emerald-400',
+    warning: 'text-amber-400',
+    error: 'text-red-400',
   }
 
   return (
-    <Card className={cn('group hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
-      <CardBody className="p-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1 flex-1">
-            <p className="text-sm font-medium text-gray-600 dark:text-slate-400 group-hover:text-white dark:group-hover:text-white transition-colors">{title}</p>
-            <p className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white group-hover:text-white dark:group-hover:text-white transition-colors">{value}</p>
-            {change && (
-              <div className="flex items-center space-x-1">
-                <span
-                  className={cn(
-                    'text-xs font-medium group-hover:text-white dark:group-hover:text-white transition-colors',
-                    change.type === 'increase' && 'text-emerald-600 dark:text-emerald-400',
-                    change.type === 'decrease' && 'text-red-600 dark:text-red-400',
-                    change.type === 'neutral' && 'text-gray-500 dark:text-slate-400'
-                  )}
-                >
-                  {change.type === 'increase' && '↑'}
-                  {change.type === 'decrease' && '↓'}
-                  {change.type === 'neutral' && '→'}
-                  {change.value}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-slate-500 group-hover:text-white dark:group-hover:text-white transition-colors">dün</span>
+    <Card
+      variant="elevated"
+      hover
+      className={cn('h-full bg-slate-800/40 backdrop-blur-xl border-slate-700/60 hover:border-slate-500/50 transition-all duration-300 shadow-xl overflow-hidden group/card relative', className)}
+    >
+      <div className={`absolute inset-0 bg-gradient-to-br from-${colorPrefix}-500/10 to-transparent opacity-0 group-hover/card:opacity-100 transition-opacity duration-500`} />
+      <CardBody className="p-5 relative z-10 flex flex-col justify-between">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between">
+            {icon && (
+              <div className={cn('shrink-0 rounded-2xl p-3 shadow-inner', iconColors[color])}>
+                {icon}
               </div>
             )}
+            {change && (
+              <Badge
+                color={change.type === 'increase' ? 'success' : change.type === 'decrease' ? 'error' : 'secondary'}
+                variant="soft"
+                className="bg-gray-800/60 backdrop-blur-sm border-gray-700/50"
+              >
+                {change.type === 'increase' && '↑ '}
+                {change.type === 'decrease' && '↓ '}
+                {change.type === 'neutral' && '→ '}
+                {change.value}
+              </Badge>
+            )}
           </div>
-          {icon && (
-            <div className={cn('p-3 rounded-xl', colorClasses[color])}>
-              {icon}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-400 capitalize mb-1">{title}</h3>
+            <div className="flex items-baseline gap-2">
+              <p className={cn('text-2xl lg:text-3xl font-bold tabular-nums tracking-tight text-white', textColors[color])}>{value}</p>
             </div>
-          )}
+          </div>
         </div>
       </CardBody>
     </Card>
@@ -114,7 +129,7 @@ export const ChartWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl overflow-hidden', className)}>
+    <Card variant="elevated" className={cn('bg-slate-800/40 backdrop-blur-xl border-slate-700/60 shadow-xl rounded-xl overflow-hidden transition-all duration-300', className)}>
       <CardHeader
         title={title}
         subtitle={subtitle}
@@ -179,7 +194,7 @@ export const ListWidget = ({
   }
 
   return (
-    <Card className={cn('hover-lift transition-all duration-200 shadow-sm rounded-xl', className)}>
+    <Card variant="elevated" className={cn('bg-slate-800/40 backdrop-blur-xl border-slate-700/60 shadow-xl rounded-xl transition-all duration-300', className)}>
       <CardHeader title={`${title} (${items.length})`} />
       <CardBody>
         {items.length === 0 ? (

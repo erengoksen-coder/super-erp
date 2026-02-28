@@ -133,9 +133,35 @@
 
 ---
 
+## 9. Diğer ERP’lerden eklenebilecekler (SAP, Logo, NetSuite, ERPNext)
+
+Aşağıdaki maddeler **Odoo dışındaki** ERP’lerden (SAP, Logo Tiger, NetSuite, ERPNext vb.) referans alınarak listelenmiştir. LIVASOFA’da henüz yok; eklenebilir.
+
+| # | Özellik | Açıklama | Kaynak | Zorluk | Öncelik |
+|---|--------|----------|--------|--------|---------|
+| D1 | **Dönemsel sayım (cycle count)** | Belirli malzeme/alan için periyodik sayım planı, sayım sıklığı, fark raporu | SAP, NetSuite | Orta | ★★ |
+| D2 | **Raf / konum (bin) yönetimi** | Depo içi raf/lokasyon; stok giriş-çıkışta konum seçimi, toplama listesi | SAP | Yüksek | ★ |
+| D3 | **Teklif → Sipariş dönüşümü** | Teklif onaylandığında tek tıkla sipariş oluşturma, kalemlerin kopyalanması | NetSuite, Logo | Orta | ★★ |
+| D4 | **Fiyat listesi / indirim kuralları** | Müşteri grubu veya cari bazlı fiyat listesi, miktar indirimi, kampanya fiyatı | SAP, NetSuite | Orta | ★★ |
+| D5 | **Tedarikçi performans takibi** | Teslimat süresi, iade oranı, kalite skoru; tedarikçi karşılaştırma | NetSuite, ERPNext | Orta | ★ |
+| D6 | **Proje modülü** | Proje kartı, proje–sipariş/üretim ilişkisi, proje bazlı maliyet/harcama | Logo Tiger | Yüksek | ★ |
+| D7 | **e-İrsaliye / e-Defter uyumu** | e-Devlet e-irsaliye, e-defter formatında çıktı veya entegrasyon | Logo | Yüksek | ★★ |
+| D8 | **Nakit / kasa yönetimi** | Kasa hareketleri, günlük kasa kapanışı, banka mutabakatı | NetSuite, SAP | Orta | ★★ |
+| D9 | **Lead / fırsat pipeline** | Potansiyel müşteri (lead), fırsat aşamaları (teklif, görüşme, kazanıldı/kaybedildi) | CRM/NetSuite | Orta | ★★ |
+| D10 | **Müşteri / tedarikçi notları ve aktivite** | Cari kartında notlar, yapılan aramalar, toplantı kaydı, sonraki takip tarihi | CRM | Düşük | ★★ |
+| D11 | **Stok rezervasyon / çekme kuralı** | FIFO, FEFO (son kullanma önce); otomatik parti seçimi çıkışta | SAP, ERPNext | Orta | ★★ |
+| D12 | **Üretim tipi seçimi** | Sipariş/üretim türü: siparişe özel (discrete), tekrarlayan (repetitive), taşeron | SAP | Yüksek | ★ |
+| D13 | **Zamanlanmış / otomatik sipariş** | Müşteri veya stok kuralına göre periyodik sipariş oluşturma | NetSuite, Logo | Orta | ★ |
+| D14 | **Dashboard KPI’ları (hedef/gerçek)** | Satış, üretim, teslimat hedefi; gerçekleşen vs hedef karşılaştırma | SAP, NetSuite | Orta | ★★ |
+| D15 | **Excel/CSV şablon ile toplu veri girişi** | Cari, ürün, sipariş kalemi için örnek şablon + “İçe aktar” sayfası | ERPNext, Logo | Düşük | ★★ |
+
+---
+
 ## Onay için nasıl kullanılır?
 
-Aşağıya **onayladığınız özellik numaralarını** (örn. S5, R4, F4, G4, R2) yazın; önce onlar uygulanacak. İsterseniz “Önerilen uygulama sırasındaki 1–5’i uygula” da diyebilirsiniz.
+Aşağıya **onayladığınız özellik numaralarını** (örn. S5, R4, F4, G4, R2, D3, D10, D15) yazın; önce onlar uygulanacak. İsterseniz “Önerilen uygulama sırasındaki 1–5’i uygula” da diyebilirsiniz.
+
+- **S1–S8, U1–U5, … G1–G4:** Odoo / genel ERP referansı. **D1–D15:** SAP, Logo, NetSuite, ERPNext vb. diğer ERP'lerden.
 
 | Onayladıklarınız (numara veya isim) | Not |
 |-------------------------------------|-----|

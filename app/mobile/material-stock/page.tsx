@@ -78,7 +78,7 @@ export default function MaterialStockPage() {
 
     // Container'ın DOM'da olması için bekleme
     await new Promise(resolve => setTimeout(resolve, 400))
-    
+
     // Sayfayı scanner'a scroll et
     if (scannerRef.current) {
       scannerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -88,7 +88,7 @@ export default function MaterialStockPage() {
     try {
       const html5QrcodeModule = await import('html5-qrcode')
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode || html5QrcodeModule.default?.Html5Qrcode
-      
+
       if (!Html5Qrcode) {
         throw new Error('Html5Qrcode sınıfı bulunamadı')
       }
@@ -106,7 +106,7 @@ export default function MaterialStockPage() {
           return
         }
       }
-      
+
       // Container'ın görünür olduğundan emin ol
       if (containerElement) {
         containerElement.style.display = 'block'
@@ -134,7 +134,7 @@ export default function MaterialStockPage() {
             { facingMode: 'environment' },
             {
               fps: 5, // Daha düşük FPS
-              qrbox: function(viewfinderWidth, viewfinderHeight) {
+              qrbox: function (viewfinderWidth, viewfinderHeight) {
                 // Dinamik boyutlandırma
                 const minEdgePercentage = 0.7
                 const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight)
@@ -164,20 +164,20 @@ export default function MaterialStockPage() {
       if (!startSuccess && cameras.length > 0) {
         try {
           let cameraId = null
-          
+
           // Önce arka kamerayı bul
           for (const device of cameras) {
             const label = (device.label || '').toLowerCase()
-            if (label.includes('back') || 
-                label.includes('rear') ||
-                label.includes('environment') ||
-                label.includes('arrière') ||
-                label.includes('facing back')) {
+            if (label.includes('back') ||
+              label.includes('rear') ||
+              label.includes('environment') ||
+              label.includes('arrière') ||
+              label.includes('facing back')) {
               cameraId = device.id
               break
             }
           }
-          
+
           // Arka kamera bulunamazsa son kamerayı dene (genelde arka kamera)
           if (!cameraId && cameras.length > 0) {
             cameraId = cameras[cameras.length - 1].id
@@ -188,7 +188,7 @@ export default function MaterialStockPage() {
               cameraId,
               {
                 fps: 5,
-                qrbox: function(viewfinderWidth, viewfinderHeight) {
+                qrbox: function (viewfinderWidth, viewfinderHeight) {
                   const minEdgePercentage = 0.7
                   const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight)
                   const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage)
@@ -221,7 +221,7 @@ export default function MaterialStockPage() {
             cameras[0].id,
             {
               fps: 5,
-              qrbox: function(viewfinderWidth, viewfinderHeight) {
+              qrbox: function (viewfinderWidth, viewfinderHeight) {
                 const minEdgePercentage = 0.7
                 const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight)
                 const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage)
@@ -253,7 +253,7 @@ export default function MaterialStockPage() {
             { facingMode: 'user' },
             {
               fps: 5,
-              qrbox: function(viewfinderWidth, viewfinderHeight) {
+              qrbox: function (viewfinderWidth, viewfinderHeight) {
                 const minEdgePercentage = 0.7
                 const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight)
                 const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage)
@@ -279,9 +279,9 @@ export default function MaterialStockPage() {
       }
 
       if (!startSuccess) {
-        console.error('Tüm kamera başlatma yöntemleri başarısız oldu', lastError)
+        console.warn('Tüm kamera başlatma yöntemleri başarısız oldu:', lastError)
         let errorMsg = lastError?.message || 'Kamera başlatılamadı'
-        
+
         // Daha açıklayıcı hata mesajları
         if (errorMsg.includes('streaming') || errorMsg.includes('not supported')) {
           errorMsg = 'Kamera desteklenmiyor. Manuel giriş kullanabilirsiniz.'
@@ -294,7 +294,7 @@ export default function MaterialStockPage() {
         } else {
           errorMsg = 'Kamera açılamadı. Manuel giriş kullanabilirsiniz.'
         }
-        
+
         setErrorMessage(errorMsg)
         setScanning(false)
       } else {
@@ -321,11 +321,11 @@ export default function MaterialStockPage() {
 
   async function handleQRScan(decodedText: string) {
     await stopScanner()
-    
+
     try {
       // QR kod içeriğini parse et
       let qrData = decodedText
-      
+
       // Eğer URL ise, data parametresini al
       if (decodedText.includes('?data=')) {
         const url = new URL(decodedText)
@@ -347,7 +347,7 @@ export default function MaterialStockPage() {
     setSaving(true)
     try {
       const quantity = stockType === 'in' ? stockChange : -stockChange
-      
+
       const response = await fetch('/api/materials/stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -365,7 +365,7 @@ export default function MaterialStockPage() {
       }
 
       const result = await response.json()
-      
+
       // Malzeme bilgisini yeniden yükle
       const materialResponse = await fetch(`/api/materials/${material.id}`)
       if (materialResponse.ok) {
@@ -415,12 +415,10 @@ export default function MaterialStockPage() {
         {/* Okunan barkod mesajı - Tamam'a basılana kadar ekranda kalır */}
         {scanResultModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70">
-            <div className={`rounded-xl border-2 p-6 max-w-md w-full shadow-xl ${
-              scanResultModal.isError ? 'bg-red-900/95 border-red-600' : 'bg-green-900/95 border-green-600'
-            }`}>
-              <p className={`text-lg font-semibold mb-4 whitespace-pre-line ${
-                scanResultModal.isError ? 'text-red-100' : 'text-green-100'
+            <div className={`rounded-xl border-2 p-6 max-w-md w-full shadow-xl ${scanResultModal.isError ? 'bg-red-900/95 border-red-600' : 'bg-green-900/95 border-green-600'
               }`}>
+              <p className={`text-lg font-semibold mb-4 whitespace-pre-line ${scanResultModal.isError ? 'text-red-100' : 'text-green-100'
+                }`}>
                 {scanResultModal.message}
               </p>
               <button
@@ -465,8 +463,8 @@ export default function MaterialStockPage() {
             </div>
 
             {/* Scanner Container - Her zaman render edilsin, görünürlüğü kontrol edelim */}
-            <div 
-              id="material-qr-reader" 
+            <div
+              id="material-qr-reader"
               ref={scannerRef}
               className={`mb-4 w-full bg-black rounded-lg overflow-hidden ${scanning ? 'block' : 'hidden'}`}
               style={{ minHeight: '250px', maxHeight: '400px', position: 'relative' }}
@@ -517,16 +515,15 @@ export default function MaterialStockPage() {
                 </div>
                 <div className="text-right">
                   <div className="text-sm text-gray-400">Mevcut Stok</div>
-                  <div className={`text-xl font-bold ${
-                    material.stock_amount < material.min_stock_level ? 'text-red-400' : 'text-green-400'
-                  }`}>
+                  <div className={`text-xl font-bold ${material.stock_amount < material.min_stock_level ? 'text-red-400' : 'text-green-400'
+                    }`}>
                     {material.stock_amount} {material.unit}
                   </div>
                 </div>
               </div>
               <div className="text-white font-semibold text-lg mb-1">{material.name}</div>
               <div className="text-gray-400 text-sm">{material.category}</div>
-              
+
               {material.stock_amount < material.min_stock_level && (
                 <div className="mt-3 p-2 bg-red-900/30 border border-red-700 rounded text-red-300 text-sm">
                   ⚠️ Kritik seviye! Minimum: {material.min_stock_level} {material.unit}
@@ -567,22 +564,20 @@ export default function MaterialStockPage() {
                   value={stockChange || ''}
                   onChange={(e) => setStockChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className={`w-full px-4 py-3 bg-gray-900 border border-gray-700 text-white rounded-lg text-lg focus:ring-2 focus:border-transparent ${
-                    stockType === 'in'
+                  className={`w-full px-4 py-3 bg-gray-900 border border-gray-700 text-white rounded-lg text-lg focus:ring-2 focus:border-transparent ${stockType === 'in'
                       ? 'focus:ring-green-500'
                       : 'focus:ring-red-500'
-                  }`}
+                    }`}
                 />
               </div>
 
               <button
                 onClick={handleStockChange}
                 disabled={saving || stockChange === 0}
-                className={`w-full py-3 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center space-x-2 ${
-                  stockType === 'in'
+                className={`w-full py-3 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center space-x-2 ${stockType === 'in'
                     ? 'bg-green-600 hover:bg-green-700'
                     : 'bg-red-600 hover:bg-red-700'
-                }`}
+                  }`}
               >
                 <Save className="w-5 h-5" />
                 <span>{saving ? 'Kaydediliyor...' : 'Kaydet'}</span>

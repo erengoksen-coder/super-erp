@@ -22,6 +22,7 @@ import { isAdminRole } from '@/lib/auth/permissions-check'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
 
 type AuditEntry = {
   id: string
@@ -42,6 +43,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [clearingData, setClearingData] = useState(false)
   const [markingBackup, setMarkingBackup] = useState(false)
+  const [runningBackup, setRunningBackup] = useState(false)
   const [exportingAudit, setExportingAudit] = useState(false)
 
   const isAdmin = isAdminRole(user?.role)
@@ -50,8 +52,8 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (!user) return
     if (!isAdmin) {
-      router.replace('/')
-      return
+      const t = setTimeout(() => router.replace('/'), 0)
+      return () => clearTimeout(t)
     }
     loadData()
   }, [user, isAdmin, router])
@@ -190,7 +192,30 @@ export default function AdminDashboardPage() {
               </div>
               <button
                 type="button"
-                disabled={markingBackup}
+                disabled={runningBackup || markingBackup}
+                onClick={async () => {
+                  setRunningBackup(true)
+                  try {
+                    const res = await fetchApi<{ lastBackupAt?: string; message?: string }>('/api/admin/backup-now', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({}),
+                    })
+                    setLastBackupAt(res?.lastBackupAt ?? null)
+                    toast.success(res?.message ?? 'Yedek oluşturuldu')
+                  } catch (e: any) {
+                    toast.error(e?.message ?? 'Yedekleme başarısız')
+                  } finally {
+                    setRunningBackup(false)
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
+              >
+                {runningBackup ? 'Yedekleniyor...' : 'Şimdi yedekle'}
+              </button>
+              <button
+                type="button"
+                disabled={markingBackup || runningBackup}
                 onClick={async () => {
                   setMarkingBackup(true)
                   try {
@@ -229,6 +254,20 @@ export default function AdminDashboardPage() {
             </Card>
           </Link>
         </div>
+
+        <NewFeatureHighlight featureId="bakim_modu">
+          <Card className="border-amber-700/50 dark:border-amber-800 bg-amber-950/10">
+            <CardBody className="flex flex-row items-center gap-3 flex-wrap">
+              <span className="text-amber-400 font-medium">Bakım modu:</span>
+              <span className="text-sm text-slate-400 dark:text-slate-500">
+                MAINTENANCE_MODE=true ile tüm kullanıcılar bakım sayfasına yönlendirilir.
+              </span>
+              <Link href="/bakim" className="text-sm text-amber-400 hover:text-amber-300 underline">
+                Önizle
+              </Link>
+            </CardBody>
+          </Card>
+        </NewFeatureHighlight>
 
         <Card className="border-red-800 dark:border-red-900 bg-red-950/20">
           <CardHeader

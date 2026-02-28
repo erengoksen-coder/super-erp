@@ -48,8 +48,8 @@ export default function AdminMessagingPage() {
   useEffect(() => {
     if (!user) return
     if (!isAdmin) {
-      router.replace('/')
-      return
+      const t = setTimeout(() => router.replace('/'), 0)
+      return () => clearTimeout(t)
     }
     loadConversations()
   }, [user, isAdmin, router])

@@ -35,7 +35,7 @@ export function clearStoredAuthToken(): void {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.removeItem(AUTH_TOKEN_KEY)
-  } catch {}
+  } catch { }
 }
 
 /** Ngrok uyarı sayfasını atlamak için header (sayfa ngrok URL'den açıksa). */
@@ -53,6 +53,25 @@ export function getAuthHeaders(): Record<string, string> {
   const token = getStoredToken()
   const ngrok = getNgrokSkipHeader()
   return { ...ngrok, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+}
+
+/**
+ * 401 durumunda redirect YAPMAYAN güvenli fetch.
+ * NotificationBell, BayiOrderAlertBanner, NotificationToaster gibi bileşenlerde kullanın;
+ * token süresi dolunca 401 → redirect → sayfa yenilenir → zil tekrar istek atar = sonsuz döngü olmasın diye.
+ * Hata/401'de sessizce null döner.
+ */
+export async function safeFetch<T = unknown>(url: string, init?: RequestInit): Promise<T | null> {
+  try {
+    const headers = { ...getAuthHeaders(), ...(init?.headers as Record<string, string> || {}) }
+    const res = await fetch(url, { credentials: 'include', ...init, headers })
+    if (!res.ok) return null
+    const json = await res.json()
+    if (json && typeof json === 'object' && 'success' in json && json.success && 'data' in json) return json.data as T
+    return json as T
+  } catch {
+    return null
+  }
 }
 
 /** Varsayılan API istek zaman aşımı (ms). Uzun rapor/export için init.signal ile geçersiz kılınabilir. */
@@ -115,7 +134,25 @@ export async function fetchApi<T>(
       }
 
       if (!response.ok) {
-        if (response.status === 401) clearStoredAuthToken()
+        if (response.status === 401) {
+          clearStoredAuthToken()
+          if (typeof window !== 'undefined') {
+            // SESSION_DISPLACED: Başka bir cihaz/tarayıcıdan giriş yapıldı → özel mesaj
+            const isDisplaced = payload && typeof payload === 'object' && (payload as { code?: string }).code === 'SESSION_DISPLACED'
+            import('@/lib/notify').then(({ toast }) => {
+              if (isDisplaced) {
+                toast.error('Başka bir cihaz veya tarayıcıdan giriş yapıldı. Oturumunuz sonlandırıldı.')
+              } else {
+                toast.info('Oturum süresi doldu. Giriş sayfasına yönlendiriliyorsunuz…')
+              }
+            }).catch(() => { })
+            const path = window.location.pathname + window.location.search
+            const isLoginPage = path.startsWith('/auth/login')
+            const href = isLoginPage ? '/auth/login' : `/auth/login?returnUrl=${encodeURIComponent(path)}`
+            window.location.href = href
+            throw new Error('Yetkilendirme gerekli')
+          }
+        }
         if (isApiEnvelope<T>(payload) && payload.success === false) {
           lastError = new Error(String(payload.error || 'Request failed'))
         } else if (payload && typeof payload === 'object' && 'error' in payload) {

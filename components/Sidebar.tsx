@@ -30,6 +30,9 @@ import {
   FileText,
   FileSignature,
   Star,
+  Warehouse,
+  ClipboardCheck,
+  Bell,
 } from 'lucide-react'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
@@ -40,11 +43,14 @@ import { useTheme } from '@/lib/theme'
 import { logout } from '@/lib/auth'
 import { useSidebar } from './SidebarContext'
 import { canAccessPath, isAdminRole } from '@/lib/auth/permissions-check'
-import { useApi, fetchApi } from '@/lib/api/client'
+import useSWR from 'swr'
+import { useApi, fetchApi, safeFetch } from '@/lib/api/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { cn } from '@/lib/cn'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { ROUTES } from '@/lib/constants'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
 
 type SubItem = { name: string; href: string }
 type MenuItem = {
@@ -89,6 +95,8 @@ const PATH_LABELS: Record<string, string> = {
   'api-catalog': 'API Kataloğu',
   mobile: 'Mobil',
   bayi: 'Bayi',
+  warehouses: 'Depolar',
+  'quality-control': 'Kalite Kontrol',
 }
 function getLabelForPath(path: string): string {
   for (const item of menuItems) {
@@ -112,6 +120,7 @@ const menuItems: MenuItem[] = [
     icon: Factory,
     group: 'Üretim & Stok',
     submenu: [
+      { name: 'Üretim Paneli (Yeni)', href: '/production/dashboard' },
       { name: 'Üretim Emirleri', href: ROUTES.PRODUCTION },
       { name: 'Yeni Üretim', href: `${ROUTES.PRODUCTION}/new` },
       { name: 'Ürün Reçetesi', href: ROUTES.BOM },
@@ -122,6 +131,8 @@ const menuItems: MenuItem[] = [
       { name: 'MRP', href: `${ROUTES.PRODUCTION}/mrp` },
       { name: 'Üretim Takvimi', href: `${ROUTES.PRODUCTION}/calendar` },
       { name: 'Usta Terminali', href: '/mobile/workstation' },
+      { name: 'Kalite Kontrol', href: '/quality-control' },
+      { name: 'AI Görsel Kontrol', href: '/quality-control/vision' },
     ],
   },
   {
@@ -135,8 +146,12 @@ const menuItems: MenuItem[] = [
       { name: 'Fiyat Geçmişi', href: `${ROUTES.INVENTORY}/materials/price-history` },
       { name: 'Rezervasyon', href: `${ROUTES.INVENTORY}/materials/reservations` },
       { name: 'Mamül', href: `${ROUTES.INVENTORY}/products` },
+      { name: 'B2B Katalog Yönetimi', href: '/products/b2b' },
       { name: 'Etiket / Barkod', href: `${ROUTES.INVENTORY}/products/print-barcode-label` },
       { name: 'Barkod Yönetimi', href: ROUTES.BARCODES },
+      { name: 'Depolar', href: '/warehouses' },
+      { name: 'Depolar Arası Transfer', href: '/stock-transfers' },
+      { name: 'WMS Akıllı Rota', href: '/inventory/wms' },
       { name: 'Depo Hızlı İşlem', href: '/mobile/material-stock' },
     ],
   },
@@ -147,10 +162,15 @@ const menuItems: MenuItem[] = [
     group: 'Satış & Tedarik',
     submenu: [
       { name: 'Siparişler', href: ROUTES.ORDERS },
+      { name: 'Sipariş Onayları', href: '/admin/approvals' },
+      { name: 'Teklifler', href: '/quotations' },
       { name: 'Satış Siparişleri', href: '/sales-orders' },
       { name: 'Sevkiyat', href: ROUTES.SHIPMENTS },
+      { name: 'İrsaliyeler', href: '/waybills' },
       { name: 'Faturalar', href: ROUTES.INVOICES },
       { name: 'Yeni Fatura', href: `${ROUTES.INVOICES}/new` },
+      { name: 'Fiyat Listeleri', href: '/price-lists' },
+      { name: 'Müşteri Grupları', href: '/customer-groups' },
     ],
   },
   {
@@ -172,8 +192,11 @@ const menuItems: MenuItem[] = [
     group: 'Finans',
     submenu: [
       { name: 'Cari Hesaplar', href: ROUTES.ACCOUNTS },
+      { name: 'Müşteri', href: `${ROUTES.ACCOUNTS}?type=customer` },
       { name: 'Ödemeler', href: '/payments' },
       { name: 'Çek ve Senet', href: '/checks-notes' },
+      { name: 'Ödeme takvimi', href: '/finance/payment-schedule' },
+      { name: 'İadeler', href: '/returns' },
       { name: 'Yevmiye Fişleri', href: `${ROUTES.FINANCE}/journal-entries` },
       { name: 'Yeni Fiş', href: `${ROUTES.FINANCE}/new` },
       { name: 'Hesap Planı', href: `${ROUTES.FINANCE}/chart-of-accounts` },
@@ -209,8 +232,12 @@ const menuItems: MenuItem[] = [
     group: 'Diğer',
     submenu: [
       { name: 'Genel', href: ROUTES.REPORTS },
+      { name: 'BA/BS Formu', href: '/reports/ba-bs' },
+      { name: 'KDV / Vergi Özeti', href: `${ROUTES.REPORTS}/tax-summary` },
       { name: 'Maliyet', href: `${ROUTES.REPORTS}/costs` },
       { name: 'Fire', href: `${ROUTES.REPORTS}/fire` },
+      { name: 'Dönem Karşılaştırma', href: '/reports/period-comparison' },
+      { name: 'Müşteri Karlılık', href: '/reports/customer-profitability' },
     ],
   },
   {
@@ -224,7 +251,13 @@ const menuItems: MenuItem[] = [
       { name: 'Entegrasyonlar', href: '/settings/integrations' },
       { name: 'Yönetici Paneli', href: '/admin' },
       { name: 'Kullanıcılar', href: ROUTES.USERS },
-      { name: 'Mesajlaşma (Admin)', href: '/admin/messaging' },
+      { name: 'Yetki Yönetimi', href: '/admin/permissions' },
+      { name: 'E-Fatura (Nilvera)', href: '/admin/e-invoice' },
+      { name: 'Muhasebe Entegrasyonu', href: '/admin/accounting' },
+      { name: 'API Dokümantasyonu', href: '/admin/api-docs' },
+      { name: 'Denetim Günlüğü', href: '/admin/audit-logs' },
+      { name: 'Oturum Yönetimi', href: '/admin/sessions' },
+      { name: 'WhatsApp / Telegram', href: '/settings/messaging' },
       { name: 'Birim Çevrimleri', href: '/units/conversions' },
       { name: 'Bildirimler', href: '/notifications' },
       { name: 'Webhook\'lar', href: '/admin/webhooks' },
@@ -287,6 +320,7 @@ export default function Sidebar() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const pathname = usePathname()
   const { collapsed, toggle } = useSidebar()
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
@@ -298,30 +332,27 @@ export default function Sidebar() {
   })
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
   const [globalSearchData, setGlobalSearchData] = useState<GlobalSearchData | null>(null)
-  const [recentPaths, setRecentPaths] = useState<Array<{ path: string; label: string }>>(() => {
-    if (typeof window === 'undefined') return []
+  const [recentPaths, setRecentPaths] = useState<Array<{ path: string; label: string }>>([])
+  const [favoritePaths, setFavoritePaths] = useState<Array<{ path: string; label: string }>>([])
+  const [storageReady, setStorageReady] = useState(false)
+
+  useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(RECENT_KEY)
-      const parsed = raw ? JSON.parse(raw) : []
-      const list = Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT) : []
-      return list.map((p: { path: string; label?: string }) => ({
+      const rawRecent = window.localStorage.getItem(RECENT_KEY)
+      const parsedRecent = rawRecent ? JSON.parse(rawRecent) : []
+      const list = Array.isArray(parsedRecent) ? parsedRecent.slice(0, MAX_RECENT) : []
+      setRecentPaths(list.map((p: { path: string; label?: string }) => ({
         path: p.path,
         label: getLabelForPath(p.path),
-      }))
+      })))
+      const rawFav = window.localStorage.getItem(FAVORITE_KEY)
+      const parsedFav = rawFav ? JSON.parse(rawFav) : []
+      setFavoritePaths(Array.isArray(parsedFav) ? parsedFav.slice(0, MAX_FAVORITES) : [])
     } catch {
-      return []
+      // ignore
     }
-  })
-  const [favoritePaths, setFavoritePaths] = useState<Array<{ path: string; label: string }>>(() => {
-    if (typeof window === 'undefined') return []
-    try {
-      const raw = window.localStorage.getItem(FAVORITE_KEY)
-      const parsed = raw ? JSON.parse(raw) : []
-      return Array.isArray(parsed) ? parsed.slice(0, MAX_FAVORITES) : []
-    } catch {
-      return []
-    }
-  })
+    setStorageReady(true)
+  }, [])
 
   const toggleFavorite = useCallback((path: string, label: string) => {
     setFavoritePaths((prev) => {
@@ -329,14 +360,20 @@ export default function Sidebar() {
       const next = exists ? prev.filter((p) => p.path !== path) : [{ path, label }, ...prev].slice(0, MAX_FAVORITES)
       try {
         window.localStorage.setItem(FAVORITE_KEY, JSON.stringify(next))
-      } catch {}
+      } catch { }
       return next
     })
   }, [])
   const isFavorite = (path: string) => favoritePaths.some((p) => p.path === path)
   const user = useAuthStore((s) => s.user)
   const { mode, toggleMode } = useTheme()
-  const { data: unreadData } = useApi<{ count: number }>('/api/notifications/unread-count')
+  const isAuthPage = pathname == null || pathname.startsWith('/auth')
+  const shouldFetchNotifications = !isAuthPage && !!user
+  const { data: unreadData } = useSWR<{ count: number } | null>(
+    shouldFetchNotifications ? '/api/notifications/unread-count' : null,
+    safeFetch,
+    { revalidateOnFocus: true, dedupingInterval: 5_000, refreshInterval: 15_000, errorRetryCount: 2 }
+  )
   const unreadNotificationsCount = unreadData?.count ?? 0
 
   const isAdmin = isAdminRole(user?.role)
@@ -362,7 +399,7 @@ export default function Sidebar() {
       const next = [{ path: pathname, label }, ...prev.filter((p) => p.path !== pathname)].slice(0, MAX_RECENT)
       try {
         window.localStorage.setItem(RECENT_KEY, JSON.stringify(next))
-      } catch {}
+      } catch { }
       return next
     })
   }, [pathname])
@@ -437,11 +474,11 @@ export default function Sidebar() {
           type="button"
           onClick={openSearch}
           data-command-palette-trigger
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mb-3 border border-gray-700/50"
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-slate-400 hover:text-slate-200 bg-slate-800/40 hover:bg-slate-800/80 transition-all duration-300 mb-4 border border-slate-700/50 shadow-inner group/search"
         >
-          <Search className="w-4 h-4 flex-shrink-0" />
+          <Search className="w-4 h-4 flex-shrink-0 group-hover/search:text-indigo-400 transition-colors" />
           <span className="text-sm">Ara...</span>
-          <span className="ml-auto text-[10px] text-gray-500">Ctrl+K</span>
+          <span className="ml-auto text-[10px] font-medium text-slate-500 bg-slate-900/50 px-1.5 py-0.5 rounded">Ctrl+K</span>
         </button>
       )}
       {collapsed && (
@@ -456,7 +493,7 @@ export default function Sidebar() {
           <Search className="w-5 h-5" />
         </button>
       )}
-      {!collapsed && favoritePaths.length > 0 && (
+      {storageReady && !collapsed && favoritePaths.length > 0 && (
         <div className="mb-3">
           <p className="px-3 text-[10px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">Favoriler</p>
           <ul className="space-y-0.5">
@@ -489,48 +526,14 @@ export default function Sidebar() {
           </ul>
         </div>
       )}
-      {!collapsed && recentPaths.length > 0 && (
-        <div className="mb-3">
-          <p className="px-3 text-[10px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">Son ziyaretler</p>
-          <ul className="space-y-0.5">
-            {recentPaths.map(({ path, label }) => (
-              <li key={path} className="group flex items-center gap-0.5">
-                <Link
-                  href={path}
-                  className={cn(
-                    'flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0',
-                    pathname === path ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
-                  )}
-                >
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                  <span className="truncate">{label}</span>
-                </Link>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    toggleFavorite(path, label)
-                  }}
-                  className={cn(
-                    'p-1.5 rounded transition opacity-0 group-hover:opacity-100',
-                    isFavorite(path) ? 'text-amber-400' : 'text-gray-500 hover:text-amber-400 hover:bg-white/5'
-                  )}
-                  title={isFavorite(path) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
-                  aria-label={isFavorite(path) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
-                >
-                  <Star className={cn('h-3.5 w-3.5', isFavorite(path) && 'fill-amber-400 text-amber-400')} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+
       {visibleMenuGroups.map((group) => (
         <div key={group.label ?? 'main'} className={cn(group.label && 'mt-4')}>
           {group.label && !collapsed && (
-            <p className="px-3 mb-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-500">
-              {group.label}
-            </p>
+            <div className="px-3 mt-6 mb-2 flex items-center gap-3">
+              <span className="text-xs font-semibold text-slate-400/90">{group.label}</span>
+              <div className="h-px flex-1 bg-gradient-to-r from-slate-700/50 to-transparent"></div>
+            </div>
           )}
           {group.items.map((item) => {
             const isActive = isItemActive(item.href)
@@ -539,11 +542,11 @@ export default function Sidebar() {
             const Icon = item.icon
 
             const linkClass = cn(
-              'w-full flex items-center gap-3 rounded-lg transition-all duration-150 min-h-[44px]',
-              collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5 text-left',
+              'w-full flex items-center gap-3 rounded-xl transition-all duration-300 min-h-[42px] group/nav relative overflow-hidden',
+              collapsed ? 'justify-center w-11 h-11 mx-auto px-0 py-2.5' : 'px-3 py-2.5 text-left mb-1',
               isActive
-                ? 'bg-blue-500/15 text-blue-400 border-l-2 border-blue-500'
-                : 'text-gray-300 hover:bg-white/5 hover:text-gray-100 border-l-2 border-transparent'
+                ? 'bg-gradient-to-r from-blue-600/20 via-blue-500/10 to-transparent text-blue-300 font-semibold border-l-[3px] border-blue-500 shadow-[inset_1px_0_0_0_rgba(59,130,246,0.2)]'
+                : 'text-slate-300 hover:bg-slate-800/60 hover:text-white font-medium border-l-[3px] border-transparent'
             )
 
             return (
@@ -553,12 +556,15 @@ export default function Sidebar() {
                     <button
                       type="button"
                       onClick={() => {
-                        const nextExpanded = !expandedMenus[item.name]
-                        setExpandedMenus(nextExpanded ? { [item.name]: true } : { ...expandedMenus, [item.name]: false })
+                        setExpandedMenus((prev) => {
+                          const isCurrentlyExpanded = !!prev[item.name]
+                          // If it's already expanded, close it. Otherwise, open ONLY this one.
+                          return isCurrentlyExpanded ? {} : { [item.name]: true }
+                        })
                       }}
                       className={cn(linkClass, collapsed && 'justify-center')}
                     >
-                      <Icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
+                      <Icon className={cn("w-5 h-5 flex-shrink-0 transition-all duration-300", isActive ? "text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "text-slate-400 group-hover/nav:text-slate-200 group-hover/nav:scale-110")} />
                       {!collapsed && (
                         <>
                           <span className="flex-1 text-sm font-medium">{item.name}</span>
@@ -572,27 +578,43 @@ export default function Sidebar() {
                       )}
                     </button>
                     {hasSubmenu && isExpanded && !collapsed && (
-                      <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-700/50 pl-2">
+                      <div className="ml-5 mt-1 mb-2 space-y-1 border-l border-slate-700/60 pl-3">
                         {item.submenu!.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={() => setIsOpen(false)}
-                            className={cn(
-                              'flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors min-h-[44px]',
-                              pathname === sub.href
-                                ? 'bg-blue-500/10 text-blue-400'
-                                : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                            )}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                            {sub.name}
-                            {sub.href === '/notifications' && unreadNotificationsCount > 0 && (
-                              <span className="ml-auto min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center rounded-full bg-amber-500/90 text-black text-xs font-medium">
-                                {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
-                              </span>
-                            )}
-                          </Link>
+                          <div key={sub.href} className="group/sub flex items-center gap-0.5">
+                            <Link
+                              href={sub.href}
+                              onClick={() => setIsOpen(false)}
+                              className={cn(
+                                'flex-1 flex items-center gap-3 px-3 py-2 text-[14px] rounded-lg transition-all duration-200 min-h-[38px] min-w-0 group/link border border-transparent',
+                                pathname === sub.href
+                                  ? 'bg-blue-500/15 text-blue-300 font-semibold translate-x-1 shadow-sm border-blue-500/20'
+                                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white hover:translate-x-1 hover:border-slate-700/50'
+                              )}
+                            >
+                              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300", pathname === sub.href ? "bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.8)] scale-125" : "bg-slate-500 group-hover/link:bg-slate-300")} />
+                              <span className="truncate">{sub.name}</span>
+                              {sub.href === '/notifications' && unreadNotificationsCount > 0 && (
+                                <span className="ml-auto min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center rounded-full bg-amber-500/90 text-black text-xs font-medium shrink-0">
+                                  {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                                </span>
+                              )}
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                toggleFavorite(sub.href, sub.name)
+                              }}
+                              className={cn(
+                                'p-1.5 rounded transition opacity-0 group-hover/sub:opacity-100 shrink-0',
+                                isFavorite(sub.href) ? 'text-amber-400' : 'text-gray-500 hover:text-amber-400 hover:bg-white/5'
+                              )}
+                              title={isFavorite(sub.href) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+                              aria-label={isFavorite(sub.href) ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+                            >
+                              <Star className={cn('h-3.5 w-3.5', isFavorite(sub.href) && 'fill-amber-400 text-amber-400')} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -602,11 +624,11 @@ export default function Sidebar() {
                     href={item.href}
                     className={linkClass}
                     onClick={() => {
-                      if (item.href === ROUTES.HOME) setExpandedMenus({})
+                      setExpandedMenus({}) // Açık olan tüm alt menüleri kapat
                       setIsOpen(false)
                     }}
                   >
-                    <Icon className="w-5 h-5 flex-shrink-0 text-gray-400" />
+                    <Icon className={cn("w-5 h-5 flex-shrink-0 transition-all duration-300", isActive ? "text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "text-slate-400 group-hover/nav:text-slate-200 group-hover/nav:scale-110")} />
                     {!collapsed && (
                       <span className="flex-1 text-sm font-medium">{item.name}</span>
                     )}
@@ -631,7 +653,7 @@ export default function Sidebar() {
       )}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full flex flex-col bg-slate-900 border-r border-slate-700/80 transform transition-all duration-300 ease-in-out',
+          'fixed top-0 left-0 z-50 h-full flex flex-col bg-slate-900 border-r border-slate-800/80 transform transition-all duration-300 ease-in-out',
           'lg:static lg:z-auto',
           collapsed ? 'w-[72px] lg:w-[72px]' : 'w-64 lg:w-64',
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -674,24 +696,55 @@ export default function Sidebar() {
         {/* User */}
         <div
           className={cn(
-            'flex items-center gap-2 border-b border-slate-700/80',
-            collapsed ? 'justify-center py-3 px-2' : 'p-3'
+            'flex items-center gap-3 border-b border-slate-800/80',
+            collapsed ? 'justify-center py-4 px-2' : 'p-4'
           )}
         >
-          <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-            <User className="w-4 h-4 text-slate-300" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600/50 flex items-center justify-center shrink-0 shadow-inner">
+            <User className="w-5 h-5 text-slate-300" />
           </div>
           {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-white truncate">
-                {user?.full_name || user?.username || 'Kullanıcı'}
-              </p>
-              <p className="text-[10px] text-gray-500 truncate">{user?.role || 'Admin'}</p>
+            <div className="min-w-0 flex-1 flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-slate-100 truncate tracking-wide">
+                  {user?.full_name || user?.username || 'Kullanıcı'}
+                </p>
+                <p className="text-[11px] text-slate-500 font-medium truncate">{user?.role || 'Admin'}</p>
+              </div>
+
+              {!pathname?.startsWith('/bayi') && (
+                <Link href="/notifications" className="relative p-2 text-slate-400 hover:text-white transition-colors group/bell" title="Bildirimler">
+                  <Bell className="w-5 h-5 transition-transform group-hover/bell:scale-110" />
+                  {unreadNotificationsCount > 0 && (
+                    <span className="absolute top-1 right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    </span>
+                  )}
+                </Link>
+              )}
             </div>
+          )}
+          {collapsed && !pathname?.startsWith('/bayi') && unreadNotificationsCount > 0 && (
+            <Link href="/notifications" className="absolute top-2 right-2">
+              <span className="flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+              </span>
+            </Link>
           )}
         </div>
 
         {navContent}
+
+        {/* PWA: Ana ekrana ekle (tek seferlik vurgu) */}
+        {!collapsed && (
+          <NewFeatureHighlight featureId="pwa_hint">
+            <p className="px-3 py-2 text-xs text-slate-400">
+              📱 Uygulamayı ana ekrana ekleyebilirsiniz (tarayıcı menüsü → Ana ekrana ekle).
+            </p>
+          </NewFeatureHighlight>
+        )}
 
         {/* Footer */}
         <div
@@ -714,6 +767,9 @@ export default function Sidebar() {
               <PanelLeftClose className="w-5 h-5" />
             )}
           </Button>
+          {!collapsed && (
+            <div className="flex-1"></div>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -731,12 +787,10 @@ export default function Sidebar() {
             title="Çıkış"
             aria-label="Çıkış"
             disabled={isLoggingOut}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.preventDefault()
               if (isLoggingOut) return
-              if (!window.confirm('Çıkmak istediğinize emin misiniz?')) return
-              setIsLoggingOut(true)
-              logout()
+              setShowLogoutConfirm(true)
             }}
           >
             {collapsed ? (
@@ -885,6 +939,27 @@ export default function Sidebar() {
         </div>
       )}
 
+      {/* Modal / Dialogs */}
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={async () => {
+          setShowLogoutConfirm(false)
+          try {
+            setIsLoggingOut(true)
+            await logout()
+          } catch (err) {
+            console.error('Logout failed:', err)
+            setIsLoggingOut(false)
+          }
+        }}
+        title="Oturumu Kapat"
+        message="Hesabınızdan güvenli bir şekilde çıkış yapmak istediğinize emin misiniz?"
+        confirmText="Çıkış Yap"
+        cancelText="İptal"
+        variant="danger"
+        loading={isLoggingOut}
+      />
     </>
   )
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { AlertTriangle, Download, ShoppingCart, RefreshCw, Package, Info } from 'lucide-react'
+import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { LogoWithBackground } from '@/components/Logo'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
@@ -139,7 +140,7 @@ export default function CriticalStockPage() {
 
   async function exportToPDF() {
     if (typeof window === 'undefined') return
-    
+
     setExporting(true)
     try {
       // jsPDF'yi sadece client-side'da dinamik olarak yükle
@@ -215,8 +216,8 @@ export default function CriticalStockPage() {
         xPos += colWidths[0]
 
         // Malzeme adı (uzunsa kısalt) - Türkçe karakterleri ASCII'ye çevir
-        const materialNameRaw = material.name.length > 25 
-          ? material.name.substring(0, 22) + '...' 
+        const materialNameRaw = material.name.length > 25
+          ? material.name.substring(0, 22) + '...'
           : material.name
         const materialName = materialNameRaw.replace(/ı/g, 'i').replace(/İ/g, 'I').replace(/ş/g, 's').replace(/Ş/g, 'S').replace(/ğ/g, 'g').replace(/Ğ/g, 'G').replace(/ü/g, 'u').replace(/Ü/g, 'U').replace(/ö/g, 'o').replace(/Ö/g, 'O').replace(/ç/g, 'c').replace(/Ç/g, 'C')
         doc.text(materialName, xPos, yPos)
@@ -238,8 +239,8 @@ export default function CriticalStockPage() {
         xPos += colWidths[6]
 
         const supplierName = (material.supplier_name || 'Belirtilmemis').replace(/ı/g, 'i').replace(/İ/g, 'I').replace(/ş/g, 's').replace(/Ş/g, 'S').replace(/ğ/g, 'g').replace(/Ğ/g, 'G').replace(/ü/g, 'u').replace(/Ü/g, 'U').replace(/ö/g, 'o').replace(/Ö/g, 'O').replace(/ç/g, 'c').replace(/Ç/g, 'C')
-        const supplierDisplay = supplierName.length > 15 
-          ? supplierName.substring(0, 12) + '...' 
+        const supplierDisplay = supplierName.length > 15
+          ? supplierName.substring(0, 12) + '...'
           : supplierName
         doc.text(supplierDisplay, xPos, yPos)
         yPos += lineHeight
@@ -280,18 +281,11 @@ export default function CriticalStockPage() {
   }, 0)
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <div className="flex items-center space-x-4 mb-2">
-            <h1 className="text-3xl font-bold text-white flex items-center space-x-2">
-              <AlertTriangle className="w-8 h-8 text-red-400" />
-              <span>Kritik Stok ve Satın Alma Önerileri</span>
-            </h1>
-            <LogoWithBackground size="sm" />
-          </div>
-          <p className="text-gray-400">Kritik seviyenin altına düşen malzemeler ve satın alma önerileri</p>
-        </div>
+    <AppDashboardLayout
+      title="Kritik Stok ve Satın Alma Önerileri"
+      subtitle={formatDate(new Date())}
+      icon={AlertTriangle}
+      actions={
         <div className="flex items-center space-x-3">
           <button
             onClick={loadCriticalMaterials}
@@ -310,27 +304,28 @@ export default function CriticalStockPage() {
             <span>{creatingRequests ? 'Oluşturuluyor...' : `Seçilenler için talep (${selectedIds.size})`}</span>
           </button>
           {canExport && (
-          <>
-          <button
-            onClick={exportToExcel}
-            disabled={exportingExcel || materials.length === 0}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            <Download className="w-4 h-4" />
-            <span>{exportingExcel ? 'İndiriliyor...' : 'Excel İndir'}</span>
-          </button>
-          <button
-            onClick={exportToPDF}
-            disabled={exporting || materials.length === 0}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            <Download className="w-4 h-4" />
-            <span>{exporting ? 'Oluşturuluyor...' : 'PDF İndir'}</span>
-          </button>
-          </>
+            <>
+              <button
+                onClick={exportToExcel}
+                disabled={exportingExcel || materials.length === 0}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>{exportingExcel ? 'İndiriliyor...' : 'Excel İndir'}</span>
+              </button>
+              <button
+                onClick={exportToPDF}
+                disabled={exporting || materials.length === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>{exporting ? 'Oluşturuluyor...' : 'PDF İndir'}</span>
+              </button>
+            </>
           )}
         </div>
-      </div>
+      }
+    >
 
       {/* Özet Kartlar */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -389,13 +384,13 @@ export default function CriticalStockPage() {
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Min. Seviye</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Eksik</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">
-                <span className="inline-flex items-center gap-1">
-                  Önerilen Miktar
-                  <span title="BOM (reçete) ve açık siparişlere (bekleyen + üretimde) göre hesaplanır." className="text-gray-500 cursor-help">
-                    <Info className="w-3.5 h-3.5" />
+                  <span className="inline-flex items-center gap-1">
+                    Önerilen Miktar
+                    <span title="BOM (reçete) ve açık siparişlere (bekleyen + üretimde) göre hesaplanır." className="text-gray-500 cursor-help">
+                      <Info className="w-3.5 h-3.5" />
+                    </span>
                   </span>
-                </span>
-              </th>
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Birim Fiyat</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Toplam Tutar</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Tedarikçi</th>
@@ -406,7 +401,7 @@ export default function CriticalStockPage() {
               {materials.map((material) => {
                 const suggestedQty = Math.ceil(material.suggested_quantity)
                 const totalPrice = suggestedQty * material.purchase_price
-                
+
                 return (
                   <tr key={material.id} className="hover:bg-gray-800/50">
                     <td className="px-2 py-3">
@@ -422,9 +417,8 @@ export default function CriticalStockPage() {
                     </td>
                     <td className="px-4 py-3 text-white text-xs">{material.name}</td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{material.category || '-'}</td>
-                    <td className={`px-4 py-3 text-right font-semibold text-xs ${
-                      material.stock_amount <= 0 ? 'text-red-400' : 'text-yellow-400'
-                    }`}>
+                    <td className={`px-4 py-3 text-right font-semibold text-xs ${material.stock_amount <= 0 ? 'text-red-400' : 'text-yellow-400'
+                      }`}>
                       {formatQuantity(material.stock_amount)} {material.unit}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-300 text-xs">
@@ -475,7 +469,7 @@ export default function CriticalStockPage() {
           </table>
         </div>
       )}
-    </div>
+    </AppDashboardLayout>
   )
 }
 

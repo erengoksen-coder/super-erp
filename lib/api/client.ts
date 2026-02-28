@@ -1,5 +1,5 @@
 import useSWR, { type SWRConfiguration } from 'swr'
-import { fetchApi, getAuthHeaders, clearStoredAuthToken } from '@/lib/api/fetch'
+import { fetchApi, getAuthHeaders, clearStoredAuthToken, safeFetch } from '@/lib/api/fetch'
 
 export function useApi<T>(
   key: string | null,
@@ -21,11 +21,11 @@ export type PaginatedMeta = { total: number; limit: number; offset: number }
 export type PaginatedResponse<T> = { list: T[]; meta: PaginatedMeta }
 
 async function fetchPaginatedApi<T>(url: string): Promise<PaginatedResponse<T>> {
-  const res = await fetch(url, { credentials: 'include', headers: getAuthHeaders() })
+  const res = await fetch(url, { credentials: 'include', headers: getAuthHeaders(), cache: 'no-store' })
   const json = await res.json().catch(() => ({}))
   if (!res.ok) {
     const err = json?.error ?? res.statusText
-    throw new Error(typeof err === 'string' ? err : 'Request failed')
+    throw new Error(typeof err === 'string' ? err : 'İstek başarısız')
   }
   const list = Array.isArray(json?.data) ? json.data : []
   const meta = json?.meta ?? {}
@@ -55,4 +55,4 @@ export function usePaginatedApi<T>(
   }
 }
 
-export { fetchApi, getAuthHeaders, clearStoredAuthToken }
+export { fetchApi, getAuthHeaders, clearStoredAuthToken, safeFetch }

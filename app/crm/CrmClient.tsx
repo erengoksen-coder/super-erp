@@ -280,7 +280,7 @@ export default function CrmClient() {
     try {
       await fetchApi(`/api/crm/opportunities/${id}`, { method: 'DELETE' })
       loadOpportunities()
-    } catch {}
+    } catch { }
   }
 
   const filteredAccounts = useMemo(() => {
@@ -327,7 +327,7 @@ export default function CrmClient() {
                 <div className="text-sm text-gray-200">{selectedAccount.tax_number || '-'}</div>
               </div>
             </div>
-            
+
             <div className="grid gap-3 md:grid-cols-4">
               <div>
                 <div className="text-xs text-gray-400 mb-1">Adres</div>
@@ -358,7 +358,7 @@ export default function CrmClient() {
                 </div>
               </div>
             </div>
-            
+
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <div className="text-xs text-gray-400 mb-1">Yetkili Kişi</div>
@@ -369,7 +369,7 @@ export default function CrmClient() {
                 <div className="text-sm text-gray-200">{selectedAccount.authorized_person_phone || '-'}</div>
               </div>
             </div>
-            
+
             {(selectedAccount.created_by_name || selectedAccount.updated_by_name) && (
               <div className="grid gap-3 md:grid-cols-2">
                 {selectedAccount.created_by_name && (
@@ -701,51 +701,99 @@ export default function CrmClient() {
           {opportunitiesLoading ? (
             <p className="text-gray-400">Yükleniyor…</p>
           ) : pipelineView === 'pipeline' ? (
-            <div className="overflow-x-auto">
-              <div className="flex gap-3 min-w-max pb-2">
+            <div className="overflow-x-auto select-none py-2">
+              <div className="flex gap-4 min-w-max">
                 {OPPORTUNITY_STAGES.map((s) => (
                   <div
                     key={s.key}
-                    className="w-52 shrink-0 rounded-lg border border-gray-700 bg-gray-800/50 p-2"
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.add('bg-gray-800/70', 'ring-1', 'ring-blue-500/50')
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('bg-gray-800/70', 'ring-1', 'ring-blue-500/50')
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.remove('bg-gray-800/70', 'ring-1', 'ring-blue-500/50')
+                      const id = e.dataTransfer.getData('opp_id')
+                      if (!id) return
+
+                      const opp = opportunities.find(x => x.id === id)
+                      if (!opp || opp.stage === s.key) return
+
+                      // Optimistic Update
+                      setOpportunities(prev => prev.map(o => o.id === id ? { ...o, stage: s.key } : o))
+
+                      try {
+                        await fetchApi(`/api/crm/opportunities/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ stage: s.key }),
+                        })
+                      } catch {
+                        loadOpportunities()
+                      }
+                    }}
+                    className="w-64 shrink-0 rounded-xl border border-gray-700/60 bg-gray-800/30 p-3 transition-colors duration-200"
                   >
-                    <div className="mb-2 text-xs font-semibold uppercase text-gray-400">
-                      {s.label}
-                      <span className="ml-1 text-gray-500">({(pipelineByStage[s.key] || []).length})</span>
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-bold uppercase tracking-wider text-gray-300">
+                        {s.label}
+                      </div>
+                      <div className="rounded-full bg-gray-900/80 px-2 py-0.5 text-xs font-semibold text-gray-400 border border-gray-700/50">
+                        {(pipelineByStage[s.key] || []).length}
+                      </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-3 min-h-[500px]">
                       {(pipelineByStage[s.key] || []).map((o) => (
                         <div
                           key={o.id}
-                          className="rounded border border-gray-700 bg-gray-900 p-2 text-sm"
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('opp_id', o.id)
+                            e.currentTarget.classList.add('opacity-50')
+                          }}
+                          onDragEnd={(e) => {
+                            e.currentTarget.classList.remove('opacity-50')
+                          }}
+                          className="group relative cursor-grab active:cursor-grabbing rounded-lg border border-gray-700/80 bg-gray-900 p-3 shadow-sm hover:border-gray-600 hover:shadow-md transition-all"
                         >
-                          <div className="font-medium text-white">{o.title}</div>
-                          <div className="text-xs text-gray-400">
-                            {o.account_code} – {o.account_name || '–'}
+                          <div className="font-semibold text-white truncate pr-6">{o.title}</div>
+                          <div className="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+                            <span className="truncate">{o.account_name || o.account_code || '–'}</span>
                           </div>
-                          <div className="mt-1 text-xs text-green-400">
-                            {o.amount ? `${Number(o.amount).toLocaleString('tr-TR')} ₺` : '–'}
-                          </div>
-                          <div className="mt-1 flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs"
-                              onClick={() => openEditOpportunity(o)}
-                            >
-                              Düzenle
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              color="error"
-                              className="h-6 text-xs"
-                              onClick={() => deleteOpportunity(o.id)}
-                            >
-                              Sil
-                            </Button>
+
+                          <div className="mt-3 flex items-center justify-between">
+                            <div className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">
+                              {o.amount ? `${Number(o.amount).toLocaleString('tr-TR')} ₺` : '0 ₺'}
+                            </div>
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-gray-900 pl-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-400/10"
+                                onClick={() => openEditOpportunity(o)}
+                              >
+                                ✎
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                                onClick={() => deleteOpportunity(o.id)}
+                              >
+                                ✕
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       ))}
+                      {(!pipelineByStage[s.key] || pipelineByStage[s.key].length === 0) && (
+                        <div className="h-24 rounded-lg border-2 border-dashed border-gray-700/50 flex items-center justify-center text-xs text-gray-500">
+                          Sürükle veya ekle
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

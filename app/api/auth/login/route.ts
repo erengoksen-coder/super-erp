@@ -115,12 +115,25 @@ export async function POST(request: NextRequest) {
       WHERE id = ?
     `).run(user.id)
 
+    // === TEK OTURUM ZORUNLULUĞU ===
+    // Yeni benzersiz oturum tokeni oluştur
+    const sessionToken = randomUUID()
+
+    // Önceki tüm refresh oturumlarını ve aktif oturum tokenini sil/sıfırla
+    db.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).run(user.id)
+    // Migration: active_session_token kolonu yoksa oluştur
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN active_session_token TEXT`)
+    } catch (_) { /* Kolon zaten varsa devam et */ }
+    db.prepare(`UPDATE users SET active_session_token = ? WHERE id = ?`).run(sessionToken, user.id)
+
     const permissions = loadUserPermissions(db, user.id)
     // JWT'ye izin listesi eklenmez; cookie 4KB sınırını aşmasın diye (Ngrok/farklı bilgisayar). İzinler /api/auth/me ile alınır.
     const accessToken = await createToken({
       userId: user.id,
       role: user.role,
       username: user.username,
+      sessionToken,
     })
     const refreshToken = generateRefreshToken()
     const sessionId = randomUUID()
@@ -150,7 +163,9 @@ export async function POST(request: NextRequest) {
       },
       accessToken,
     })
-    setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds)
+    const forwardedProto = request.headers.get('x-forwarded-proto')
+    const isSecure = forwardedProto === 'https' || process.env.NODE_ENV === 'production' || process.env.HTTPS === 'true'
+    setAuthCookies(response, accessToken, refreshToken, accessTokenTtlSeconds, refreshTtlSeconds, { isSecure })
     return response
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)

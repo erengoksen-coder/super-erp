@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit } from '@/lib/api/rateLimit'
 import { verifyToken } from '@/lib/auth/jwt'
 
-const DEFAULT_LIMIT = { keyPrefix: 'api', max: 300, windowMs: 60_000 }
-const AUTH_LIMIT = { keyPrefix: 'auth', max: 10, windowMs: 60_000 }
-const ADMIN_LIMIT = { keyPrefix: 'admin', max: 30, windowMs: 60_000 }
+const DEFAULT_LIMIT = { keyPrefix: 'api', max: 1500, windowMs: 60_000 }
+const AUTH_LIMIT = { keyPrefix: 'auth', max: 20, windowMs: 60_000 }
+const ADMIN_LIMIT = { keyPrefix: 'admin', max: 100, windowMs: 60_000 }
 /** auth/me ve auth/refresh sık çağrıldığı için ayrı kotada, daha yüksek limit */
-const AUTH_ME_LIMIT = { keyPrefix: 'auth-me', max: 60, windowMs: 60_000 }
+const AUTH_ME_LIMIT = { keyPrefix: 'auth-me', max: 500, windowMs: 60_000 }
 
 const PUBLIC_API_PATHS = [
   '/api/auth/login',

@@ -33,10 +33,12 @@ export type CheckNoteRow = {
   given_to: string | null
   given_at: string | null
   given_to_account_id: string | null
+  cash_box_id: string | null
   created_at: string
   updated_at: string
   account_name?: string | null
   account_code?: string | null
+  cash_box_name?: string | null
 }
 
 type CreateInput = {
@@ -61,6 +63,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const direction = searchParams.get('direction')
     const accountId = searchParams.get('account_id')
     const overdue = searchParams.get('overdue') === '1'
+    const statusFilter = searchParams.get('status')
 
     const db = getDatabase()
     let query = `
@@ -68,11 +71,13 @@ export const GET = withAuth(async (request: NextRequest) => {
         c.id, c.type, c.direction, c.account_id, c.amount, c.currency,
         c.issue_date, c.due_date, c.bank_name, c.check_or_note_number,
         c.status, c.notes, c.given_to, c.given_at, c.given_to_account_id,
-        c.created_at, c.updated_at,
+        c.cash_box_id, c.created_at, c.updated_at,
         a.name as account_name,
-        a.code as account_code
+        a.code as account_code,
+        cb.name as cash_box_name
       FROM checks_and_notes c
       LEFT JOIN accounts a ON c.account_id = a.id
+      LEFT JOIN cash_boxes cb ON c.cash_box_id = cb.id
       WHERE c.deleted_at IS NULL
     `
     const params: string[] = []
@@ -87,6 +92,10 @@ export const GET = withAuth(async (request: NextRequest) => {
     if (accountId) {
       query += ' AND c.account_id = ?'
       params.push(accountId)
+    }
+    if (statusFilter) {
+      query += ' AND c.status = ?'
+      params.push(statusFilter)
     }
     if (overdue) {
       query += " AND c.due_date IS NOT NULL AND date(c.due_date) < date('now') AND c.status NOT IN ('collected', 'cancelled')"

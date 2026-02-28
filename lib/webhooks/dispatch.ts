@@ -54,6 +54,15 @@ export async function dispatchWebhook(event: WebhookEvent, payload: Record<strin
         console.error('[Webhook] POST failed:', url, err?.message || err)
       })
     }
+
+    // Telegram / WhatsApp sipariş bildirimi (order.created)
+    if (event === 'order.created' && payload && typeof payload === 'object') {
+      import('@/lib/messaging/order-notification').then(({ sendOrderNotificationToChannels }) => {
+        sendOrderNotificationToChannels(payload as { orders?: unknown[] }).catch((err) => {
+          console.error('[Webhook] Messaging (Telegram/WhatsApp):', err)
+        })
+      }).catch(() => {})
+    }
   } catch (e) {
     console.error('[Webhook] dispatch error:', e)
   }

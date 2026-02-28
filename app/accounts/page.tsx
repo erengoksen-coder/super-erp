@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Users, Building2, Edit, Trash2, X, FileDown, ChevronLeft, ChevronRight, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
@@ -16,6 +16,18 @@ import { toast } from '@/lib/notify'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { TableSkeleton } from '@/components/ui/TableSkeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from '@/components/ui/ContextMenu'
+import { Copy, PlusCircle, FileText, ShoppingCart } from 'lucide-react'
+import { DataTable, EditableCell } from '@/components/ui/DataTable'
+import { ColumnDef } from '@tanstack/react-table'
 
 interface Account {
   id: string
@@ -45,10 +57,19 @@ const APP_TITLE = 'LIVASOFA ERP'
 
 export default function AccountsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
   useEffect(() => { document.title = `Cari Hesaplar - ${APP_TITLE}`; return () => { document.title = APP_TITLE } }, [])
+  const typeFromUrl = searchParams.get('type')
+  const debtFromUrl = searchParams.get('has_debt')
   const [filterType, setFilterType] = useState<string>('all')
   const [filterBalance, setFilterBalance] = useState<string>('all') // all, debt, credit, zero
+
+  useEffect(() => {
+    if (typeFromUrl === 'customer' || typeFromUrl === 'supplier') setFilterType(typeFromUrl)
+    if (debtFromUrl === '1') setFilterBalance('debt')
+  }, [typeFromUrl, debtFromUrl])
+
   type SortKeyAccount = 'code' | 'name' | 'balance' | 'type' | 'created_at'
   const [sortKey, setSortKey] = useState<SortKeyAccount>('code')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -74,6 +95,7 @@ export default function AccountsPage() {
   const [applyDiscountToShipments, setApplyDiscountToShipments] = useState(false)
   const [creatingFromOrders, setCreatingFromOrders] = useState(false)
   const autoCreateAttemptedRef = useRef(false)
+  const editFormRef = useRef<HTMLFormElement>(null)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
 
@@ -225,6 +247,8 @@ export default function AccountsPage() {
 
   useKeyboardShortcut('Enter', () => { if (selectedAccountId) router.push(`/accounts/${selectedAccountId}`) }, { enabled: !!selectedAccountId })
   useKeyboardShortcut('Escape', () => { if (showEditModal) setShowEditModal(false); else setSelectedAccountId(null) })
+  useKeyboardShortcut('n', () => { if (!showEditModal) router.push('/accounts/new') }, { ctrlOrMeta: true })
+  useKeyboardShortcut('s', () => { if (showEditModal && editFormRef.current) editFormRef.current.requestSubmit() }, { ctrlOrMeta: true, enabled: !!showEditModal })
 
   async function handleEdit(account: Account) {
     if (isBayi) return
@@ -273,7 +297,7 @@ export default function AccountsPage() {
 
   async function handleUpdate() {
     if (!editingAccount) return
-    
+
     try {
       const url = `/api/accounts/${editingAccount.id}${applyDiscountToShipments ? '?apply_discount_to_shipments=1' : ''}`
       const rawDiscount = editForm.discount_rate.trim().replace(',', '.')
@@ -291,7 +315,7 @@ export default function AccountsPage() {
           updated_by: userId
         })
       })
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
         let errorMessage = error?.error || 'Güncelleme başarısız'
@@ -315,7 +339,7 @@ export default function AccountsPage() {
         }
         throw new Error(errorMessage)
       }
-      
+
       const updatedAccount: Account = {
         ...editingAccount,
         name: editForm.name.trim(),
@@ -365,18 +389,20 @@ export default function AccountsPage() {
     if (!confirm(`${account.name} adlı cari hesabı silmek istediğinize emin misiniz?`)) {
       return
     }
-    
+
     // Sayfayı yukarı kaydır
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }, 100)
-    
+
     try {
       const response = await fetch(`/api/accounts/${account.id}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
         cache: 'no-store'
       })
-      
+
       if (!response.ok) {
         const error = await response.json()
         let errorMessage = error.error || 'Silme başarısız'
@@ -392,16 +418,19 @@ export default function AccountsPage() {
         }
         throw new Error(errorMessage)
       }
-      
-      // State'ten hemen kaldır (optimistic update)
+
+      // State'ten hemen kaldır (silinen cari anlık listeden düşsün)
       mutate(
         (prev) => prev ? { ...prev, list: prev.list.filter(acc => acc.id !== account.id) } : prev,
         { revalidate: false }
       )
-      
-      toast.success('Cari hesap başarıyla silindi')
-      
-      // Veritabanından tekrar yükle (senkronizasyon için)
+      if (editingAccount?.id === account.id) {
+        setShowEditModal(false)
+        setEditingAccount(null)
+      }
+      setSelectedAccountId((id) => (id === account.id ? null : id))
+      toast.success('Cari hesap silindi')
+      // Listeyi sunucudan yenile; silinen cari bir daha görünmesin (önbellek kullanılmaz)
       await mutate()
     } catch (error: unknown) {
       let errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
@@ -417,6 +446,137 @@ export default function AccountsPage() {
       toast.error(errorMessage)
       // Hata durumunda tekrar yükle
       await mutate()
+    }
+  }
+
+  // TanStack Table Columns Definition
+  const columns = useMemo<ColumnDef<Account>[]>(() => [
+    {
+      accessorKey: 'code',
+      header: 'Kod',
+      cell: info => <div className="text-xs font-mono font-bold">{info.getValue() as string}</div>,
+    },
+    {
+      accessorKey: 'name',
+      header: 'Ad/Ünvan',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'type',
+      header: 'Tip',
+      cell: info => {
+        const val = info.getValue() as string
+        if (val === 'customer') {
+          return (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-900 text-blue-300">
+              <Users className="w-3 h-3 mr-1" /> Müşteri
+            </span>
+          )
+        }
+        return (
+          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
+            <Building2 className="w-3 h-3 mr-1" /> Tedarikçi
+          </span>
+        )
+      }
+    },
+    {
+      accessorKey: 'tax_number',
+      header: 'Vergi No',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'phone',
+      header: 'Telefon',
+      cell: EditableCell,
+    },
+    {
+      accessorKey: 'balance',
+      header: 'Bakiye',
+      cell: info => {
+        const balance = info.getValue() as number
+        return (
+          <div className={`text-xs font-semibold tabular-nums px-2 py-1 rounded ${balance > 0 ? 'text-red-300 bg-red-900/30' : balance < 0 ? 'text-green-300 bg-green-900/30' : 'text-gray-400'}`}>
+            {balance.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+          </div>
+        )
+      }
+    },
+    {
+      accessorKey: 'created_at',
+      header: 'Tarih',
+      cell: info => <div className="text-gray-400 text-xs">{formatDate(info.getValue() as string)}</div>
+    },
+    {
+      id: 'actions',
+      header: 'İşlemler',
+      cell: ({ row }) => {
+        const account = row.original
+        return (
+          <div className="flex items-center space-x-2">
+            <Link
+              href={`/accounts/${account.id}`}
+              className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition"
+              title="Hesap Kartı / Detayına Git"
+            >
+              <FileText className="w-4 h-4" />
+            </Link>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleEdit(account); }}
+              className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition"
+              title="Düzenle"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(account); }}
+              className="inline-flex items-center gap-1.5 px-2 py-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition text-xs"
+              title="Cari hesabı sil"
+            >
+              <Trash2 className="w-4 h-4" />
+              Sil
+            </button>
+          </div>
+        )
+      }
+    }
+  ], [handleEdit, handleDelete])
+
+  const handleInlineEdit = async (originalRow: Account, columnId: string, newValue: any): Promise<boolean> => {
+    try {
+      if (isBayi) {
+        toast.error('Düzenleme yetkiniz yok')
+        return false
+      }
+      const response = await fetch(`/api/accounts/${originalRow.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...originalRow,
+          [columnId]: newValue,
+          updated_by: userId
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error?.error || 'Güncelleme başarısız')
+      }
+
+      toast.success('Hücre güncellendi')
+
+      // Update local SWR cache silently
+      mutate((prev) => {
+        if (!prev?.list) return prev
+        const list = prev.list.map((a) => (a.id === originalRow.id ? { ...a, [columnId]: newValue } : a))
+        return { ...prev, list }
+      }, false)
+
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Hücre kaydedilemedi')
+      return false
     }
   }
 
@@ -441,71 +601,73 @@ export default function AccountsPage() {
             <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
             <span>Yenile</span>
           </button>
-        {!isBayi && (
-          <button
-            type="button"
-            title="Siparişlerde görünüp caride olmayan müşteri adları (örn. ÖZKARDEŞLER YOZGAT) bu butonla cari olarak eklenir."
-            onClick={createAccountsFromOrders}
-            disabled={creatingFromOrders}
-            className="bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-500 transition disabled:opacity-50 inline-flex items-center space-x-2"
+          {!isBayi && (
+            <button
+              type="button"
+              title="Siparişlerde görünüp caride olmayan müşteri adları (örn. ÖZKARDEŞLER YOZGAT) bu butonla cari olarak eklenir."
+              onClick={createAccountsFromOrders}
+              disabled={creatingFromOrders}
+              className="bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-500 transition disabled:opacity-50 inline-flex items-center space-x-2"
+            >
+              <Users size={20} />
+              <span>{creatingFromOrders ? 'Ekleniyor...' : 'Siparişlerden Carileri Ekle'}</span>
+            </button>
+          )}
+          {!isBayi && canExport && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const params = new URLSearchParams()
+                  if (filterType !== 'all') params.set('type', filterType)
+                  const res = await fetch(`/api/accounts/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
+                  if (!res.ok) throw new Error(res.status === 403 ? 'Yetkiniz yok' : 'İndirme başarısız')
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `cari_hesaplar_${new Date().toISOString().split('T')[0]}.xlsx`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  toast.success('Excel dosyası indirildi')
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
+                }
+              }}
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition inline-flex items-center space-x-2"
+            >
+              <FileDown size={20} />
+              <span>Excel İndir</span>
+            </button>
+          )}
+          <Link
+            href="/accounts/new"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
           >
-            <Users size={20} />
-            <span>{creatingFromOrders ? 'Ekleniyor...' : 'Siparişlerden Carileri Ekle'}</span>
-          </button>
-        )}
-        {!isBayi && canExport && (
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                const params = new URLSearchParams()
-                if (filterType !== 'all') params.set('type', filterType)
-                const res = await fetch(`/api/accounts/export${params.toString() ? '?' + params.toString() : ''}`, { credentials: 'include', headers: getAuthHeaders() })
-                if (!res.ok) throw new Error(res.status === 403 ? 'Yetkiniz yok' : 'İndirme başarısız')
-                const blob = await res.blob()
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = `cari_hesaplar_${new Date().toISOString().split('T')[0]}.xlsx`
-                a.click()
-                URL.revokeObjectURL(url)
-                toast.success('Excel dosyası indirildi')
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : 'İndirme başarısız')
-              }
-            }}
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500 transition inline-flex items-center space-x-2"
-          >
-            <FileDown size={20} />
-            <span>Excel İndir</span>
-          </button>
-        )}
-        <Link
-          href="/accounts/new"
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
-        >
-          <Plus size={20} />
-          <span>Yeni Cari Hesap</span>
-        </Link>
-      </div>
+            <Plus size={20} />
+            <span>Yeni Cari Hesap</span>
+          </Link>
+        </div>
       </div>
 
       {/* Filtreler */}
       <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              <Search className="w-4 h-4 inline mr-2" />
-              Ara (Ad, Kod, Vergi No, Telefon)
-            </label>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Ara..."
-              className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+          <NewFeatureHighlight featureId="cari_fatura_arama">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                <Search className="w-4 h-4 inline mr-2" />
+                Ara (Ad, Kod, Vergi No, Telefon)
+              </label>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Ara..."
+                className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </NewFeatureHighlight>
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Tip Filtresi
@@ -625,111 +787,31 @@ export default function AccountsPage() {
               )}
             </div>
           )}
-          {filterType === 'all' && filteredAccounts.length > 0 && filteredAccounts.every((a) => a.type === 'customer') && (
-            <p className="text-sm text-slate-400 px-4 py-2 bg-slate-800/50 border-b border-gray-800">
-              Sadece müşteri carileri listeleniyor. Tedarikçi eklemek için &quot;+ Yeni Cari Hesap&quot; ile tip olarak Tedarikçi seçin veya bir cariyi düzenleyip tipini Tedarikçi yapın.
-            </p>
-          )}
-          <Table>
-            <TableHeader>
-              <TableRow className="border-gray-800">
-                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('code')}>Kod <SortIconAccount column="code" /></TableHead>
-                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('name')}>Ad/Ünvan <SortIconAccount column="name" /></TableHead>
-                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('type')}>Tip <SortIconAccount column="type" /></TableHead>
-                <TableHead className="h-8">Vergi No</TableHead>
-                <TableHead className="h-8">Telefon</TableHead>
-                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('balance')}>Bakiye <SortIconAccount column="balance" /></TableHead>
-                <TableHead className="h-8">Oluşturan</TableHead>
-                <TableHead className="h-8">Güncelleyen</TableHead>
-                <TableHead className="h-8 cursor-pointer select-none hover:bg-gray-800" onClick={() => handleSortAccount('created_at')}>Tarih <SortIconAccount column="created_at" /></TableHead>
-                <TableHead className="h-8">İşlemler</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <DataTable
+            columns={columns}
+            data={displayedAccounts}
+            onRowEdit={handleInlineEdit}
+            onRowDoubleClick={(row) => router.push(`/accounts/${row.id}`)}
+            contextMenuItems={(row) => [
               {
-                displayedAccounts.map((account) => (
-                  <TableRow
-                    key={account.id}
-                    className={`hover:bg-gray-800 cursor-pointer ${selectedAccountId === account.id ? 'bg-blue-900/30 ring-1 ring-blue-500' : ''}`}
-                    onClick={() => setSelectedAccountId(account.id)}
-                    onDoubleClick={() => { router.push(`/accounts/${account.id}`) }}
-                  >
-                    <TableCell>
-                      <div className="text-xs font-mono font-bold text-white">
-                        {account.code}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-xs text-white">{account.name}</div>
-                    </TableCell>
-                    <TableCell>
-                      {account.type === 'customer' ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-900 text-blue-300">
-                          <Users className="w-3 h-3 mr-1" />
-                          Müşteri
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-900 text-green-300">
-                          <Building2 className="w-3 h-3 mr-1" />
-                          Tedarikçi
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-gray-400 text-xs">
-                      {account.tax_number || '-'}
-                    </TableCell>
-                    <TableCell className="text-gray-400 text-xs">
-                      {account.phone || '-'}
-                    </TableCell>
-                    <TableCell
-                      className={`text-xs font-semibold tabular-nums ${
-                        account.balance > 0
-                          ? 'text-red-300 bg-red-900/30'
-                          : account.balance < 0
-                            ? 'text-green-300 bg-green-900/30'
-                            : 'text-gray-400'
-                      }`}
-                      title={account.balance > 0 ? 'Borçlu (cari bize borçlu)' : account.balance < 0 ? 'Alacaklı (biz cariye borçluyuz)' : 'Bakiye sıfır'}
-                    >
-                      {account.balance.toLocaleString('tr-TR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{' '}
-                      ₺
-                    </TableCell>
-                    <TableCell className="text-gray-400 text-xs">
-                      {account.created_by_name || account.created_by_username || '-'}
-                    </TableCell>
-                    <TableCell className="text-gray-400 text-xs">
-                      {account.updated_by_name || account.updated_by_username || '-'}
-                    </TableCell>
-                    <TableCell className="text-gray-400 text-xs">
-                      {formatDate(account.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleEdit(account)}
-                          className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition"
-                          title="Düzenle"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(account)}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition text-xs"
-                          title="Cari hesabı sil"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Sil
-                        </button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                label: 'Hesap Detayı / Döküm',
+                icon: FileText,
+                onClick: (row) => router.push(`/accounts/${row.id}`)
+              },
+              {
+                label: 'Düzenle',
+                icon: Edit,
+                onClick: (row) => handleEdit(row)
+              },
+              { label: 'separator', onClick: () => { } },
+              {
+                label: 'Bu Cariyi Sil',
+                icon: Trash2,
+                variant: 'danger',
+                onClick: (row) => handleDelete(row)
               }
-            </TableBody>
-          </Table>
+            ]}
+          />
         </div>
       )}
 
@@ -781,6 +863,7 @@ export default function AccountsPage() {
               </button>
             </div>
             <form
+              ref={editFormRef}
               onSubmit={(e) => {
                 e.preventDefault()
                 handleUpdate()

@@ -16,6 +16,7 @@ import { formatDate } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
 import { useKeyboardShortcut } from '@/lib/hooks/useKeyboardShortcut'
 import { useAuthStore } from '@/lib/store/authStore'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
 
 type Invoice = {
   id: string
@@ -213,16 +214,18 @@ export default function InvoicesPage() {
           <option value="week">Bu hafta</option>
           <option value="month">Bu ay</option>
         </select>
-        <div className="flex items-center gap-2">
-          <Search className="w-4 h-4 text-gray-500" />
-          <input
-            type="text"
-            placeholder="Fatura no, cari adı veya kod..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg min-w-[200px] placeholder:text-gray-500"
-          />
-        </div>
+        <NewFeatureHighlight featureId="cari_fatura_arama">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Fatura no, cari adı veya kod..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="px-3 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg min-w-[200px] placeholder:text-gray-500"
+            />
+          </div>
+        </NewFeatureHighlight>
       </div>
 
       {isLoading ? (

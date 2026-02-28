@@ -1,0 +1,177 @@
+/* ══════════════════════════════════════════════
+   Premium UI Overrides – Dashboard & Sidebar
+   ══════════════════════════════════════════════ */
+
+/* ─── SIDEBAR PREMIUM ─── */
+
+/* Sidebar glass backdrop + subtle gradient */
+aside.premium-sidebar,
+aside[class*="bg-slate-900"] {
+  background: linear-gradient(180deg, #0c1222 0%, #0f172a 30%, #131c31 100%) !important;
+  border-right-color: rgba(99, 102, 241, 0.08) !important;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Logo area premium glow */
+aside[class*="bg-slate-900"] > div:first-child {
+  border-bottom-color: rgba(99, 102, 241, 0.12) !important;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, transparent 100%);
+}
+
+/* User section glass effect */
+aside[class*="bg-slate-900"] > div:nth-child(2) {
+  border-bottom-color: rgba(99, 102, 241, 0.08) !important;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/* User avatar premium ring */
+aside[class*="bg-slate-900"] .rounded-full[class*="bg-slate-700"] {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(99, 102, 241, 0.15);
+}
+
+/* Active menu item premium glow */
+aside a[class*="bg-blue-500"],
+aside button[class*="bg-blue-500"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.08) 100%) !important;
+  border-left-color: #818cf8 !important;
+  box-shadow: inset 3px 0 0 #818cf8, 0 0 12px rgba(99, 102, 241, 0.06);
+}
+
+/* Menu item hover premium transitions */
+aside nav a,
+aside nav button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+aside nav a:hover,
+aside nav button:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+  transform: translateX(2px);
+}
+
+/* Group labels premium style */
+aside nav p[class*="uppercase"][class*="tracking-wider"] {
+  letter-spacing: 0.12em;
+  color: rgba(99, 102, 241, 0.5) !important;
+  font-weight: 600;
+}
+
+/* Sidebar footer premium */
+aside > div:last-child {
+  border-top-color: rgba(99, 102, 241, 0.08) !important;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* Search button premium */
+aside button[data-command-palette-trigger] {
+  border-color: rgba(99, 102, 241, 0.15) !important;
+  background: rgba(99, 102, 241, 0.04) !important;
+  transition: all 0.25s ease !important;
+}
+aside button[data-command-palette-trigger]:hover {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.08);
+}
+
+/* ─── STAT WIDGET PREMIUM ─── */
+
+/* KPI card gradient icon backgrounds */
+.stat-widget-icon-primary,
+.dark [class*="bg-primary\\/10"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+}
+
+/* KPI card glass hover */
+.hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.hover-lift:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Dark mode card premium glass */
+.dark .hover-lift {
+  border-color: rgba(99, 102, 241, 0.06) !important;
+}
+.dark .hover-lift:hover {
+  border-color: rgba(99, 102, 241, 0.12) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(99, 102, 241, 0.1) !important;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(30, 41, 69, 1) 100%) !important;
+}
+
+/* ─── DASHBOARD WELCOME BANNER ─── */
+
+/* Enhanced gradient for welcome card */
+.dark [class*="from-primary"][class*="to-purple-600"] {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%) !important;
+  box-shadow: 0 8px 32px rgba(79, 70, 229, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* ─── CHART WIDGETS ─── */
+
+/* Chart card background enhancement */
+.dark .recharts-wrapper {
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.05));
+}
+.dark .recharts-cartesian-grid line {
+  stroke: rgba(99, 102, 241, 0.06) !important;
+}
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-color: rgba(99, 102, 241, 0.15) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(12px);
+}
+
+/* ─── SCROLLBAR PREMIUM ─── */
+
+aside::-webkit-scrollbar,
+aside *::-webkit-scrollbar {
+  width: 4px;
+}
+aside::-webkit-scrollbar-track,
+aside *::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside::-webkit-scrollbar-thumb,
+aside *::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 4px;
+}
+aside::-webkit-scrollbar-thumb:hover,
+aside *::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+/* ─── NOTIFICATION BADGE PULSE ─── */
+
+aside span[class*="bg-amber-500"] {
+  animation: premium-pulse 2s ease-in-out infinite;
+}
+@keyframes premium-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+/* ─── FAVORITE STAR GLOW ─── */
+
+aside .fill-amber-400 {
+  filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.3));
+}
+
+/* ─── PREMIUM LOADING SKELETON ─── */
+
+.dark .animate-pulse > div[class*="bg-gray-200"] {
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.5) 0%, rgba(51, 65, 85, 0.5) 50%, rgba(30, 41, 59, 0.5) 100%) !important;
+  background-size: 200% 100%;
+  animation: premium-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes premium-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

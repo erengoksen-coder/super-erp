@@ -12,10 +12,11 @@ export default function SWRProvider({ children }: Props) {
     <SWRConfig
       value={{
         fetcher: fetchApi,
-        revalidateOnFocus: false,
+        revalidateOnFocus: true,
         revalidateOnReconnect: true,
-        dedupingInterval: 30_000,
-        errorRetryCount: 2,
+        refreshInterval: 15_000, // Real-time polling every 15s
+        dedupingInterval: 10_000,
+        errorRetryCount: 3,
         errorRetryInterval: 5_000,
       }}
     >

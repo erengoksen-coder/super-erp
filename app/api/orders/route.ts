@@ -9,6 +9,7 @@ import { CACHE_HEADERS_LIST } from '@/lib/api/cache'
 import { logAudit } from '@/lib/audit'
 import { logAudit as logAuditEntry } from '@/lib/audit/logger'
 import { withAuth, withAuthAndPermission } from '@/lib/api/withAuth'
+import { bayiFilter } from '@/lib/auth/bayi-filter'
 import { getOrderNumberPrefix } from '@/lib/numberFormat'
 
 const DEFAULT_PAGE_SIZE = 50
@@ -67,7 +68,7 @@ type InsertedOrder = {
   order_number: string
   product_name?: string
   quantity?: number
-  status: 'pending'
+  status: 'pending' | 'approval_pending'
   product_id: string | null
 }
 
@@ -85,12 +86,12 @@ function createAccountIfNotExists(db: Db, dealerName: string | null): void {
   }
 
   const trimmedName = dealerName.trim()
-  
+
   // Aynı isimde cari hesap var mı kontrol et
   const existingAccount = db
     .prepare('SELECT id FROM accounts WHERE name = ? COLLATE NOCASE')
     .get(trimmedName) as AccountIdRow | undefined
-  
+
   if (existingAccount) {
     // Zaten var, oluşturma
     return
@@ -104,16 +105,16 @@ function createAccountIfNotExists(db: Db, dealerName: string | null): void {
       ORDER BY code DESC 
       LIMIT 1
     `).get() as AccountCodeRow | undefined
-    
+
     let codeNumber = 1
     if (lastAccount) {
       const lastNum = parseInt(lastAccount.code.replace(/[^0-9]/g, '')) || 0
       codeNumber = lastNum + 1
     }
-    
+
     const code = `MUS-${String(codeNumber).padStart(4, '0')}`
     const id = `acc-${Date.now()}-${Math.random().toString(36).substring(7)}`
-    
+
     // Cari hesap oluştur (created_by ve updated_by NULL, FOREIGN KEY constraint için)
     db.prepare(`
       INSERT INTO accounts (id, code, name, type, created_by, updated_by)
@@ -191,7 +192,7 @@ function createMaterialIfNotExists(db: Db, fabricCode: string | null, unit?: str
 }
 
 // GET: Tüm siparişleri getir
-export const GET = withAuthAndPermission(async (request) => {
+export const GET = withAuthAndPermission(async (request, user) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -212,9 +213,10 @@ export const GET = withAuthAndPermission(async (request) => {
     if (status === 'pending') {
       // �!OK SIKI sorgu: Sadece status='pending' ve production_order_id NULL veya boş olanları getir
       // Ayrıca status='in_production' olanları da hariç tut
-      const query = `
+      let query = `
         SELECT 
           o.*,
+          o.customer_name,
           p.name as matched_product_name,
           p.sku as matched_product_sku,
           CASE 
@@ -233,6 +235,7 @@ export const GET = withAuthAndPermission(async (request) => {
             ELSE o.status
           END as display_status
         FROM active_orders o
+        LEFT JOIN accounts a ON a.name = o.dealer_name COLLATE NOCASE AND (a.deleted_at IS NULL OR a.deleted_at = '')
         LEFT JOIN active_products p ON o.product_id = p.id
         WHERE o.status = 'pending'
           AND o.status != 'in_production'
@@ -240,10 +243,17 @@ export const GET = withAuthAndPermission(async (request) => {
           AND o.company_id = ?
           AND o.branch_id = ?
           AND o.deleted_at IS NULL
-        ORDER BY COALESCE(o.order_date, o.created_at) ASC
       `
-      const orders = db.prepare(query).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID) as (OrderRow & { display_status?: string })[]
-      
+      const pendingParams: string[] = [DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID]
+      // Bayi kullanıcılar sadece kendi siparişlerini görür
+      const bf = bayiFilter(user.userId, user.role, 'o.dealer_name')
+      if (bf.clause) {
+        query += bf.clause
+        pendingParams.push(...bf.params)
+      }
+      query += `\n        ORDER BY COALESCE(o.order_date, o.created_at) ASC\n      `
+      const orders = db.prepare(query).all(...pendingParams) as (OrderRow & { display_status?: string })[]
+
       // �!OK SIKI filtreleme: JavaScript tarafında da filtrele
       const filteredOrders = orders.filter(order => {
         // Status kontrolü - �!OK SIKI
@@ -251,22 +261,22 @@ export const GET = withAuthAndPermission(async (request) => {
           logger.debug(`[Orders API - Pending] Sipariş ${order.order_number} filtrelendi (status: ${order.status})`)
           return false
         }
-        
+
         // Production order ID kontrolü - �!OK SIKI
         const prodId = order.production_order_id
         if (prodId === null || prodId === undefined) {
           return true
         }
-        
+
         const prodIdStr = String(prodId).trim()
         if (prodIdStr === '' || prodIdStr === 'null' || prodIdStr === 'undefined') {
           return true
         }
-        
+
         logger.debug(`[Orders API - Pending] Sipariş ${order.order_number} filtrelendi (production_order_id: ${prodIdStr})`)
         return false
       })
-      
+
       logger.info(`[Orders API - Pending] SQL'den gelen: ${orders.length}, JavaScript filtrelenmiş: ${filteredOrders.length}`)
 
       // Eşer SQL'den gelen ile filtrelenmiş arasında fark varsa, logla
@@ -293,14 +303,23 @@ export const GET = withAuthAndPermission(async (request) => {
 
     // Diğer status'ler için normal sorgu
     const customerName = searchParams.get('customer_name') // Müşteri ismi arama filtresi
-    
+
     let query = `
       SELECT 
         o.*,
+        COALESCE(
+          NULLIF(o.dealer_name, ''),
+          (SELECT dealer_name FROM users WHERE id = o.customer_id),
+          (SELECT name FROM accounts WHERE id = o.customer_id),
+          o.customer_id,
+          ''
+        ) as dealer_name,
+        o.customer_name,
         p.name as matched_product_name,
         p.sku as matched_product_sku,
         po.order_number as production_order_number,
         po.due_date as production_order_due_date,
+        po.current_station as production_current_station,
         CASE 
           WHEN o.status = 'completed' AND o.production_order_id IS NOT NULL AND o.production_order_id != '' AND NOT EXISTS (
             SELECT 1 FROM product_serial_numbers psn 
@@ -309,6 +328,7 @@ export const GET = withAuthAndPermission(async (request) => {
           ELSE o.status
         END as display_status
       FROM active_orders o
+      LEFT JOIN accounts a ON a.name = o.dealer_name COLLATE NOCASE AND (a.deleted_at IS NULL OR a.deleted_at = '')
       LEFT JOIN active_products p ON o.product_id = p.id
       LEFT JOIN production_orders po ON po.id = o.production_order_id AND (po.deleted_at IS NULL OR po.deleted_at = '')
       WHERE 1=1
@@ -317,18 +337,25 @@ export const GET = withAuthAndPermission(async (request) => {
 
     query += ' AND o.company_id = ? AND o.branch_id = ?'
     params.push(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+
+    // Bayi kullanıcılar sadece kendi siparişlerini görür
+    const bf = bayiFilter(user.userId, user.role, 'o.dealer_name')
+    if (bf.clause) {
+      query += bf.clause
+      params.push(...bf.params)
+    }
     // active_orders view already filters deleted_at
 
     if (status) {
       query += ' AND o.status = ?'
       params.push(status)
     }
-    
-    // Müşteri ismi arama filtresi
+
+    // Müşteri ismi arama filtresi (siparişteki isim + carideki isim)
     if (customerName && customerName.trim()) {
-      query += ' AND (o.customer_name LIKE ? OR o.dealer_name LIKE ?)'
+      query += ' AND (o.customer_name LIKE ? OR o.dealer_name LIKE ? OR a.name LIKE ?)'
       const searchPattern = `%${customerName.trim()}%`
-      params.push(searchPattern, searchPattern)
+      params.push(searchPattern, searchPattern, searchPattern)
     }
 
     // Bu hafta teslim (delivery_date bu hafta içinde)
@@ -357,7 +384,7 @@ export const GET = withAuthAndPermission(async (request) => {
 
     type OrderRowWithDisplay = OrderRow & { display_status?: string }
     let orders = db.prepare(query).all(...params) as OrderRowWithDisplay[]
-    
+
     if (wantShippedOnly) {
       orders = orders.filter((o) => o.display_status === 'shipped')
     } else if (wantCompletedNotShipped) {
@@ -377,7 +404,7 @@ export const GET = withAuthAndPermission(async (request) => {
         message: error?.message,
         stack: error?.stack,
       })
-    } catch {}
+    } catch { }
     return fail(error.message, { status: 500 })
   }
 }, '/orders', 'view')
@@ -396,7 +423,7 @@ export const POST = withAuth(async (request, user) => {
       return fail('Geçersiz istek verisi', { status: 400 })
     }
 
-    ;(body as { created_by?: string }).created_by = user.userId
+    ; (body as { created_by?: string }).created_by = user.userId
     const { orders: manualOrders } = body as { orders?: ManualOrderInput[] }
 
     if (!manualOrders || !Array.isArray(manualOrders) || manualOrders.length === 0) {
@@ -420,11 +447,22 @@ export const POST = withAuth(async (request, user) => {
     const insertedOrders: InsertedOrder[] = []
     const actorId = user.userId
 
+    // Tutar bazlı onay eşiği (ayarlardan oku)
+    let approvalThreshold = 0
+    try {
+      const thresholdRow = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?').get('order_approval_threshold') as { setting_value: string | null } | undefined
+      approvalThreshold = Number(thresholdRow?.setting_value ?? 0) || 0
+    } catch { /* app_settings tablosu yoksa onay zorunlu değil */ }
+
     const insertOrders = db.transaction(() => {
       // Manuel sipariş oluşturma
       for (const order of manualOrders) {
         const orderId = randomUUID()
         const orderNumber = order.order_number || `${getOrderNumberPrefix()}-${Date.now()}-${randomUUID().substring(0, 8)}`
+        const totalAmount = (order.quantity || 0) * (order.unit_price || 0)
+        // Tüm siparişler yönetici onayına düşer (Kullanıcı isteği: girilen sipariş hemen oluşmasın)
+        const needsApproval = true
+        const orderStatus = 'approval_pending'
 
         // Excel formatındaki ekstra alanları notlar alanına birleştir
         let combinedNotes = order.notes || ''
@@ -471,31 +509,46 @@ export const POST = withAuth(async (request, user) => {
           configuration, notes, company_id, branch_id, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
-        orderId,
-        orderNumber,
-        order.dealer_name || null,
-        order.customer_name || null,
-        order.customer_code || null,
-        order.product_name || '',
-        order.product_sku || null,
-        productId,
-        order.quantity || 0,
-        order.unit_price || 0,
-        (order.quantity || 0) * (order.unit_price || 0),
-        order.order_date || null,
-        'pending',
-        order.configuration || null,
-        combinedNotes || null,
-        DEFAULT_COMPANY_ID,
-        DEFAULT_BRANCH_ID
-      )
+          orderId,
+          orderNumber,
+          order.dealer_name || null,
+          order.customer_name || null,
+          order.customer_code || null,
+          order.product_name || '',
+          order.product_sku || null,
+          productId,
+          order.quantity || 0,
+          order.unit_price || 0,
+          totalAmount,
+          order.order_date || null,
+          orderStatus,
+          order.configuration || null,
+          combinedNotes || null,
+          DEFAULT_COMPANY_ID,
+          DEFAULT_BRANCH_ID
+        )
+
+        if (needsApproval) {
+          const approvalId = randomUUID()
+          const now = new Date().toISOString()
+          db.prepare(`
+            INSERT INTO order_approvals (id, order_id, requested_by, requested_at, status, order_amount, threshold_amount)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?)
+          `).run(approvalId, orderId, actorId, now, totalAmount, approvalThreshold)
+
+          // Bildirim oluştur
+          db.prepare(`
+            INSERT INTO notifications (id, user_id, title, message, type, link)
+            VALUES (?, NULL, ?, ?, 'warning', ?)
+          `).run(randomUUID(), 'Yeni Sipariş Onay Bekliyor', `${orderNumber} nolu sipariş onayınızı bekliyor.`, '/admin/approvals')
+        }
 
         insertedOrders.push({
           id: orderId,
           order_number: orderNumber,
           product_name: order.product_name,
           quantity: order.quantity,
-          status: 'pending',
+          status: orderStatus,
           product_id: productId
         })
 
@@ -537,7 +590,7 @@ export const POST = withAuth(async (request, user) => {
           const html = fillTemplate(emailTemplates.orderConfirmation.html, { customerName: acc.name, orderNumbers: orderNumbersStr })
           sendEmail({ to: acc.email, subject, text, html }).then((r) => {
             if (!r.ok) apiLogger.warn('Sipariş e-posta gönderilemedi', { to: acc.email, error: r.error })
-          }).catch(() => {})
+          }).catch(() => { })
         }
       }
     }

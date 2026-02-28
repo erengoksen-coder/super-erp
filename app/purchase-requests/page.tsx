@@ -1,12 +1,17 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download, FileText } from 'lucide-react'
+import { ShoppingCart, Package, CheckCircle, XCircle, Clock, RefreshCw, X, Save, Download, FileText, Plus } from 'lucide-react'
 import { LogoWithBackground } from '@/components/Logo'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Button } from '@/components/ui/Button'
+import { TableSkeleton } from '@/components/ui/TableSkeleton'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
 import { useAuthStore } from '@/lib/store/authStore'
+import { fetchApi } from '@/lib/api/fetch'
 
 interface PurchaseRequest {
   id: string
@@ -27,6 +32,8 @@ interface PurchaseRequest {
   updated_at: string
 }
 
+type Account = { id: string; name: string; code?: string | null }
+
 export default function PurchaseRequestsPage() {
   const user = useAuthStore((s) => s.user)
   const canExport = user?.can_export !== 0
@@ -40,6 +47,7 @@ export default function PurchaseRequestsPage() {
   const [exporting, setExporting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [creatingOrder, setCreatingOrder] = useState(false)
+  const [suppliers, setSuppliers] = useState<Account[]>([])
   const searchParams = useSearchParams()
   const highlightId = searchParams.get('highlight') ?? null
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
@@ -47,6 +55,12 @@ export default function PurchaseRequestsPage() {
   useEffect(() => {
     loadRequests()
   }, [filterStatus])
+
+  useEffect(() => {
+    fetchApi<Account[]>('/api/accounts?type=supplier')
+      .then((data) => setSuppliers(Array.isArray(data) ? data : []))
+      .catch(() => setSuppliers([]))
+  }, [])
 
   useEffect(() => {
     if (!highlightId || !requests.length) return
@@ -479,15 +493,22 @@ export default function PurchaseRequestsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-400">Yükleniyor...</p>
-        </div>
+        <TableSkeleton rows={8} cols={11} />
       ) : filteredRequests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center min-h-[60vh]">
-          <LogoWithBackground size="lg" className="mb-6" />
-          <h3 className="text-xl font-semibold text-white mb-2">Satın Alma Talebi Bulunmuyor</h3>
-          <p className="text-gray-400">Henüz satın alma talebi oluşturulmamış veya tüm talepler tamamlanmış.</p>
+        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <EmptyState
+            title="Henüz satın alma talebi yok"
+            description="Kritik stoktan otomatik talep oluşturabilir veya üretim / satın alma süreçlerinden gelen talepleri burada takip edebilirsiniz."
+            icon={ShoppingCart}
+            action={
+              <Link href="/purchase/critical-stock">
+                <Button variant="solid" color="primary" size="sm" className="inline-flex items-center gap-2">
+                  <Plus size={18} />
+                  Kritik stoktan talep oluştur
+                </Button>
+              </Link>
+            }
+          />
         </div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
@@ -515,7 +536,7 @@ export default function PurchaseRequestsPage() {
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Toplam</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Durum</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Tarih</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">İşlemler</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase bg-slate-700 text-slate-100 border-l-2 border-slate-500">İşlemler</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
@@ -566,17 +587,23 @@ export default function PurchaseRequestsPage() {
                     {request.supplier_name || (request as any).material_supplier_name || '-'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-300 text-xs">
-                    {request.requested_quantity.toFixed(2)} {request.material_unit}
+                    {request.requested_quantity % 1 === 0
+                      ? request.requested_quantity.toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ' + request.material_unit
+                      : request.requested_quantity.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + request.material_unit}
                   </td>
                   <td className={`px-4 py-3 text-right text-xs font-medium ${
                     received > 0 ? 'text-blue-400' : 'text-gray-400'
                   }`}>
-                    {received.toFixed(2)} {request.material_unit}
+                    {received % 1 === 0
+                      ? received.toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ' + request.material_unit
+                      : received.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + request.material_unit}
                   </td>
                   <td className={`px-4 py-3 text-right text-xs font-bold ${
                     isIncomplete ? 'text-red-400' : 'text-green-400'
                   }`}>
-                    {remaining.toFixed(2)} {request.material_unit}
+                    {remaining % 1 === 0
+                      ? remaining.toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ' + request.material_unit
+                      : remaining.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + request.material_unit}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-300 text-xs">
                     {request.unit_price.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
@@ -592,41 +619,41 @@ export default function PurchaseRequestsPage() {
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {formatDateTime(request.created_at)}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center space-x-2">
+                  <td className="px-4 py-3 bg-slate-800 border-l-2 border-slate-500">
+                    <div className="flex items-center justify-center gap-3">
                       {request.status === 'draft' && (
                         <button
                           onClick={() => updateStatus(request.id, 'ordered')}
-                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition"
+                          className="p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 transition shadow-xl ring-[3px] ring-blue-400"
                           title="Sipariş Edildi olarak işaretle"
                         >
-                          <CheckCircle className="w-3 h-3" />
+                          <CheckCircle className="w-5 h-5" />
                         </button>
                       )}
                       {request.status === 'ordered' && (
                         <button
                           onClick={() => updateStatus(request.id, 'completed')}
-                          className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition"
+                          className="p-2.5 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition shadow-xl ring-[3px] ring-emerald-400"
                           title="Tamamlandı olarak işaretle"
                         >
-                          <CheckCircle className="w-3 h-3" />
+                          <CheckCircle className="w-5 h-5" />
                         </button>
                       )}
                       {(request.status === 'draft' || request.status === 'ordered') && (
                         <button
                           onClick={() => updateStatus(request.id, 'cancelled')}
-                          className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition"
+                          className="p-2.5 bg-amber-500 text-white rounded-full hover:bg-amber-400 transition shadow-xl ring-[3px] ring-amber-400"
                           title="İptal Et"
                         >
-                          <XCircle className="w-3 h-3" />
+                          <XCircle className="w-5 h-5" />
                         </button>
                       )}
                       <button
                         onClick={() => deleteRequest(request.id)}
-                        className="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition"
+                        className="p-2.5 bg-red-600 text-white rounded-full hover:bg-red-500 transition shadow-xl ring-[3px] ring-red-400"
                         title="Sil"
                       >
-                        <XCircle className="w-3 h-3" />
+                        <XCircle className="w-5 h-5" />
                       </button>
                     </div>
                   </td>
@@ -693,13 +720,20 @@ export default function PurchaseRequestsPage() {
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Tedarikçi
               </label>
-              <input
-                type="text"
-                value={editSupplierName}
-                onChange={(e) => setEditSupplierName(e.target.value)}
+              <select
+                value={suppliers.find((s) => s.name === editSupplierName)?.id ?? ''}
+                onChange={(e) =>
+                  setEditSupplierName(suppliers.find((s) => s.id === e.target.value)?.name ?? '')
+                }
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Tedarikçi adı"
-              />
+              >
+                <option value="">Tedarikçi seçin</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code ? `${s.code} - ` : ''}{s.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="mb-4 p-3 bg-gray-800 rounded">

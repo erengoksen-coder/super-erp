@@ -6,12 +6,11 @@ import { cn } from '@/lib/cn'
 import PendingUsersBanner from '@/components/PendingUsersBanner'
 import NotificationToaster from '@/components/NotificationToaster'
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
-import { KeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp'
 import BayiOrderAlertBanner from '@/components/BayiOrderAlertBanner'
 import MessengerBox from '@/components/MessengerBox'
 import { useSidebar } from '@/components/SidebarContext'
 import { useAuthStore } from '@/lib/store/authStore'
-import { fetchApi } from '@/lib/api/client'
+import { safeFetch } from '@/lib/api/client'
 import { ROUTES } from '@/lib/constants'
 
 const HEARTBEAT_MS = 2 * 60 * 1000 // 2 dakikada bir çevrimiçi kal
@@ -30,7 +29,7 @@ export default function MainShell({ children }: MainShellProps) {
   // İlk ping 2sn gecikmeli: HMR/Strict Mode mount sırasında abort olup "Fetch failed" logunu azaltır
   useEffect(() => {
     if (!user || pathname === ROUTES.LOGIN || pathname === ROUTES.REGISTER) return
-    const ping = () => fetchApi('/api/auth/ping').catch(() => {})
+    const ping = () => safeFetch('/api/auth/ping')
     let intervalId: ReturnType<typeof setInterval>
     const startId = setTimeout(() => {
       ping()
@@ -80,7 +79,6 @@ export default function MainShell({ children }: MainShellProps) {
         {!isAuthPage && (
           <>
             <KeyboardShortcuts />
-            <KeyboardShortcutsHelp />
             <PendingUsersBanner />
             <BayiOrderAlertBanner />
             <NotificationToaster />

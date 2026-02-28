@@ -11,6 +11,11 @@ import { ROUTES } from '@/lib/constants'
 const publicPaths = [ROUTES.LOGIN, ROUTES.REGISTER, '/durum']
 const VERIFY_THROTTLE_MS = 3000
 
+function isPublicPath(path: string | null): boolean {
+  const p = (path || '').replace(/\/$/, '')
+  return publicPaths.some((pub) => p === pub.replace(/\/$/, '')) || p.startsWith('/auth/')
+}
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [isChecking, setIsChecking] = useState(true)
@@ -21,8 +26,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const lastVerifyRef = useRef<number>(0)
 
   useEffect(() => {
-    // Public sayfalar için kontrol yapma
-    if (publicPaths.includes(pathname || '')) {
+    // Public sayfalar için kontrol yapma (login, register, auth/*)
+    if (isPublicPath(pathname)) {
       setIsChecking(false)
       return
     }
@@ -93,7 +98,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [pathname, hydrated, setAuth, clearAuth])
 
   useEffect(() => {
-    if (!hydrated || isChecking || publicPaths.includes(pathname || '')) {
+    if (!hydrated || isChecking || isPublicPath(pathname)) {
       return
     }
     if (!user) {
@@ -126,7 +131,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [hydrated, isChecking, pathname, user])
 
   // Public sayfalar veya authenticated kullanıcılar için içeriği göster
-  if (publicPaths.includes(pathname || '')) {
+  if (isPublicPath(pathname)) {
     return <>{children}</>
   }
 

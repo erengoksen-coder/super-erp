@@ -22,6 +22,10 @@ function getDbPath(): string {
   if (envPath && envPath.trim()) return envPath.trim()
   return join(process.cwd(), 'data', 'erp.db')
 }
+/** Yedekleme vb. için veritabanı dosya yolu (read-only kullanım). */
+export function getDatabasePath(): string {
+  return getDbPath()
+}
 const dbPath = getDbPath()
 const dataDir = dirname(dbPath)
 if (!existsSync(dataDir)) {
@@ -98,7 +102,7 @@ function initializeDatabase() {
       DEFAULT_COMPANY_ID,
       DEFAULT_BRANCH_NAME
     )
-  } catch {}
+  } catch { }
 
   // Warehouses (Depolar)
   db.exec(`
@@ -123,7 +127,7 @@ function initializeDatabase() {
       DEFAULT_COMPANY_ID,
       DEFAULT_BRANCH_ID
     )
-  } catch {}
+  } catch { }
 
   // Users (Kullanıcılar)
   db.exec(`
@@ -188,52 +192,52 @@ function initializeDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
-  
+
   // Position kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE users ADD COLUMN position TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE users ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE users ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN last_activity TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN is_locked INTEGER DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN dealer_name TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN can_export INTEGER DEFAULT 1')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN max_export_rows INTEGER')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE users ADD COLUMN view_only INTEGER DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE users
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE users
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
+  } catch { }
 
   // User Permissions (Kullanıcı İzinleri)
   db.exec(`
@@ -254,24 +258,24 @@ function initializeDatabase() {
   `)
   try {
     db.exec(`ALTER TABLE user_permissions ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE user_permissions ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE user_permissions
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE user_permissions
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
+  } catch { }
 
   // Audit Logs
   db.exec(`
@@ -290,28 +294,28 @@ function initializeDatabase() {
   `)
   try {
     db.exec('ALTER TABLE audit_logs ADD COLUMN old_data TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE audit_logs ADD COLUMN new_data TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE audit_logs ADD COLUMN ip_address TEXT')
-  } catch {}
+  } catch { }
 
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_table_record ON audit_logs(table_name, record_id)')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)')
-  } catch {}
+  } catch { }
 
   // Active views for soft deletes
   try {
     db.exec('CREATE VIEW IF NOT EXISTS active_orders AS SELECT * FROM orders WHERE deleted_at IS NULL')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE VIEW IF NOT EXISTS active_products AS SELECT * FROM products WHERE deleted_at IS NULL')
-  } catch {}
+  } catch { }
 
   // Unit Conversions (Birim çevrimleri)
   db.exec(`
@@ -329,13 +333,13 @@ function initializeDatabase() {
   `)
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_unit_conversions_material ON unit_conversions(material_id)')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_unit_conversions_units ON unit_conversions(from_unit, to_unit)')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE unit_conversions ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
 
   // Roles (RBAC)
   db.exec(`
@@ -410,7 +414,12 @@ function initializeDatabase() {
       'bayi',
       'Bayi portal kullanıcısı (sadece kendi cari verileri)'
     )
-  } catch {}
+    db.prepare('INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)').run(
+      'role_bulut_temsilcisi',
+      'bulut_temsilcisi',
+      'Bulut temsilcisi (izinler rol şablonu ile belirlenir)'
+    )
+  } catch { }
 
   // Mevcut kullanıcıları role ile eşle
   try {
@@ -432,7 +441,7 @@ function initializeDatabase() {
         roleId
       )
     }
-  } catch {}
+  } catch { }
 
   // Admin kullanıcı izinlerinden role_permissions üret (boşsa)
   try {
@@ -478,7 +487,7 @@ function initializeDatabase() {
         )
       }
     }
-  } catch {}
+  } catch { }
 
   // Satış/Satın Alma siparişleri için varsayılan izinleri kopyala
   try {
@@ -559,7 +568,7 @@ function initializeDatabase() {
         )
       }
     }
-  } catch {}
+  } catch { }
 
   // Yeni modüller için admin rolüne varsayılan izin ver
   try {
@@ -589,7 +598,7 @@ function initializeDatabase() {
         DEFAULT_BRANCH_ID
       )
     }
-  } catch {}
+  } catch { }
 
   // Materials (Hammaddeler)
   db.exec(`
@@ -614,8 +623,8 @@ function initializeDatabase() {
       FOREIGN KEY (supplier_id) REFERENCES accounts(id)
     )
   `)
-  try { db.exec('ALTER TABLE materials ADD COLUMN reserved_quantity REAL DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE materials ADD COLUMN version INTEGER DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE materials ADD COLUMN reserved_quantity REAL DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE materials ADD COLUMN version INTEGER DEFAULT 0') } catch { }
 
   // Material Stocks (Depo bazlı stok)
   db.exec(`
@@ -646,8 +655,8 @@ function initializeDatabase() {
       FOREIGN KEY (material_id) REFERENCES materials(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_material ON material_prices(material_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_created_at ON material_prices(created_at)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_material ON material_prices(material_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_prices_created_at ON material_prices(created_at)') } catch { }
 
   // Production Costs (Üretim maliyetleri)
   db.exec(`
@@ -663,7 +672,7 @@ function initializeDatabase() {
       FOREIGN KEY (production_order_id) REFERENCES production_orders(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_production_costs_order ON production_costs(production_order_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_production_costs_order ON production_costs(production_order_id)') } catch { }
 
   // Stock Alerts (Kritik stok uyarıları)
   db.exec(`
@@ -679,8 +688,8 @@ function initializeDatabase() {
       FOREIGN KEY (material_id) REFERENCES materials(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_material ON stock_alerts(material_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_status ON stock_alerts(status)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_material ON stock_alerts(material_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_alerts_status ON stock_alerts(status)') } catch { }
   // Material Reservations (Rezervasyonlar)
   db.exec(`
     CREATE TABLE IF NOT EXISTS material_reservations (
@@ -699,41 +708,41 @@ function initializeDatabase() {
       FOREIGN KEY (customer_id) REFERENCES accounts(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_material ON material_reservations(material_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_customer ON material_reservations(customer_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservations(status)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_material ON material_reservations(material_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_customer ON material_reservations(customer_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservations(status)') } catch { }
 
   // Materials tablosuna purchase_price kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE materials ADD COLUMN purchase_price REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   // Materials tablosuna code ve category kolonları ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE materials ADD COLUMN code TEXT UNIQUE')
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE materials ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE materials ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE materials ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE materials
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE materials
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
+  } catch { }
 
   // İlk kurulumda depo stoklarını mevcut stoklardan oluştur
   try {
@@ -753,20 +762,20 @@ function initializeDatabase() {
         )
       }
     }
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE materials ADD COLUMN category TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE materials ADD COLUMN supplier_id TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE materials ADD COLUMN last_purchase_date TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE materials ADD COLUMN unit_price REAL DEFAULT 0')
-  } catch {}
-  
+  } catch { }
+
   // Eğer unit_price yoksa ve purchase_price varsa, purchase_price değerini unit_price'a kopyala
   try {
     db.exec(`
@@ -786,6 +795,8 @@ function initializeDatabase() {
       sku TEXT UNIQUE NOT NULL,
       price REAL DEFAULT 0,
       selling_price REAL DEFAULT 0,
+      dealer_price REAL DEFAULT 0,
+      image_url TEXT,
       stock_amount INTEGER DEFAULT 0,
       min_stock_level INTEGER DEFAULT 5,
       company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
@@ -795,18 +806,18 @@ function initializeDatabase() {
       deleted_at TEXT
     )
   `)
-  
+
   // Products tablosuna stock kolonları ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE products ADD COLUMN stock_amount INTEGER DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE products ADD COLUMN min_stock_level INTEGER DEFAULT 5')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE products ADD COLUMN labor_cost REAL DEFAULT 0')
-  } catch {}
-  
+  } catch { }
+
   // Products tablosuna selling_price kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE products ADD COLUMN selling_price REAL DEFAULT 0')
@@ -817,28 +828,37 @@ function initializeDatabase() {
   }
   try {
     db.exec(`ALTER TABLE products ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE products ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE products ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN dealer_price REAL DEFAULT 0')
+  } catch { }
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN image_url TEXT')
+  } catch { }
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN unit TEXT')
+  } catch { }
   try {
     db.exec(`
       UPDATE products
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE products
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
-  
+  } catch { }
+
   // Eğer selling_price yoksa ve price varsa, price değerini selling_price'a kopyala
   try {
     db.exec(`
@@ -856,38 +876,38 @@ function initializeDatabase() {
       INSERT OR IGNORE INTO products (id, name, sku, price, selling_price, stock_amount, min_stock_level)
       VALUES ('SYS-PURCHASE-LINE', 'Satın alınan mal/hizmet', 'SYS-PURCHASE-LINE', 0, 0, 0, 0)
     `).run()
-  } catch {}
+  } catch { }
 
   // Production Orders tablosuna maliyet kolonları ekle
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN material_cost REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN labor_cost REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN total_cost REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN selling_price REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN profit REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   // Production Orders tablosuna tarih kolonları ekle
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN due_date TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN estimated_completion_date TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN started_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE production_orders ADD COLUMN completed_at TEXT')
-  } catch {}
-  
+  } catch { }
+
   // Fiili Harcanan Malzemeler Tablosu
   db.exec(`
     CREATE TABLE IF NOT EXISTS production_actual_consumption (
@@ -907,8 +927,8 @@ function initializeDatabase() {
       UNIQUE(production_order_id, material_id)
     )
   `)
-  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN actual_usage REAL') } catch {}
-  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN scrap_reason TEXT') } catch {}
+  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN actual_usage REAL') } catch { }
+  try { db.exec('ALTER TABLE production_actual_consumption ADD COLUMN scrap_reason TEXT') } catch { }
 
   // Operasyonlar
   db.exec(`
@@ -940,6 +960,24 @@ function initializeDatabase() {
     )
   `)
 
+  // İstasyon Süreleri / İş Emirleri Zaman Takibi
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_order_times (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      work_center_id TEXT NOT NULL,
+      operator_id TEXT,
+      start_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      end_at TEXT,
+      duration_minutes REAL,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
+      FOREIGN KEY (operator_id) REFERENCES users(id)
+    )
+  `)
+
   // Bir kerelik: İnsan Kaynakları modülü kaldırıldı, HR tablolarını sil
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS _app_meta (key TEXT PRIMARY KEY, value TEXT)`)
@@ -964,7 +1002,7 @@ function initializeDatabase() {
 
   // HR (İK) taban şeması — kaldırıldı, tablolar yukarıdaki migration ile silindi
   if (false) {
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_employees (
       id TEXT PRIMARY KEY,
       full_name TEXT NOT NULL,
@@ -977,7 +1015,7 @@ function initializeDatabase() {
     )
   `)
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_departments (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -988,9 +1026,9 @@ function initializeDatabase() {
       deleted_at TEXT
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_departments_name ON hr_departments(name)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_departments_name ON hr_departments(name)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_teams (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1002,9 +1040,9 @@ function initializeDatabase() {
       FOREIGN KEY (department_id) REFERENCES hr_departments(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_teams_department ON hr_teams(department_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_teams_department ON hr_teams(department_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_workplaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1018,9 +1056,9 @@ function initializeDatabase() {
       deleted_at TEXT
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_workplaces_name ON hr_workplaces(name)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_workplaces_name ON hr_workplaces(name)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_employee_profiles (
       id TEXT PRIMARY KEY,
       employee_id TEXT UNIQUE NOT NULL,
@@ -1051,9 +1089,9 @@ function initializeDatabase() {
       FOREIGN KEY (workplace_id) REFERENCES hr_workplaces(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_employee_profiles_employee ON hr_employee_profiles(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_employee_profiles_employee ON hr_employee_profiles(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_contracts (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1069,9 +1107,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_contracts_employee ON hr_contracts(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_contracts_employee ON hr_contracts(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_compensation (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1088,9 +1126,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_compensation_employee ON hr_compensation(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_compensation_employee ON hr_compensation(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_custom_fields (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1103,9 +1141,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_custom_fields_employee ON hr_custom_fields(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_custom_fields_employee ON hr_custom_fields(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_timeoff_balances (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1121,9 +1159,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_balances_employee_year ON hr_timeoff_balances(employee_id, year)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_balances_employee_year ON hr_timeoff_balances(employee_id, year)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_timeoff_requests (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1142,10 +1180,10 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_employee ON hr_timeoff_requests(employee_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_status ON hr_timeoff_requests(status)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_employee ON hr_timeoff_requests(employee_id)') } catch { }
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_timeoff_requests_status ON hr_timeoff_requests(status)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_attendance (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1166,10 +1204,10 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_attendance_employee_date ON hr_attendance(employee_id, date)') } catch {}
-  try { db.exec('ALTER TABLE hr_attendance ADD COLUMN workplace_id TEXT') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_attendance_employee_date ON hr_attendance(employee_id, date)') } catch { }
+    try { db.exec('ALTER TABLE hr_attendance ADD COLUMN workplace_id TEXT') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_payrolls (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1190,7 +1228,7 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_payroll_items (
       id TEXT PRIMARY KEY,
       payroll_id TEXT NOT NULL,
@@ -1203,10 +1241,10 @@ function initializeDatabase() {
       FOREIGN KEY (payroll_id) REFERENCES hr_payrolls(id) ON DELETE CASCADE
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payrolls_employee_period ON hr_payrolls(employee_id, period_start, period_end)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payroll_items_payroll_id ON hr_payroll_items(payroll_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payrolls_employee_period ON hr_payrolls(employee_id, period_start, period_end)') } catch { }
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_payroll_items_payroll_id ON hr_payroll_items(payroll_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_holidays (
       id TEXT PRIMARY KEY,
       date TEXT NOT NULL,
@@ -1219,9 +1257,9 @@ function initializeDatabase() {
       UNIQUE(date, name)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_holidays_date ON hr_holidays(date)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_holidays_date ON hr_holidays(date)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_shift_templates (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1235,10 +1273,10 @@ function initializeDatabase() {
       deleted_at TEXT
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_shift_templates_name ON hr_shift_templates(name)') } catch {}
-  try { db.exec('ALTER TABLE hr_employee_profiles ADD COLUMN shift_template_id TEXT REFERENCES hr_shift_templates(id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_shift_templates_name ON hr_shift_templates(name)') } catch { }
+    try { db.exec('ALTER TABLE hr_employee_profiles ADD COLUMN shift_template_id TEXT REFERENCES hr_shift_templates(id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_performance_goals (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1255,9 +1293,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_goals_employee ON hr_performance_goals(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_goals_employee ON hr_performance_goals(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_performance_reviews (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
@@ -1272,9 +1310,9 @@ function initializeDatabase() {
       FOREIGN KEY (employee_id) REFERENCES hr_employees(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_reviews_employee ON hr_performance_reviews(employee_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_performance_reviews_employee ON hr_performance_reviews(employee_id)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_job_openings (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -1288,9 +1326,9 @@ function initializeDatabase() {
       FOREIGN KEY (department_id) REFERENCES hr_departments(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_openings_status ON hr_job_openings(status)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_openings_status ON hr_job_openings(status)') } catch { }
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS hr_job_candidates (
       id TEXT PRIMARY KEY,
       job_opening_id TEXT NOT NULL,
@@ -1305,7 +1343,7 @@ function initializeDatabase() {
       FOREIGN KEY (job_opening_id) REFERENCES hr_job_openings(id)
     )
   `)
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_candidates_job ON hr_job_candidates(job_opening_id)') } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_hr_job_candidates_job ON hr_job_candidates(job_opening_id)') } catch { }
   }
 
   // Üretim emri operasyonları
@@ -1401,7 +1439,7 @@ function initializeDatabase() {
       }
       db.exec('DROP TABLE IF EXISTS bom_backup')
     }
-  } catch {}
+  } catch { }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS bom (
@@ -1421,21 +1459,21 @@ function initializeDatabase() {
       FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
     )
   `)
-  try { db.exec('ALTER TABLE bom ADD COLUMN version_id TEXT') } catch {}
-  try { db.exec('ALTER TABLE bom ADD COLUMN parent_id TEXT') } catch {}
-  try { db.exec('ALTER TABLE bom ADD COLUMN deleted_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE bom ADD COLUMN unit TEXT') } catch {}
-  try { db.exec('ALTER TABLE bom ADD COLUMN waste_percentage REAL DEFAULT 0') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_parent_id ON bom(parent_id)') } catch {}
-  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_version_id ON bom(version_id)') } catch {}
-  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_bom_version_item ON bom(version_id, product_id, material_id, parent_id)') } catch {}
+  try { db.exec('ALTER TABLE bom ADD COLUMN version_id TEXT') } catch { }
+  try { db.exec('ALTER TABLE bom ADD COLUMN parent_id TEXT') } catch { }
+  try { db.exec('ALTER TABLE bom ADD COLUMN deleted_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE bom ADD COLUMN unit TEXT') } catch { }
+  try { db.exec('ALTER TABLE bom ADD COLUMN waste_percentage REAL DEFAULT 0') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_parent_id ON bom(parent_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_bom_version_id ON bom(version_id)') } catch { }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_bom_version_item ON bom(version_id, product_id, material_id, parent_id)') } catch { }
   try {
     db.exec(`
       UPDATE bom
       SET unit = (SELECT unit FROM materials WHERE materials.id = bom.material_id)
       WHERE unit IS NULL OR unit = ''
     `)
-  } catch {}
+  } catch { }
 
   // BOM versiyonlarını seed et (mevcut BOM'lar için)
   try {
@@ -1460,7 +1498,7 @@ function initializeDatabase() {
       insertVersion.run(versionId, row.product_id, 1, today, 'İlk versiyon')
       updateBomVersion.run(versionId, row.product_id)
     }
-  } catch {}
+  } catch { }
 
   // Production Orders (Üretim Emirleri)
   db.exec(`
@@ -1528,56 +1566,56 @@ function initializeDatabase() {
       UNIQUE(work_order_id, station)
     )
   `)
-  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_start_date TEXT') } catch {}
-  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_end_date TEXT') } catch {}
-  try { db.exec('ALTER TABLE work_orders ADD COLUMN notes TEXT') } catch {}
-  try { db.exec('ALTER TABLE work_orders ADD COLUMN status TEXT DEFAULT "open"') } catch {}
-  try { db.exec(`ALTER TABLE work_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch {}
-  try { db.exec(`ALTER TABLE work_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch {}
-  try { db.exec('ALTER TABLE work_orders ADD COLUMN deleted_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN sequence INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN notes TEXT') } catch {}
-  
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_start_date TEXT') } catch { }
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN planned_end_date TEXT') } catch { }
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN notes TEXT') } catch { }
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN status TEXT DEFAULT "open"') } catch { }
+  try { db.exec(`ALTER TABLE work_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch { }
+  try { db.exec(`ALTER TABLE work_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch { }
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN deleted_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN sequence INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE work_order_operations ADD COLUMN notes TEXT') } catch { }
+
   // İstasyon kolonları ekle
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN current_station TEXT DEFAULT "iskelet"') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_started_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_completed_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN stock_deducted INTEGER DEFAULT 0') } catch {}
-  try { db.exec(`ALTER TABLE production_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch {}
-  try { db.exec(`ALTER TABLE production_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN deleted_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN current_station TEXT DEFAULT "iskelet"') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_started_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_completed_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN stock_deducted INTEGER DEFAULT 0') } catch { }
+  try { db.exec(`ALTER TABLE production_orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`) } catch { }
+  try { db.exec(`ALTER TABLE production_orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`) } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN deleted_at TEXT') } catch { }
   try {
     db.exec(`
       UPDATE production_orders
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE production_orders
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
-  
+  } catch { }
+
   // Her istasyon için tamamlanan adet sayacı ekle
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_completed_count INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_completed_count INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_completed_count INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_completed_count INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_completed_count INTEGER DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_completed_count INTEGER DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN iskelet_completed_count INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN terzihane_completed_count INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN berjer_completed_count INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN döseme_completed_count INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN montaj_completed_count INTEGER DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE production_orders ADD COLUMN sevkiyat_completed_count INTEGER DEFAULT 0') } catch { }
 
   // Stock Movements (Stok Hareketleri)
   db.exec(`
@@ -1602,13 +1640,13 @@ function initializeDatabase() {
       CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
     )
   `)
-  
+
   // Eski veritabanlarında material_id NOT NULL olabilir, NULL yapılabilir hale getir
   // SQLite'da ALTER TABLE ile NOT NULL kaldırılamaz, bu yüzden yeni tablo oluşturup veri taşıma gerekir
   // Ancak bu karmaşık olduğu için, INSERT sorgularında material_id'yi NULL yerine boş string veya özel bir değer kullanabiliriz
   // Ama daha iyi çözüm: material_id'yi her zaman belirtmek, product için özel bir değer kullanmak
   // En iyi çözüm: material_id'yi NULL yapılabilir hale getirmek için tabloyu yeniden oluştur
-  
+
   // product_id kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN product_id TEXT')
@@ -1619,52 +1657,52 @@ function initializeDatabase() {
   }
   try {
     db.exec(`ALTER TABLE stock_movements ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE stock_movements ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN warehouse_id TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN from_warehouse_id TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE stock_movements
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE stock_movements
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
-  
+  } catch { }
+
   // Eski veritabanlarında material_id NOT NULL olabilir, tabloyu kontrol et ve gerekirse düzelt
   try {
     const tableInfo = db.prepare("PRAGMA table_info(stock_movements)").all() as any[]
     const materialIdColumn = tableInfo.find((col: any) => col.name === 'material_id')
     const productIdColumn = tableInfo.find((col: any) => col.name === 'product_id')
-    
+
     // Eğer material_id NOT NULL ise ve product_id kolonu varsa, tabloyu yeniden oluştur
     if (materialIdColumn && materialIdColumn.notnull === 1 && productIdColumn) {
       // Verileri yedekle
       const oldData = db.prepare('SELECT * FROM stock_movements').all()
-      
+
       // Eski tabloyu yedekle
       db.exec('DROP TABLE IF EXISTS stock_movements_backup')
       db.exec('ALTER TABLE stock_movements RENAME TO stock_movements_backup')
-      
+
       // Yeni tabloyu oluştur (material_id NULL yapılabilir)
       db.exec(`
         CREATE TABLE stock_movements (
@@ -1690,14 +1728,14 @@ function initializeDatabase() {
           CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
         )
       `)
-      
+
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
         (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, warehouse_id, from_warehouse_id, to_warehouse_id, created_at, deleted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      
+
       for (const row of oldData as any[]) {
         insertStmt.run(
           row.id,
@@ -1716,7 +1754,7 @@ function initializeDatabase() {
           row.deleted_at || null
         )
       }
-      
+
       // Yedek tabloyu sil
       db.exec('DROP TABLE IF EXISTS stock_movements_backup')
     }
@@ -1724,7 +1762,7 @@ function initializeDatabase() {
     // Hata durumunda sessizce devam et
     console.warn('stock_movements tablosu güncellenirken hata:', e.message)
   }
-  
+
   // user_id kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN user_id TEXT')
@@ -1733,22 +1771,22 @@ function initializeDatabase() {
       console.warn('user_id kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // Eski veritabanlarında material_id NOT NULL ise, tabloyu yeniden oluştur
   try {
     // Önce mevcut tablonun yapısını kontrol et
     const tableInfo = db.prepare("PRAGMA table_info(stock_movements)").all() as any[]
     const materialIdColumn = tableInfo.find((col: any) => col.name === 'material_id')
-    
+
     // Eğer material_id NOT NULL ise ve product_id kolonu yoksa, tabloyu yeniden oluştur
     if (materialIdColumn && materialIdColumn.notnull === 1 && !tableInfo.find((col: any) => col.name === 'product_id')) {
       // Verileri yedekle
       const oldData = db.prepare('SELECT * FROM stock_movements').all()
-      
+
       // Eski tabloyu sil
       db.exec('DROP TABLE IF EXISTS stock_movements_backup')
       db.exec('ALTER TABLE stock_movements RENAME TO stock_movements_backup')
-      
+
       // Yeni tabloyu oluştur (material_id NULL yapılabilir)
       db.exec(`
         CREATE TABLE stock_movements (
@@ -1774,14 +1812,14 @@ function initializeDatabase() {
           CHECK ((material_id IS NOT NULL) OR (product_id IS NOT NULL))
         )
       `)
-      
+
       // Verileri geri yükle
       const insertStmt = db.prepare(`
         INSERT INTO stock_movements 
         (id, material_id, product_id, movement_type, quantity, reference_type, reference_id, invoice_number, shipment_number, notes, company_id, branch_id, warehouse_id, from_warehouse_id, to_warehouse_id, created_at, deleted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      
+
       for (const row of oldData as any[]) {
         insertStmt.run(
           row.id,
@@ -1803,7 +1841,7 @@ function initializeDatabase() {
           row.deleted_at || null
         )
       }
-      
+
       // Yedek tabloyu sil
       db.exec('DROP TABLE IF EXISTS stock_movements_backup')
     }
@@ -1811,7 +1849,7 @@ function initializeDatabase() {
     // Hata durumunda sessizce devam et
     console.warn('stock_movements tablosu güncellenirken hata:', e.message)
   }
-  
+
   // invoice_number ve shipment_number kolonlarını ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN invoice_number TEXT')
@@ -1820,7 +1858,7 @@ function initializeDatabase() {
       console.warn('invoice_number kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   try {
     db.exec('ALTER TABLE stock_movements ADD COLUMN shipment_number TEXT')
   } catch (e: any) {
@@ -1861,45 +1899,82 @@ function initializeDatabase() {
     )
   `)
 
+  // Order Items (Sipariş Kalemleri) - Multi-item destekli siparişler için
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_items (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      product_id TEXT, -- Manuel girişler için NULL olabilir
+      product_name TEXT, -- Manuel girişler için ürün adı
+      quantity REAL NOT NULL,
+      unit_price REAL NOT NULL,
+      tax_rate REAL DEFAULT 20,
+      tax_amount REAL DEFAULT 0,
+      total_price REAL NOT NULL,
+      status TEXT DEFAULT 'pending',
+      company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+    )
+  `)
+
   // Orders tablosuna dealer_name kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN dealer_name TEXT')
-  } catch {}
+  } catch { }
   // Orders tablosuna configuration kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN configuration TEXT')
-  } catch {}
+  } catch { }
   // Orders tablosuna order_date kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN order_date TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE orders ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE orders ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   // Orders tablosuna cancel_reason kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE orders ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE orders
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE orders
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
+  } catch { }
+
+  // Orders tablosuna multi-item siparişler için yeni kolonlar ekle
+  try { db.exec('ALTER TABLE orders ADD COLUMN subtotal REAL DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN tax_amount REAL DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN currency TEXT DEFAULT "TRY"') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN exchange_rate REAL DEFAULT 1') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN sales_representative_id TEXT') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN created_by TEXT') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN expected_date TEXT') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN type TEXT DEFAULT "sales"') } catch { }
+  try { db.exec('ALTER TABLE orders ADD COLUMN customer_id TEXT') } catch { }
+
+  // order_items indeksleri
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id)') } catch { }
 
   // Purchase Requests (Satın Alma Talepleri)
   db.exec(`
@@ -1938,11 +2013,11 @@ function initializeDatabase() {
   }
   try {
     db.exec('ALTER TABLE purchase_requests ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE purchase_requests ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP')
   } catch (e: any) {
-    if (!e?.message?.includes('duplicate column')) {}
+    if (!e?.message?.includes('duplicate column')) { }
   }
 
   // Product Serial Numbers (Ürün Barkodları)
@@ -1967,12 +2042,12 @@ function initializeDatabase() {
       -- Foreign key kontrolü uygulama seviyesinde yapılacak
     )
   `)
-  
+
   // customer_id kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE product_serial_numbers ADD COLUMN customer_id TEXT')
-  } catch {}
-  
+  } catch { }
+
   // ready_for_shipment kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE product_serial_numbers ADD COLUMN ready_for_shipment INTEGER DEFAULT 0')
@@ -1982,7 +2057,7 @@ function initializeDatabase() {
       console.warn('ready_for_shipment kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // shipment_id kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE product_serial_numbers ADD COLUMN shipment_id TEXT')
@@ -1991,7 +2066,7 @@ function initializeDatabase() {
       console.warn('shipment_id kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // updated_at kolonu ekle (eğer yoksa) - ÖNEMLİ: Bu kolon UPDATE sorgularında kullanılıyor
   try {
     db.exec('ALTER TABLE product_serial_numbers ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP')
@@ -2001,7 +2076,7 @@ function initializeDatabase() {
       console.warn('updated_at kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // current_station kolonu ekle (eğer yoksa) - Her barkod için ayrı istasyon takibi
   try {
     db.exec('ALTER TABLE product_serial_numbers ADD COLUMN current_station TEXT')
@@ -2010,17 +2085,17 @@ function initializeDatabase() {
       console.warn('current_station kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // İndeksler
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_serial_numbers_product ON product_serial_numbers(product_id)')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_serial_numbers_barcode ON product_serial_numbers(barcode)')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_serial_numbers_serial ON product_serial_numbers(serial_number)')
-  } catch {}
+  } catch { }
 
   // Trigger'ı kaldır (çift güncelleme sorununu önlemek için)
   // Stok güncellemeleri artık sadece API'lerde yapılıyor
@@ -2054,7 +2129,7 @@ function initializeDatabase() {
       updated_by TEXT
     )
   `)
-  
+
   // Eğer FOREIGN KEY constraint'leri varsa kaldır (ALTER TABLE ile kaldırılamaz, tablo yeniden oluşturulmalı)
   // Ancak mevcut verileri korumak için constraint'leri sadece yeni tablolarda uygulamıyoruz
 
@@ -2075,17 +2150,17 @@ function initializeDatabase() {
   }
   try {
     db.exec(`ALTER TABLE accounts ADD COLUMN company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec(`ALTER TABLE accounts ADD COLUMN branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}'`)
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN risk_limit REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN deleted_at TEXT')
-  } catch {}
-  
+  } catch { }
+
   // Accounts tablosuna discount_rate kolonu ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN discount_rate REAL DEFAULT 0')
@@ -2094,7 +2169,7 @@ function initializeDatabase() {
       console.warn('discount_rate kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   // Accounts tablosuna yetkili kişi kolonları ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN authorized_person_name TEXT')
@@ -2103,7 +2178,7 @@ function initializeDatabase() {
       console.warn('authorized_person_name kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   try {
     db.exec('ALTER TABLE accounts ADD COLUMN authorized_person_phone TEXT')
   } catch (e: any) {
@@ -2111,33 +2186,33 @@ function initializeDatabase() {
       console.warn('authorized_person_phone kolonu eklenirken hata:', e.message)
     }
   }
-  
+
   try {
     db.exec(`
       UPDATE accounts
       SET company_id = '${DEFAULT_COMPANY_ID}'
       WHERE company_id IS NULL OR TRIM(company_id) = ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE accounts
       SET branch_id = '${DEFAULT_BRANCH_ID}'
       WHERE branch_id IS NULL OR TRIM(branch_id) = ''
     `)
-  } catch {}
-  
+  } catch { }
+
   // Mevcut FOREIGN KEY constraint'lerini kaldırmak için tabloyu yeniden oluştur
   // (SQLite'da ALTER TABLE ile FOREIGN KEY kaldırılamaz)
   try {
     // Önce mevcut verileri yedekle
     const existingAccounts = db.prepare('SELECT * FROM accounts').all() as any[]
-    
+
     // Tabloyu sil ve yeniden oluştur (FOREIGN KEY olmadan)
     db.exec('DROP TABLE IF EXISTS accounts_backup')
     db.exec('CREATE TABLE accounts_backup AS SELECT * FROM accounts')
     db.exec('DROP TABLE accounts')
-    
+
     // Yeni tabloyu oluştur (FOREIGN KEY constraint'leri olmadan; discount_rate ve yetkili kişi kolonları dahil)
     db.exec(`
       CREATE TABLE accounts (
@@ -2163,14 +2238,14 @@ function initializeDatabase() {
         updated_by TEXT
       )
     `)
-    
+
     // Verileri geri yükle (iskonto ve yetkili kişi alanları dahil)
     if (existingAccounts.length > 0) {
       const insert = db.prepare(`
         INSERT INTO accounts (id, code, name, type, tax_number, phone, email, address, balance, risk_limit, discount_rate, authorized_person_name, authorized_person_phone, company_id, branch_id, created_at, updated_at, deleted_at, created_by, updated_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      
+
       for (const account of existingAccounts) {
         insert.run(
           account.id,
@@ -2196,7 +2271,7 @@ function initializeDatabase() {
         )
       }
     }
-    
+
     // Yedek tabloyu sil
     db.exec('DROP TABLE IF EXISTS accounts_backup')
   } catch (e: any) {
@@ -2220,11 +2295,11 @@ function initializeDatabase() {
       FOREIGN KEY (parent_id) REFERENCES chart_of_accounts(id)
     )
   `)
-  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN account_type TEXT') } catch {}
-  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN type TEXT') } catch {}
-  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN balance REAL DEFAULT 0') } catch {}
-  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN updated_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN deleted_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN account_type TEXT') } catch { }
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN type TEXT') } catch { }
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN balance REAL DEFAULT 0') } catch { }
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN updated_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE chart_of_accounts ADD COLUMN deleted_at TEXT') } catch { }
   try {
     db.exec(`
       UPDATE chart_of_accounts
@@ -2232,7 +2307,7 @@ function initializeDatabase() {
       WHERE (account_type IS NULL OR TRIM(account_type) = '')
         AND type IS NOT NULL AND TRIM(type) != ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE chart_of_accounts
@@ -2240,14 +2315,14 @@ function initializeDatabase() {
       WHERE (type IS NULL OR TRIM(type) = '')
         AND account_type IS NOT NULL AND TRIM(account_type) != ''
     `)
-  } catch {}
+  } catch { }
   try {
     db.exec(`
       UPDATE chart_of_accounts
       SET balance = 0
       WHERE balance IS NULL
     `)
-  } catch {}
+  } catch { }
 
   // Temel hesap planını seed et
   try {
@@ -2291,7 +2366,7 @@ function initializeDatabase() {
         updateParent.run(account.parent_code, account.code)
       }
     }
-  } catch {}
+  } catch { }
 
   // Journal Entries (Yevmiye Kayıtları)
   db.exec(`
@@ -2344,11 +2419,11 @@ function initializeDatabase() {
       FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id)
     )
   `)
-  try { db.exec('ALTER TABLE general_ledger ADD COLUMN journal_entry_line_id TEXT') } catch {}
-  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_type TEXT') } catch {}
-  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_id TEXT') } catch {}
-  try { db.exec('ALTER TABLE general_ledger ADD COLUMN updated_at TEXT') } catch {}
-  try { db.exec('ALTER TABLE general_ledger ADD COLUMN deleted_at TEXT') } catch {}
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN journal_entry_line_id TEXT') } catch { }
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_type TEXT') } catch { }
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN reference_id TEXT') } catch { }
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN updated_at TEXT') } catch { }
+  try { db.exec('ALTER TABLE general_ledger ADD COLUMN deleted_at TEXT') } catch { }
 
   // Shipments (Sevkiyatlar)
   db.exec(`
@@ -2370,54 +2445,54 @@ function initializeDatabase() {
       FOREIGN KEY (customer_id) REFERENCES accounts(id)
     )
   `)
-  
+
   // Shipments tablosuna yeni kolonlar ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN total_amount REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN tax_rate REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN tax_amount REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN final_amount REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN cancel_reason TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN invoice_id TEXT')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN invoice_number TEXT')
-  } catch {}
-  
+  } catch { }
+
   // İskonto kolonları ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN discount_rate REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN discount_amount REAL DEFAULT 0')
-  } catch {}
-  
+  } catch { }
+
   // Onay alanları ekle (risk limiti aşan sevkiyatlar için)
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN approval_status TEXT DEFAULT NULL')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN approved_by TEXT DEFAULT NULL')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN approved_at TEXT DEFAULT NULL')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipments ADD COLUMN approval_requested_at TEXT DEFAULT NULL')
-  } catch {}
+  } catch { }
 
   // Bildirimler tablosu (local DB için)
   db.exec(`
@@ -2425,26 +2500,56 @@ function initializeDatabase() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
-      message TEXT NOT NULL,
+      message TEXT,
       type TEXT DEFAULT 'info',
+      is_read INTEGER DEFAULT 0,
+      link TEXT,
       reference_type TEXT,
       reference_id TEXT,
-      read INTEGER DEFAULT 0,
-      read_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `)
-  
+
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)')
-  } catch {}
+    db.exec('ALTER TABLE notifications ADD COLUMN reference_type TEXT')
+  } catch { }
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read)')
-  } catch {}
+    db.exec('ALTER TABLE notifications ADD COLUMN reference_id TEXT')
+  } catch { }
+  try {
+    db.exec('ALTER TABLE notifications ADD COLUMN is_read INTEGER DEFAULT 0')
+  } catch { }
+
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)')
-  } catch {}
+  } catch { }
+
+  // Service Tickets (Destek Talepleri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_tickets (
+      id TEXT PRIMARY KEY,
+      ticket_number TEXT UNIQUE NOT NULL,
+      customer_id TEXT NOT NULL,
+      product_id TEXT,
+      custom_product_name TEXT,
+      subject TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'open',
+      priority TEXT DEFAULT 'medium',
+      image_url TEXT,
+      company_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  try {
+    db.exec('ALTER TABLE service_tickets ADD COLUMN custom_product_name TEXT')
+  } catch { }
+  try {
+    db.exec('ALTER TABLE service_tickets ADD COLUMN company_id TEXT')
+  } catch { }
 
   // Kullanıcı bildirim tercihleri (sunucu tarafında filtre için)
   db.exec(`
@@ -2460,7 +2565,7 @@ function initializeDatabase() {
   `)
   try {
     db.exec('ALTER TABLE user_notification_preferences ADD COLUMN purchase_request INTEGER DEFAULT 1')
-  } catch {}
+  } catch { }
 
   // Direkt mesajlaşma (kullanıcılar arası anlık mesaj)
   db.exec(`
@@ -2477,10 +2582,10 @@ function initializeDatabase() {
   `)
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_direct_messages_from_to ON direct_messages(from_user_id, to_user_id)')
-  } catch {}
+  } catch { }
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_direct_messages_created_at ON direct_messages(created_at)')
-  } catch {}
+  } catch { }
 
   // Shipment Items (Sevkiyat Kalemleri)
   db.exec(`
@@ -2500,16 +2605,18 @@ function initializeDatabase() {
     )
   `)
 
-  // shipment_items tablosuna unit_price ve total_price kolonları ekle (eğer yoksa)
+  try {
+    db.exec('ALTER TABLE shipment_items ADD COLUMN production_order_id TEXT REFERENCES production_orders(id)')
+  } catch { }
   try {
     db.exec('ALTER TABLE shipment_items ADD COLUMN unit_price REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipment_items ADD COLUMN total_price REAL DEFAULT 0')
-  } catch {}
+  } catch { }
   try {
     db.exec('ALTER TABLE shipment_items ADD COLUMN deleted_at TEXT')
-  } catch {}
+  } catch { }
 
   // Invoices (Faturalar)
   db.exec(`
@@ -2535,7 +2642,7 @@ function initializeDatabase() {
       FOREIGN KEY (customer_id) REFERENCES accounts(id)
     )
   `)
-  
+
   // İskonto kolonlarını ekle (eğer yoksa)
   try {
     db.exec('ALTER TABLE invoices ADD COLUMN discount_rate REAL DEFAULT 0')
@@ -2713,6 +2820,10 @@ function initializeDatabase() {
     )
   `)
 
+  try {
+    db.exec('ALTER TABLE payments ADD COLUMN created_by TEXT')
+  } catch (_) { }
+
   // Çek ve Senet (Alındığı / Verildiği cari ile)
   db.exec(`
     CREATE TABLE IF NOT EXISTS checks_and_notes (
@@ -2758,6 +2869,65 @@ function initializeDatabase() {
       console.warn('checks_and_notes given_to_account_id:', e.message)
     }
   }
+  try {
+    db.exec('ALTER TABLE checks_and_notes ADD COLUMN cash_box_id TEXT')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) {
+      console.warn('checks_and_notes cash_box_id:', e.message)
+    }
+  }
+
+  // Fatura vade / ödeme planı
+  try {
+    db.exec('ALTER TABLE invoices ADD COLUMN due_date TEXT')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) { }
+  }
+  try {
+    db.exec('ALTER TABLE invoices ADD COLUMN payment_terms_days INTEGER DEFAULT 0')
+  } catch (e: any) {
+    if (!e.message?.includes('duplicate column')) { }
+  }
+
+  // Müşteri iadeleri (iade → stok giriş → cari mahsup)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_returns (
+        id TEXT PRIMARY KEY,
+        return_number TEXT UNIQUE NOT NULL,
+        customer_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        return_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed','cancelled')),
+        total_amount REAL DEFAULT 0,
+        notes TEXT,
+        shipment_id TEXT,
+        invoice_id TEXT,
+        company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+        branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT,
+        created_by TEXT
+      )
+    `)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_return_items (
+        id TEXT PRIMARY KEY,
+        return_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        product_name TEXT,
+        quantity REAL NOT NULL DEFAULT 0,
+        unit_price REAL DEFAULT 0,
+        total_price REAL DEFAULT 0,
+        reason TEXT,
+        barcode_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (return_id) REFERENCES customer_returns(id) ON DELETE CASCADE,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )
+    `)
+  } catch (e: any) { console.warn('customer_returns:', e.message) }
 
   // E-Invoice Integrations (Entegratör ayarları ve log)
   db.exec(`
@@ -2860,20 +3030,79 @@ function initializeDatabase() {
       barcode_height: '22',
       qr_code_size: '35',
       detail_font_size: '13',
+      show_logo: '1',
+      show_product_name: '1',
+      show_serial: '1',
+      show_barcode: '1',
+      show_qr: '1',
+      show_specs: '1',
       label_width: '100',
-      label_height: '100',
-      label_padding: '3'
+      label_height: '60'
     }
-    
-    for (const [key, value] of Object.entries(defaultSettings)) {
-      db.prepare(`
-        INSERT OR IGNORE INTO label_settings (id, setting_key, setting_value)
-        VALUES (?, ?, ?)
-      `).run(`setting-${key}`, key, value)
-    }
+
+    const insertLabelSetting = db.prepare('INSERT OR IGNORE INTO label_settings (id, setting_key, setting_value) VALUES (?, ?, ?)')
+    Object.entries(defaultSettings).forEach(([key, value]) => {
+      insertLabelSetting.run(`label_${key}`, key, value)
+    })
   } catch (e: any) {
     console.warn('Varsayılan etiket ayarları eklenirken hata:', e.message)
   }
+
+  // Üretim Operasyon Süreleri
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_order_times (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      work_center_id TEXT NOT NULL,
+      operator_id TEXT NOT NULL,
+      start_at TEXT NOT NULL,
+      end_at TEXT,
+      duration_minutes REAL,
+      status TEXT DEFAULT 'completed',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id),
+      FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
+      FOREIGN KEY (operator_id) REFERENCES users(id)
+    )
+  `)
+
+  // Gerçekleşen Sarfiyat (Üretim Sonu Verimi)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_actual_consumption (
+      id TEXT PRIMARY KEY,
+      production_order_id TEXT NOT NULL,
+      material_id TEXT NOT NULL,
+      planned_quantity REAL NOT NULL,
+      actual_quantity REAL NOT NULL,
+      fire_quantity REAL DEFAULT 0,
+      variance_percentage REAL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (production_order_id) REFERENCES production_orders(id),
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+
+  // Destek Talepleri (Bayi/Müşteri)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_tickets (
+      id TEXT PRIMARY KEY,
+      ticket_number TEXT UNIQUE NOT NULL,
+      customer_id TEXT NOT NULL,
+      product_id TEXT,
+      custom_product_name TEXT,
+      subject TEXT NOT NULL,
+      description TEXT NOT NULL,
+      priority TEXT DEFAULT 'medium',
+      status TEXT DEFAULT 'open',
+      image_url TEXT,
+      company_id TEXT DEFAULT 'company_default',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY (customer_id) REFERENCES accounts(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `)
 
   // Doküman yönetimi (evrak): metadata; dosya diskte uploads/documents altında
   db.exec(`
@@ -2898,7 +3127,7 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(category)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_related ON documents(related_type, related_id)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)`)
-  } catch (_) {}
+  } catch (_) { }
 
   // Sözleşme yönetimi: cari ile ilişkili, bitiş tarihi, uyarı
   db.exec(`
@@ -2920,7 +3149,7 @@ function initializeDatabase() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_account ON contracts(account_id)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_end_date ON contracts(end_date)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status)`)
-  } catch (_) {}
+  } catch (_) { }
 
   // Bütçe: dönem ve kategori bazlı bütçe tutarları (budget-variance API için)
   db.exec(`
@@ -2946,7 +3175,7 @@ function initializeDatabase() {
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_budgets_company_period ON budgets(company_id, period)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_actual_expenses_company_period ON actual_expenses(company_id, period)`)
-  } catch (_) {}
+  } catch (_) { }
 
   // CRM Fırsatlar: cari ile ilişkili, aşama, tahmini tutar, kapanış tarihi
   db.exec(`
@@ -2966,7 +3195,7 @@ function initializeDatabase() {
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunities_account ON crm_opportunities(account_id)`)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunities_stage ON crm_opportunities(stage)`)
-  } catch (_) {}
+  } catch (_) { }
 
   // Kur tablosu: çoklu para birimi için (from_currency -> to_currency, rate, tarih)
   db.exec(`
@@ -2981,7 +3210,7 @@ function initializeDatabase() {
   `)
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_currency_rates_pair_date ON currency_rates(from_currency, to_currency, rate_date)`)
-  } catch (_) {}
+  } catch (_) { }
 
   // Varsayılan admin kullanıcı oluştur (şifre: admin1234)
   const adminPasswordHash = hashPassword('admin1234')
@@ -3044,6 +3273,386 @@ function initializeDatabase() {
   }
 
   // Örnek veriler (sadece ilk kurulumda)
+  // === Faz 1: Performans İndeksleri ===
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_deleted ON orders(status) WHERE deleted_at IS NULL') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_orders_delivery_date ON orders(delivery_date) WHERE deleted_at IS NULL AND delivery_date IS NOT NULL') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_shipments_date_deleted ON shipments(shipment_date) WHERE deleted_at IS NULL') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_materials_stock_level ON materials(stock_amount, min_stock_level) WHERE deleted_at IS NULL') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_production_orders_status ON production_orders(status)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_accounts_balance_deleted ON accounts(balance) WHERE deleted_at IS NULL') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_psn_status_shipment ON product_serial_numbers(status, shipment_id)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_account_transactions_account ON account_transactions(account_id, created_at)') } catch { }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_stock_movements_warehouse ON stock_movements(warehouse_id)') } catch { }
+
+
+  // === İrsaliye (Waybill) Tablosu ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS waybills (
+        id TEXT PRIMARY KEY,
+        waybill_number TEXT UNIQUE NOT NULL,
+        shipment_id TEXT REFERENCES shipments(id),
+        customer_id TEXT NOT NULL REFERENCES accounts(id),
+        waybill_date TEXT NOT NULL DEFAULT (date('now')),
+        driver_name TEXT,
+        vehicle_plate TEXT,
+        delivery_address TEXT,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','issued','delivered','cancelled')),
+        total_quantity REAL DEFAULT 0,
+        company_id TEXT,
+        branch_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS waybill_items (
+        id TEXT PRIMARY KEY,
+        waybill_id TEXT NOT NULL REFERENCES waybills(id),
+        product_id TEXT,
+        product_name TEXT,
+        product_sku TEXT,
+        quantity REAL NOT NULL DEFAULT 0,
+        unit TEXT DEFAULT 'ADET',
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_waybills_shipment ON waybills(shipment_id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_waybills_customer ON waybills(customer_id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_waybills_date ON waybills(waybill_date) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_waybill_items_waybill ON waybill_items(waybill_id);
+    `)
+  } catch (e: any) {
+    console.warn('Waybills tablosu oluşturulurken hata:', e.message)
+  }
+
+
+  // === Teklif / Proforma Fatura Tabloları ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quotations (
+        id TEXT PRIMARY KEY,
+        quotation_number TEXT UNIQUE NOT NULL,
+        customer_id TEXT NOT NULL REFERENCES accounts(id),
+        quotation_date TEXT NOT NULL DEFAULT (date('now')),
+        valid_until TEXT,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','sent','accepted','rejected','expired','converted')),
+        subtotal REAL DEFAULT 0,
+        discount_rate REAL DEFAULT 0,
+        discount_amount REAL DEFAULT 0,
+        tax_rate REAL DEFAULT 20,
+        tax_amount REAL DEFAULT 0,
+        total_amount REAL DEFAULT 0,
+        currency TEXT DEFAULT 'TRY',
+        notes TEXT,
+        terms TEXT,
+        converted_order_id TEXT,
+        company_id TEXT,
+        branch_id TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS quotation_items (
+        id TEXT PRIMARY KEY,
+        quotation_id TEXT NOT NULL REFERENCES quotations(id),
+        product_id TEXT,
+        product_name TEXT,
+        product_sku TEXT,
+        description TEXT,
+        quantity REAL NOT NULL DEFAULT 0,
+        unit TEXT DEFAULT 'ADET',
+        unit_price REAL NOT NULL DEFAULT 0,
+        discount_rate REAL DEFAULT 0,
+        tax_rate REAL DEFAULT 20,
+        total_price REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_quotations_customer ON quotations(customer_id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_quotations_status ON quotations(status) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_quotation_items_quotation ON quotation_items(quotation_id);
+    `)
+  } catch (e: any) { console.warn('Quotations tablosu:', e.message) }
+
+  // === Fiyat Listesi Tabloları ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS price_lists (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        code TEXT UNIQUE,
+        description TEXT,
+        currency TEXT DEFAULT 'TRY',
+        is_default INTEGER DEFAULT 0,
+        valid_from TEXT,
+        valid_until TEXT,
+        status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS price_list_items (
+        id TEXT PRIMARY KEY,
+        price_list_id TEXT NOT NULL REFERENCES price_lists(id),
+        product_id TEXT NOT NULL,
+        product_name TEXT,
+        unit_price REAL NOT NULL DEFAULT 0,
+        min_quantity REAL DEFAULT 1,
+        discount_rate REAL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_price_list_items_list ON price_list_items(price_list_id);
+      CREATE INDEX IF NOT EXISTS idx_price_list_items_product ON price_list_items(product_id);
+    `)
+  } catch (e: any) { console.warn('Price lists tablosu:', e.message) }
+
+  // === Sipariş Onay Akışı Tablosu ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS order_approvals (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL REFERENCES orders(id),
+        requested_by TEXT NOT NULL,
+        requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+        approved_by TEXT,
+        approved_at TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+        notes TEXT,
+        order_amount REAL DEFAULT 0,
+        threshold_amount REAL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_approvals_order ON order_approvals(order_id);
+      CREATE INDEX IF NOT EXISTS idx_order_approvals_status ON order_approvals(status);
+    `)
+  } catch (e: any) { console.warn('Order approvals tablosu:', e.message) }
+
+  // === Genel Onay Kuralları ve İstekleri (BPM & Workflows) ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS approval_rules (
+        id TEXT PRIMARY KEY,
+        document_type TEXT NOT NULL, -- Enum: 'purchase_request', 'purchase_order', 'payment', vs.
+        min_amount REAL DEFAULT 0,
+        max_amount REAL,
+        approver_role_id TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+        branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      
+      CREATE TABLE IF NOT EXISTS approval_requests (
+        id TEXT PRIMARY KEY,
+        document_type TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        requester_id TEXT NOT NULL,
+        approver_role_id TEXT, -- Onaylaması gereken rol (kuyruktaki)
+        approver_id TEXT, -- Fiilen onaylayan kişi
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'cancelled')),
+        amount REAL DEFAULT 0,
+        notes TEXT,
+        rejection_reason TEXT,
+        company_id TEXT DEFAULT '${DEFAULT_COMPANY_ID}',
+        branch_id TEXT DEFAULT '${DEFAULT_BRANCH_ID}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_approval_rules_doc_type ON approval_rules(document_type);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_doc ON approval_requests(document_type, document_id);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
+    `)
+  } catch (e: any) { console.warn('Approval sistem tabloları:', e.message) }
+
+  // === Sipariş onay eşiği (tutar bazlı) - app_settings ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id TEXT PRIMARY KEY,
+        setting_key TEXT UNIQUE NOT NULL,
+        setting_value TEXT,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+    db.prepare(`INSERT OR IGNORE INTO app_settings (id, setting_key, setting_value) VALUES (?, ?, ?)`).run('order_approval_threshold', 'order_approval_threshold', '50000')
+  } catch (e: any) { console.warn('app_settings:', e.message) }
+
+  // === Müşteri grupları (çoklu fiyat listesi için) ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        code TEXT UNIQUE,
+        description TEXT,
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      )
+    `)
+    try { db.exec('ALTER TABLE accounts ADD COLUMN customer_group_id TEXT') } catch { }
+    try { db.exec('ALTER TABLE price_lists ADD COLUMN customer_group_id TEXT') } catch { }
+  } catch (e: any) { console.warn('customer_groups:', e.message) }
+
+  // === Kalite Kontrol ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quality_controls (
+        id TEXT PRIMARY KEY,
+        qc_number TEXT UNIQUE NOT NULL,
+        production_order_id TEXT,
+        inspector_id TEXT,
+        inspection_date TEXT DEFAULT (datetime('now')),
+        product_id TEXT,
+        product_name TEXT,
+        batch_number TEXT,
+        quantity_inspected INTEGER DEFAULT 0,
+        quantity_passed INTEGER DEFAULT 0,
+        quantity_failed INTEGER DEFAULT 0,
+        defect_type TEXT,
+        defect_description TEXT,
+        result TEXT DEFAULT 'pending' CHECK(result IN ('pending','passed','failed','partial')),
+        notes TEXT,
+        status TEXT DEFAULT 'draft' CHECK(status IN ('draft','completed')),
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      )
+    `)
+  } catch (e: any) { console.warn('quality_controls:', e.message) }
+
+  // === Depo Lokasyonları ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS warehouse_locations (
+        id TEXT PRIMARY KEY,
+        warehouse_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT,
+        capacity INTEGER DEFAULT 0,
+        current_load INTEGER DEFAULT 0,
+        location_type TEXT DEFAULT 'shelf',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      )
+    `)
+  } catch (e: any) { console.warn('warehouse_locations:', e.message) }
+
+  // === Stok Transferleri ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS stock_transfers (
+        id TEXT PRIMARY KEY,
+        transfer_number TEXT UNIQUE NOT NULL,
+        from_warehouse_id TEXT NOT NULL,
+        to_warehouse_id TEXT NOT NULL,
+        from_warehouse_name TEXT,
+        to_warehouse_name TEXT,
+        transfer_date TEXT DEFAULT (datetime('now')),
+        status TEXT DEFAULT 'draft' CHECK(status IN ('draft','in_transit','completed','cancelled')),
+        notes TEXT,
+        transferred_by TEXT,
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        deleted_at TEXT
+      )
+    `)
+  } catch (e: any) { console.warn('stock_transfers:', e.message) }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS stock_transfer_items (
+        id TEXT PRIMARY KEY,
+        transfer_id TEXT NOT NULL REFERENCES stock_transfers(id),
+        product_id TEXT NOT NULL,
+        product_name TEXT,
+        quantity REAL DEFAULT 0,
+        unit TEXT DEFAULT 'adet',
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+  } catch (e: any) { console.warn('stock_transfer_items:', e.message) }
+
+  // === CRM Kanban Leads ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS crm_leads (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        company TEXT,
+        contact_name TEXT,
+        value REAL DEFAULT 0,
+        status TEXT DEFAULT 'new' CHECK(status IN ('new', 'contacted', 'negotiation', 'won', 'lost')),
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+  } catch (e: any) { console.warn('crm_leads:', e.message) }
+
+  // === B2B Service Tickets (SSH) ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS service_tickets (
+        id TEXT PRIMARY KEY,
+        ticket_number TEXT UNIQUE NOT NULL,
+        customer_id TEXT NOT NULL,
+        product_id TEXT,
+        subject TEXT NOT NULL,
+        description TEXT,
+        status TEXT DEFAULT 'open' CHECK(status IN ('open', 'in_progress', 'resolved', 'closed')),
+        priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'critical')),
+        image_url TEXT,
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+  } catch (e: any) { console.warn('service_tickets:', e.message) }
+
+  // === B2B Dealer Targets ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS dealer_targets (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        target_amount REAL DEFAULT 0,
+        currency TEXT DEFAULT 'TRY',
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(customer_id, year, month)
+      )
+    `)
+  } catch (e: any) { console.warn('dealer_targets:', e.message) }
+
+  // === B2B Announcements ===
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS announcements (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT,
+        target_audience TEXT DEFAULT 'all' CHECK(target_audience IN ('all', 'dealers', 'employees')),
+        priority TEXT DEFAULT 'normal',
+        valid_until TEXT,
+        company_id TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `)
+  } catch (e: any) { console.warn('announcements:', e.message) }
+
   seedInitialData()
 }
 
@@ -3064,4 +3673,25 @@ function seedInitialData() {
 
   // Accounts (Cari Hesaplar) - Örnek cari hesaplar kaldırıldı
   // Kullanıcılar kendi cari hesaplarını ekleyebilir
+
+  // Varsayılan istasyonları ekle (eğer yoksa)
+  try {
+    const defaultStations = [
+      { id: 'skele-01', code: 'ISKELET', name: 'İskelet' },
+      { id: 'tailor-01', code: 'TERZIHANE', name: 'Terzihane' },
+      { id: 'berjer-01', code: 'BERJER', name: 'Berjer' },
+      { id: 'uphol-01', code: 'DOSEME', name: 'Döşeme' },
+      { id: 'assembly-01', code: 'MONTAJ', name: 'Montaj' },
+      { id: 'shipping-01', code: 'SEVKIYAT', name: 'Sevkiyat' }
+    ]
+    const checkStmt = db.prepare('SELECT id FROM work_centers WHERE code = ?')
+    const insertStmt = db.prepare('INSERT INTO work_centers (id, code, name) VALUES (?, ?, ?)')
+    for (const s of defaultStations) {
+      if (!checkStmt.get(s.code)) {
+        insertStmt.run(s.id, s.code, s.name)
+      }
+    }
+  } catch (e) {
+    console.warn('Varsayılan istasyonlar eklenirken hata:', e)
+  }
 }

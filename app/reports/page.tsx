@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
-import { Download, TrendingUp, Package, Receipt, Factory } from 'lucide-react'
+import { Download, TrendingUp, Package, Receipt, Factory, Users, Calculator } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { useApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
@@ -17,9 +17,12 @@ const REPORT_LINKS = [
   { href: '/reports/sales-summary', label: 'Satış Özeti', icon: TrendingUp, desc: 'Tarih aralığına göre satışlar' },
   { href: '/reports/stock-movements', label: 'Stok Hareketleri', icon: Package, desc: 'Giriş/çıkış hareketleri' },
   { href: '/reports/aging', label: 'Cari Yaşlandırma', icon: Receipt, desc: 'Alacak yaşlandırma raporu' },
+  { href: '/reports/tax-summary', label: 'KDV / Vergi Özeti', icon: Receipt, desc: 'Fatura KDV özeti, dönem bazlı' },
   { href: '/reports/production', label: 'Üretim Verimliliği', icon: Factory, desc: 'Üretim emirleri özeti' },
   { href: '/reports/costs', label: 'Maliyet', icon: Receipt, desc: 'Maliyet raporları' },
+  { href: '/reports/product-unit-cost', label: 'Ürün birim maliyeti', icon: Calculator, desc: 'BOM bazlı detaylı birim maliyet' },
   { href: '/reports/fire', label: 'Fire Analizi', icon: Package, desc: 'Fire analizi' },
+  { href: '/reports/customer-profitability', label: 'Müşteri Karlılık', icon: Users, desc: 'Müşteri bazlı satış ve tahsilat analizi' },
 ]
 
 type StockSummary = {
@@ -151,24 +154,24 @@ export default function ReportsPage() {
           <p className="text-gray-400 mt-1">Rapor türünü seçin. Tarih aralığı kullanan raporlarda ilgili sayfadaki filtreyi kullanın; Excel/PDF indir seçenekleri rapor sayfalarında sunulur.</p>
         </div>
         {canExport && (
-        <div className="flex gap-2">
-          <button
-            onClick={downloadPdf}
-            className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition inline-flex items-center space-x-2"
-            type="button"
-          >
-            <Download size={18} />
-            <span>PDF</span>
-          </button>
-          <button
-            onClick={downloadExcel}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
-            type="button"
-          >
-            <Download size={18} />
-            <span>Excel</span>
-          </button>
-        </div>
+          <div className="flex gap-2">
+            <button
+              onClick={downloadPdf}
+              className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition inline-flex items-center space-x-2"
+              type="button"
+            >
+              <Download size={18} />
+              <span>PDF</span>
+            </button>
+            <button
+              onClick={downloadExcel}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center space-x-2"
+              type="button"
+            >
+              <Download size={18} />
+              <span>Excel</span>
+            </button>
+          </div>
         )}
       </div>
 

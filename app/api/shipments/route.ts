@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { bayiFilter } from '@/lib/auth/bayi-filter'
 import { getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { generateShipmentNumber } from '@/lib/utils/codeGenerator.server'
@@ -90,7 +91,7 @@ type ProductNameSkuRow = {
 }
 
 // GET: Tüm sevkiyatları getir
-export const GET = withAuth(async (request: NextRequest) => {
+export const GET = withAuth(async (request: NextRequest, user) => {
   try {
     const { searchParams } = new URL(request.url)
     const customerId = searchParams.get('customer_id')
@@ -100,7 +101,7 @@ export const GET = withAuth(async (request: NextRequest) => {
     const endDate = searchParams.get('end_date')
 
     const db = getDatabase()
-    
+
     let query = `
       SELECT 
         s.*,
@@ -114,6 +115,13 @@ export const GET = withAuth(async (request: NextRequest) => {
       WHERE s.deleted_at IS NULL
     `
     const params: string[] = []
+
+    // Bayi kullanıcılar sadece kendi sevkiyatlarını görür
+    const bf = bayiFilter(user.userId, user.role, 'a.name')
+    if (bf.clause) {
+      query += bf.clause
+      params.push(...bf.params)
+    }
 
     if (customerId) {
       query += ' AND s.customer_id = ?'
@@ -247,7 +255,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           const byCode = db.prepare('SELECT id, name, balance, risk_limit FROM accounts WHERE code = ? AND deleted_at IS NULL').get(customerIdTrimmed) as any
           if (byCode) {
             customer = byCode
-            ;(customer as any).discount_rate = 0
+              ; (customer as any).discount_rate = 0
           }
         } else if (customer) (customer as any).discount_rate = 0
       } else {
@@ -265,7 +273,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     // Ürün fiyatlarını BOM'dan hesapla
     let calculatedTotalAmount = 0
     const itemPrices: { [key: string]: number } = {}
-    
+
     if (items && items.length > 0) {
       for (const item of items) {
         // BOM maliyetini hesapla
@@ -304,7 +312,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             }
 
             const productNameOnly = extractProductName(product.name)
-            
+
             if (productNameOnly) {
               // Aynı isimli ürünlerde BOM ara
               const fallbackProducts = db.prepare(`
@@ -331,9 +339,9 @@ export const POST = withAuth(async (request: NextRequest) => {
               if (fallbackProducts.length > 0) {
                 const fallbackProduct = fallbackProducts[0]
                 console.log(`[Sevkiyat BOM] Fallback: ${product.name} (${product.id}) → ${fallbackProduct.name} (${fallbackProduct.id})`)
-                
-            // Fallback ürün için BOM al (sadece aktif versiyon)
-            bomItems = db.prepare(`
+
+                // Fallback ürün için BOM al (sadece aktif versiyon)
+                bomItems = db.prepare(`
               SELECT 
                 b.quantity_required as quantity,
                 b.unit as unit,
@@ -374,15 +382,15 @@ export const POST = withAuth(async (request: NextRequest) => {
         itemPrices[item.product_id] = unitPrice
       }
     }
-    
+
     // Eşer total_amount gönderilmişse onu kullan, yoksa hesaplananı kullan
     const baseTotalAmount = total_amount || calculatedTotalAmount
-    
+
     // İskonto: Caride (accounts) kayıtlı iskonto oranı uygulanır
     const discountRate = customer.discount_rate ?? 0
     const discountAmount = (baseTotalAmount * discountRate) / 100
     const amountAfterDiscount = baseTotalAmount - discountAmount
-    
+
     const finalTaxRate = tax_rate || 0
     const taxAmount = (amountAfterDiscount * finalTaxRate) / 100
     const finalAmount = amountAfterDiscount + taxAmount
@@ -390,11 +398,11 @@ export const POST = withAuth(async (request: NextRequest) => {
     const currentBalance = customer.balance || 0
     const riskLimit = customer.risk_limit || 0
     const exceedsRiskLimit = riskLimit > 0 && currentBalance + finalAmount > riskLimit
-    
+
     // Risk limitini aşıyorsa onay beklemeli
     let approvalStatus: string | null = null
     let approvalRequestedAt: string | null = null
-    
+
     if (exceedsRiskLimit) {
       approvalStatus = 'pending'
       approvalRequestedAt = new Date().toISOString()
@@ -415,11 +423,11 @@ export const POST = withAuth(async (request: NextRequest) => {
         (id, shipment_number, customer_id, shipment_date, total_quantity, total_amount, discount_rate, discount_amount, tax_rate, tax_amount, final_amount, notes, status, approval_status, approval_requested_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        shipmentId, 
-        shipmentNumber, 
-        resolvedCustomerId, 
-        shipment_date, 
-        totalQuantity, 
+        shipmentId,
+        shipmentNumber,
+        resolvedCustomerId,
+        shipment_date,
+        totalQuantity,
         baseTotalAmount, // İskonto öncesi BOM fiyatı (Ara Toplam)
         discountRate,
         discountAmount,
@@ -431,7 +439,7 @@ export const POST = withAuth(async (request: NextRequest) => {
         approvalStatus || null,
         approvalRequestedAt || null
       )
-      
+
       // Risk limitini aşıyorsa sevkiyat bildirimi tercihi açık olan yetkili kullanıcılara bildirim gönder
       if (exceedsRiskLimit) {
         const userIdsWanting = new Set(getUserIdsWantingNotification(db, 'shipment_approved'))
@@ -456,7 +464,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           insertNotification.run(notificationId, u.id, notificationTitle, notificationMessage, shipmentId, now)
         }
       }
-      
+
       // Müşteri cari hesabına toplam borç yaz (sadece risk limiti aşılmadıysa veya onaylandıysa)
       // Bakiye, account_transactions'a yazılan tutarların toplamı (iskonto + KDV dahil) ile aynı olmalı (fiş tutarı tutar)
       if (!exceedsRiskLimit) {
@@ -473,7 +481,7 @@ export const POST = withAuth(async (request: NextRequest) => {
       for (const item of items) {
         const itemId = randomUUID()
         const barcodes = item.barcodes || item.serial_numbers || []
-        
+
         // Barkod sayısı kontrolü - ZORUNLU
         if (barcodes.length !== item.quantity) {
           throw new Error(`${item.product_name || 'Ürün'} için ${item.quantity} adet gerekli, ${barcodes.length} adet barkod girildi. Lütfen tüm barkodları girin.`)
@@ -527,29 +535,29 @@ export const POST = withAuth(async (request: NextRequest) => {
         const product = db.prepare('SELECT name, sku FROM active_products WHERE id = ?').get(item.product_id) as ProductNameSkuRow | undefined
         const productName = product?.name || item.product_name || 'Ürün'
         const productSku = product?.sku || ''
-        
+
         // KDV dahil tutarı hesapla (kalem bazında orantılı)
         // Her kalem için: (itemAmountAfterDiscount / amountAfterDiscount) * taxAmount
         const itemTaxAmount = amountAfterDiscount > 0 ? (itemAmountAfterDiscount / amountAfterDiscount) * taxAmount : 0
         const itemFinalAmount = itemAmountAfterDiscount + itemTaxAmount
-        
+
         const transactionId = randomUUID()
         // Açıklamada cari hesaba yazılan tutarla eşleşmeli (iskonto sonrası + KDV dahil tutar)
         // BOM fiyatı (iskonto öncesi) ve iskonto bilgisi ayrı kolonlarda gösterilecek
         let description = `Sevkiyat: ${shipmentNumber} | Ürün: ${productName}${productSku ? ` (${productSku})` : ''} | Adet: ${item.quantity} | Birim Fiyat (BOM): ${unitPrice.toFixed(2)} ₺`
-        
+
         // İskonto bilgisini ekle (eğer varsa)
         if (discountRate > 0 && itemDiscountAmount > 0) {
           description += ` | İskonto: %${discountRate.toFixed(2)} (${itemDiscountAmount.toFixed(2)} ₺)`
         }
-        
+
         // KDV bilgisini ekle (eğer varsa)
         if (finalTaxRate > 0 && itemTaxAmount > 0) {
           description += ` | KDV: %${finalTaxRate.toFixed(2)} (${itemTaxAmount.toFixed(2)} ₺)`
         }
-        
+
         description += ` | Toplam: ${itemFinalAmount.toFixed(2)} ₺`
-        
+
         db.prepare(`
           INSERT INTO account_transactions 
           (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
@@ -575,7 +583,7 @@ export const POST = withAuth(async (request: NextRequest) => {
               WHERE barcode IN (${placeholders})
                 AND product_id = ?
             `).run(shipmentId, ...barcodes, item.product_id)
-            
+
             // Ürün stok miktarını düş (mamül depodan düşsün)
             db.prepare(`
               UPDATE products
@@ -594,7 +602,7 @@ export const POST = withAuth(async (request: NextRequest) => {
                 WHERE barcode IN (${placeholders})
                   AND product_id = ?
               `).run(shipmentId, ...barcodes, item.product_id)
-              
+
               // Ürün stok miktarını düş (mamül depodan düşsün)
               db.prepare(`
                 UPDATE products

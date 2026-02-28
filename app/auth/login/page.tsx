@@ -10,6 +10,7 @@ import { useAuthStore, type AuthUser } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 import { userSchemas } from '@/lib/validation/schemas'
 import type { z } from 'zod'
+import { GoogleLoginButton } from '@/components/auth/GoogleLoginButton'
 
 type LoginFormData = z.infer<typeof userSchemas.login>
 
@@ -40,8 +41,12 @@ function LoginForm() {
   }, [])
 
   useEffect(() => {
-    const t = setTimeout(() => setShowSplash(false), 1500)
-    return () => clearTimeout(t)
+    const t = setTimeout(() => setShowSplash(false), 500)
+    const fallback = setTimeout(() => setShowSplash(false), 2000)
+    return () => {
+      clearTimeout(t)
+      clearTimeout(fallback)
+    }
   }, [])
 
   async function onValid(data: LoginFormData) {
@@ -77,7 +82,7 @@ function LoginForm() {
       if (accessToken && typeof window !== 'undefined') {
         try {
           window.localStorage.setItem('auth-token', accessToken)
-        } catch {}
+        } catch { }
       }
       const u = user as Record<string, unknown>
       setAuth({
@@ -103,7 +108,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden" suppressHydrationWarning>
       {/* Açılış: önce logo tam ekran, sonra giriş formu */}
       {showSplash ? (
         <div className="absolute inset-0 bg-gray-900 z-20 overflow-hidden" aria-hidden>
@@ -129,15 +134,13 @@ function LoginForm() {
       </div>
       <div
         className={`w-full max-w-lg relative z-10 transition-opacity duration-500 ${showSplash ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        suppressHydrationWarning
       >
-        <div className="bg-gray-800/95 rounded-lg border border-gray-700 p-8 backdrop-blur-sm">
+        <div className="bg-gray-800/95 rounded-lg border border-gray-700 p-8 backdrop-blur-sm" suppressHydrationWarning>
           <div className="text-center mb-8">
             <img src="/LOGO-2.png" alt="LIVASOFTWARE" className="w-full max-h-36 object-contain mx-auto mb-4" onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.src = '/logo.png'; }} />
             <h1 className="text-3xl font-bold text-white mb-2">LIVASOFA ERP</h1>
             <p className="text-gray-400">Giriş Yapın</p>
-            {isNgrok && (
-              <p className="text-xs text-green-400 mt-2">İnternet erişimi: Ngrok üzerinden bağlandınız. İlk açılışta Ngrok uyarı sayfasında &quot;Siteye Git&quot; / &quot;Visit Site&quot; butonuna tıklayın.</p>
-            )}
           </div>
 
           {error && (
@@ -152,12 +155,12 @@ function LoginForm() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onValid)} className="space-y-4">
-            <div>
+          <form onSubmit={handleSubmit(onValid)} className="space-y-4" suppressHydrationWarning>
+            <div suppressHydrationWarning>
               <label htmlFor="login-username" className="block text-sm font-medium text-gray-300 mb-2">
                 Kullanıcı Adı
               </label>
-              <div className="relative">
+              <div className="relative" suppressHydrationWarning>
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   id="login-username"
@@ -168,6 +171,7 @@ function LoginForm() {
                   aria-describedby={errors.username ? 'username-error' : undefined}
                   className={`w-full pl-10 pr-4 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.username ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="Kullanıcı adınızı girin"
+                  suppressHydrationWarning
                 />
               </div>
               {errors.username && (
@@ -175,11 +179,11 @@ function LoginForm() {
               )}
             </div>
 
-            <div>
+            <div suppressHydrationWarning>
               <label htmlFor="login-password" className="block text-sm font-medium text-gray-300 mb-2">
                 Şifre
               </label>
-              <div className="relative">
+              <div className="relative" suppressHydrationWarning>
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   id="login-password"
@@ -190,6 +194,7 @@ function LoginForm() {
                   aria-describedby={errors.password ? 'password-error' : undefined}
                   className={`w-full pl-10 pr-10 py-2 bg-gray-900 border text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.password ? 'border-red-500' : 'border-gray-700'}`}
                   placeholder="Şifrenizi girin"
+                  suppressHydrationWarning
                 />
                 <button
                   type="button"
@@ -219,6 +224,17 @@ function LoginForm() {
               </Link>
             </p>
           </form>
+
+          <div className="relative my-6 text-center">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-gray-700"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-800 text-gray-400">Veya</span>
+            </div>
+          </div>
+
+          <GoogleLoginButton onLoading={setLoading} />
 
           <div className="mt-6 text-center">
             <Link

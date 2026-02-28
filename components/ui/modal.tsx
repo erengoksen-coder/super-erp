@@ -1,7 +1,10 @@
+'use client'
+
 import * as React from "react"
 import { X } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 
-interface ModalProps {
+export interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title: string
@@ -10,7 +13,6 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
-  if (!isOpen) return null
 
   const sizeClasses = {
     sm: 'max-w-md',
@@ -21,39 +23,51 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
 
   const titleId = React.useId()
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black bg-opacity-50"
-        onClick={onClose}
-        aria-hidden
-      />
-      {/* Modal */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={`relative bg-gray-900 rounded-lg border border-gray-800 shadow-xl ${sizeClasses[size]} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 id={titleId} className="text-xl font-semibold text-white">{title}</h2>
-          <button
-            type="button"
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-[#0f172a]/80 backdrop-blur-md"
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition p-1 rounded-lg hover:bg-gray-800"
-            aria-label="Kapat"
+            aria-hidden
+          />
+          {/* Modal */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -15 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            className={`relative bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-slate-700/60 shadow-[0_0_40px_-10px_rgba(0,0,0,0.7)] ${sizeClasses[size]} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col`}
           >
-            <X size={20} />
-          </button>
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-800">
+              <h2 id={titleId} className="text-xl font-semibold text-white">{title}</h2>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-slate-400 hover:text-white transition-all duration-200 p-1.5 rounded-xl hover:bg-slate-800/80 hover:scale-110 active:scale-95"
+                aria-label="Kapat"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {children}
+            </div>
+          </motion.div>
         </div>
-        
-        {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1">
-          {children}
-        </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   )
 }
 

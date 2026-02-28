@@ -15,27 +15,27 @@ export const POST = withAuth(async (
       (context as { params?: { id?: string } | Promise<{ id?: string }> } | undefined)?.params
     )
     const shipmentId = resolvedParams?.id ?? new URL(request.url).pathname.split('/').filter(Boolean).pop()
-    
+
     if (!shipmentId) {
       return fail('Sevkiyat ID gerekli', { status: 400 })
     }
-    
+
     // Kullanıcının onay yetkisi var mı kontrol et
     const userRole = (user.role || '').toString().toLowerCase()
-    const hasApprovalPermission = 
-      userRole === 'admin' || 
-      userRole === 'manager' || 
+    const hasApprovalPermission =
+      userRole === 'admin' ||
+      userRole === 'manager' ||
       userRole === 'muhasebe' ||
       userRole.includes('muhasebe') ||
       userRole.includes('yönetici') ||
       userRole.includes('yonetici')
-    
+
     if (!hasApprovalPermission) {
       return fail('Bu işlem için yetkiniz yok. Sadece admin, yönetici veya muhasebe onay verebilir.', { status: 403 })
     }
-    
+
     const db = getDatabase()
-    
+
     // Sevkiyatı kontrol et (iskonto/KDV ile cari hareket yazmak için tüm alanlar)
     const shipment = db.prepare(`
       SELECT id, approval_status, status, customer_id, shipment_number,
@@ -126,26 +126,26 @@ export const POST = withAuth(async (
 
         const transactionId = randomUUID()
         db.prepare(`
-          INSERT INTO account_transactions
-          (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
-          VALUES (?, ?, 'debit', ?, 'shipment_item', ?, ?, CURRENT_TIMESTAMP)
-        `).run(transactionId, shipment.customer_id, itemFinalAmount, item.id, description)
+            INSERT INTO account_transactions
+            (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
+            VALUES (?, ?, 'debit', ?, 'shipment_item', ?, ?, CURRENT_TIMESTAMP)
+          `).run(transactionId, shipment.customer_id, itemFinalAmount, item.id, description)
       }
+    })() // End of transaction
 
-      // Sevkiyat onayı bildirimini tercihi açık olan kullanıcılara gönder
-      const { getUserIdsWantingNotification } = await import('@/lib/notifications/preferences')
-      const userIds = getUserIdsWantingNotification(db, 'shipment_approved')
-      const insertNotification = db.prepare(`
+    // Sevkiyat onayı bildirimini tercihi açık olan kullanıcılara gönder
+    const { getUserIdsWantingNotification } = await import('@/lib/notifications/preferences')
+    const userIds = getUserIdsWantingNotification(db, 'shipment_approved')
+    const insertNotification = db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, type, reference_type, reference_id, created_at)
         VALUES (?, ?, ?, ?, 'success', 'shipment', ?, ?)
       `)
-      const notificationTitle = 'Sevkiyat Onaylandı'
-      const notificationMessage = `${shipmentId} numaralı sevkiyat ${(user as Record<string, unknown>).full_name || (user as Record<string, unknown>).username || user.userId} tarafından onaylandı.`
-      for (const uid of userIds) {
-        const notificationId = randomUUID()
-        insertNotification.run(notificationId, uid, notificationTitle, notificationMessage, shipmentId, now)
-      }
-    })()
+    const notificationTitle = 'Sevkiyat Onaylandı'
+    const notificationMessage = `${shipmentId} numaralı sevkiyat ${(user as Record<string, unknown>).full_name || (user as Record<string, unknown>).username || user.userId} tarafından onaylandı.`
+    for (const uid of userIds) {
+      const notificationId = randomUUID()
+      insertNotification.run(notificationId, uid, notificationTitle, notificationMessage, shipmentId, now)
+    }
 
     const { dispatchWebhook } = await import('@/lib/webhooks/dispatch')
     void dispatchWebhook('shipment.approved', {
@@ -168,7 +168,7 @@ export const POST = withAuth(async (
         if (!r.ok) {
           import('@/lib/api/logger').then(({ apiLogger }) => apiLogger.warn('Sevkiyat e-posta gönderilemedi', { to: customer.email, error: r.error }))
         }
-      }).catch(() => {})
+      }).catch(() => { })
     }
 
     return ok({ message: 'Sevkiyat başarıyla onaylandı' })

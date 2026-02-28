@@ -5,6 +5,8 @@ import { Plus } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { LogoWithBackground } from '@/components/Logo'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { Button } from '@/components/ui/Button'
 import { fetchApi, useApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
@@ -38,6 +40,7 @@ type Payment = {
   account_code?: string | null
   invoice_number?: string | null
   invoice_final_amount?: number | null
+  created_by_name?: string | null
 }
 
 export default function PaymentsPage() {
@@ -126,7 +129,7 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-8 space-y-6">
+      <form id="payments-form" onSubmit={handleSubmit} className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-8 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -251,12 +254,23 @@ export default function PaymentsPage() {
           <h2 className="text-lg font-semibold text-white">Ödeme Kayıtları</h2>
         </div>
         {isLoading ? (
-          <div className="p-8 text-center text-gray-400">Yükleniyor...</div>
+          <LoadingState message="Ödeme kayıtları yükleniyor…" />
         ) : payments.length === 0 ? (
           <EmptyState
             title="Henüz ödeme kaydı yok"
-            description="Yukarıdaki form ile tahsilat veya ödeme girebilirsiniz."
+            description="Tahsilat veya ödeme girişi yaparak başlayın. Form sayfanın üst kısmındadır."
             icon={Plus}
+            action={
+              <Button
+                variant="solid"
+                color="primary"
+                size="sm"
+                onClick={() => document.getElementById('payments-form')?.scrollIntoView({ behavior: 'smooth' })}
+              >
+                <Plus size={18} className="mr-2" />
+                İlk ödeme girişi yap
+              </Button>
+            }
           />
         ) : (
         <Table>
@@ -268,6 +282,7 @@ export default function PaymentsPage() {
               <TableHead>Tip</TableHead>
               <TableHead>Tutar</TableHead>
               <TableHead>Yöntem</TableHead>
+              <TableHead>İşlemi Yapan</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -291,6 +306,9 @@ export default function PaymentsPage() {
                   </TableCell>
                   <TableCell className="text-gray-400">
                     {payment.method || '-'}
+                  </TableCell>
+                  <TableCell className="text-gray-400">
+                    {payment.created_by_name || '-'}
                   </TableCell>
                 </TableRow>
               ))

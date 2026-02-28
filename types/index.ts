@@ -5,7 +5,7 @@ export type DatabaseUser = {
   email: string | null
   password_hash: string
   full_name: string | null
-  role: 'admin' | 'user' | 'manager' | 'viewer'
+  role: 'admin' | 'user' | 'manager' | 'viewer' | 'bayi' | 'bulut_temsilcisi'
   job_title: string | null
   is_approved: 0 | 1
   company_id: string
@@ -123,7 +123,7 @@ export interface User {
   username: string
   email: string | null
   full_name: string | null
-  role: 'admin' | 'user' | 'manager' | 'viewer'
+  role: 'admin' | 'user' | 'manager' | 'viewer' | 'bayi' | 'bulut_temsilcisi'
   job_title: string | null
   is_approved: boolean
   permissions?: Permission[]
@@ -222,6 +222,9 @@ export interface CheckNote {
   given_at?: string | null
   /** Verildiği cari hesap id (seçilirse bu carinin borcundan düşülür) */
   given_to_account_id?: string | null
+  /** Tahsil edildiğinde kasa id */
+  cash_box_id?: string | null
+  cash_box_name?: string | null
   created_at: string
   updated_at: string
   account_name?: string | null

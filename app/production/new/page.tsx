@@ -10,6 +10,14 @@ import { LogoWithBackground } from '@/components/Logo'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
+import {
+  matchOrderToProduct,
+  resolveBomProductId,
+  extractProductName,
+  findProductWithBom,
+  type Product as ServiceProduct,
+  type Order as ServiceOrder
+} from '@/lib/production/productMatcher'
 
 interface Product {
   id: string
@@ -59,7 +67,7 @@ export default function NewProductionOrderPage() {
   const [loading, setLoading] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [codeLoading, setCodeLoading] = useState(true)
-  
+
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [selectedProductId, setSelectedProductId] = useState<string>('')
@@ -81,7 +89,7 @@ export default function NewProductionOrderPage() {
     bom_items: BOMItem[]
     all_available: boolean
   }[]>([])
-  
+
   // Filtreler
   const [customerSearch, setCustomerSearch] = useState<string>('')
   const [productSearch, setProductSearch] = useState<string>('')
@@ -104,7 +112,7 @@ export default function NewProductionOrderPage() {
     loadCode()
     loadProducts()
     loadOrders()
-    
+
     // URL'den sipariş ID'lerini oku (sadece bir kez)
     if (!hasInitializedFromQuery) {
       const orderIdsParam = searchParams.get('from_orders') || searchParams.get('order_ids')
@@ -152,110 +160,6 @@ export default function NewProductionOrderPage() {
     }
   }
 
-  async function findProductWithBom(candidates: Product[]) {
-    for (const candidate of candidates) {
-      try {
-        // Önce direkt BOM kontrolü yap
-        let bomData = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
-        if (Array.isArray(bomData) && bomData.length > 0) {
-          return candidate
-        }
-        
-        // Eğer direkt BOM yoksa, ürün adına göre backend'de eşleştirme yapılacak
-        // Backend API zaten fallback mekanizması içeriyor, bu yüzden tekrar denememize gerek yok
-        // Ama yine de kontrol edelim
-        console.log(`[BOM Kontrolü] ${candidate.name} (${candidate.id}) için BOM bulunamadı`)
-      } catch (error) {
-        console.warn(`[Ürün Eşleştirme] BOM kontrolü başarısız: ${candidate.id}`, error)
-      }
-    }
-    return null
-  }
-
-  async function resolveBomProductId(productId: string) {
-    if (!productId) return ''
-
-    // Önce direkt BOM kontrolü yap - Backend'in fallback mekanizması çalışacak
-    try {
-      const bomData = await fetchApi<any[]>(`/api/bom?product_id=${productId}`)
-      if (Array.isArray(bomData) && bomData.length > 0) {
-        console.log(`[BOM Eşleştirme] Direkt BOM bulundu: ${productId} (${bomData.length} adet)`)
-        return productId // Direkt BOM bulundu
-      }
-    } catch (error) {
-      console.warn(`[BOM Eşleştirme] Direkt BOM kontrolü başarısız: ${productId}`, error)
-    }
-
-    // Eğer products array'i doluysa, ürün adı eşleştirmesi yap
-    if (products.length > 0) {
-      const baseProduct = products.find(p => p.id === productId)
-      if (!baseProduct) {
-        console.warn(`[BOM Eşleştirme] Ürün bulunamadı: ${productId}`)
-        return productId
-      }
-
-      // Ürün adından SKU kısmını çıkar (örn: "PRD-127652 - ATLAS ÜÇLÜ" -> "ATLAS ÜÇLÜ")
-      const extractProductName = (fullName: string): string => {
-        if (!fullName) return ''
-        // " - " ile ayrılmış kısımları kontrol et
-        if (fullName.includes(' - ')) {
-          const parts = fullName.split(' - ')
-          // Son kısmı al (genellikle ürün adı)
-          return parts[parts.length - 1].trim()
-        }
-        // SKU formatını kontrol et (PRD-XXXXX ile başlayan)
-        const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
-        if (skuMatch) {
-          return skuMatch[1].trim()
-        }
-        return fullName.trim()
-      }
-
-      const productNameOnly = extractProductName(baseProduct.name)
-      
-      // Aynı ürün adına sahip tüm ürünleri bul
-      const sameNameCandidates = products.filter(p => {
-        if (p.id === productId) return false // Kendisini hariç tut
-        const pNameOnly = extractProductName(p.name)
-        return pNameOnly.toLowerCase().trim() === productNameOnly.toLowerCase().trim()
-      })
-
-      // Önce aynı isimli ürünlerde BOM ara
-      if (sameNameCandidates.length > 0) {
-        const orderedCandidates = [
-          ...sameNameCandidates,
-        ]
-        const withBom = await findProductWithBom(orderedCandidates)
-        if (withBom) {
-          console.log(`[BOM Eşleştirme] Ürün adı eşleşmesi ile BOM bulundu: ${baseProduct.name} (${productId}) -> ${withBom.name} (${withBom.id})`)
-          return withBom.id
-        }
-      }
-
-      // Kısmi eşleşme dene (ürün adının bir kısmını içeren)
-      if (productNameOnly) {
-        const partialMatches = products.filter(p => {
-          if (p.id === productId) return false
-          const pNameLower = (p.name || '').toLowerCase()
-          const searchNameLower = productNameOnly.toLowerCase()
-          return pNameLower.includes(searchNameLower) || searchNameLower.includes(pNameLower)
-        })
-
-        if (partialMatches.length > 0) {
-          const withBom = await findProductWithBom(partialMatches)
-          if (withBom) {
-            console.log(`[BOM Eşleştirme] Kısmi eşleşme ile BOM bulundu: ${baseProduct.name} (${productId}) -> ${withBom.name} (${withBom.id})`)
-            return withBom.id
-          }
-        }
-      }
-    } else {
-      console.warn(`[BOM Eşleştirme] Products array boş, backend fallback mekanizmasına güveniliyor`)
-    }
-
-    // Backend'in fallback mekanizması çalışacak, productId'yi döndür
-    return productId
-  }
 
   // Sipariş seçildiğinde ürün ve miktarı otomatik doldur
   // NOT: selectedOrderIds kullanıldığında bu useEffect devre dışı bırakılmalı
@@ -273,42 +177,13 @@ export default function NewProductionOrderPage() {
         const order = orders.find(o => o.id === selectedOrderId)
         if (!order) return
 
-        const candidates: Product[] = []
-        if (order.product_id) {
-          const productById = products.find(p => p.id === order.product_id)
-          if (productById) candidates.push(productById)
-        }
-        if (order.product_sku) {
-          const productBySku = products.find(p => p.sku === order.product_sku)
-          if (productBySku && !candidates.some(p => p.id === productBySku.id)) {
-            candidates.push(productBySku)
-          }
-        }
-        if (order.product_name) {
-          const nameLower = order.product_name.toLowerCase().trim()
-          const nameMatches = products.filter(p => p.name.toLowerCase().includes(nameLower))
-          for (const match of nameMatches) {
-            if (!candidates.some(p => p.id === match.id)) {
-              candidates.push(match)
-            }
-          }
-        }
-
-        let resolvedProduct: Product | null = null
-        if (candidates.length > 0) {
-          resolvedProduct = await findProductWithBom(candidates)
-        }
+        const { productId, foundProduct } = await matchOrderToProduct(order as any, products as any)
 
         if (!cancelled) {
-          if (resolvedProduct) {
-            setSelectedProductId(resolvedProduct.id)
-          } else if (order.product_id) {
-            setSelectedProductId(order.product_id)
-          } else if (order.product_sku) {
-            const fallback = products.find(p => p.sku === order.product_sku)
-            if (fallback) {
-              setSelectedProductId(fallback.id)
-            }
+          if (foundProduct) {
+            setSelectedProductId(foundProduct.id)
+          } else if (productId) {
+            setSelectedProductId(productId)
           }
           setQuantity(order.quantity)
         }
@@ -332,214 +207,16 @@ export default function NewProductionOrderPage() {
         const order = orders.find(o => o.id === firstOrderId)
         if (!order) return
 
-        // Ürünü bul ve seç - önce product_id ile, sonra product_sku ile, son olarak product_name ile, en son konfigürasyona göre
-        let foundProduct = null
-        
-        // ÖNEMLİ: product_id veya product_sku varsa bile, ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
-        // Çünkü bazen product_id yanlış ürünü işaret edebilir (örn: "galata üçlü" yerine "galata berjer" olmalı)
-        
-        let hasConfigInProducts = false
+        const result = await matchOrderToProduct(order as any, products as any)
 
-        // Önce ürün adı + konfigürasyon kombinasyonuna göre bul (en spesifik ve güvenilir)
-        if (order.product_name && order.configuration) {
-          const productNameLower = order.product_name.toLowerCase().trim()
-          const configLower = order.configuration.toLowerCase().trim()
-          
-          // Ürün adından parantez içindeki kısmı kaldır ve ilk kelimeyi al (örn: "GALATA (BERJER)" → "galata")
-          const productBaseName = productNameLower
-            .replace(/\([^)]*\)/g, '') // Parantez içindeki kısmı kaldır
-            .trim()
-            .split(' ')[0] // İlk kelimeyi al
-            .trim()
-          
-          // Konfigürasyon kelimesini normalize et - SADECE BİR TANESİNİ SEÇ
-          let configKeyword = ''
-          if (configLower.includes('berjer')) {
-            configKeyword = 'berjer'
-          } else if (configLower.includes('üçlü') || configLower.includes('uclu') || configLower.includes('triple')) {
-            configKeyword = 'üçlü'
-          } else if (configLower.includes('köşe') || configLower.includes('kose') || configLower.includes('corner')) {
-            configKeyword = 'köşe'
-          } else if (configLower.includes('ikili') || configLower.includes('double') || configLower.includes('duo')) {
-            configKeyword = 'ikili'
-          }
-
-          hasConfigInProducts = configKeyword
-            ? products.some((p) => p.name.toLowerCase().includes(configKeyword))
-            : false
-          
-          console.log(`[Ürün Eşleştirme] Başlangıç: product_name="${order.product_name}", configuration="${order.configuration}"`)
-          console.log(`  → productBaseName="${productBaseName}", configKeyword="${configKeyword}"`)
-          
-          // Ürün adı + konfigürasyon kombinasyonuna göre bul (örn: "galata" + "berjer" = "galata berjer")
-          if (configKeyword) {
-            const expectedProductName = `${productBaseName} ${configKeyword}`.toLowerCase()
-            
-            // Diğer konfigürasyon kelimelerini belirle (seçilen konfigürasyon hariç)
-            const otherConfigs = ['berjer', 'üçlü', 'köşe', 'ikili'].filter(c => c !== configKeyword)
-            
-            // Önce tam eşleşme dene (en spesifik) - diğer konfigürasyonları içermemeli
-            foundProduct = products.find(p => {
-              const pNameLower = p.name.toLowerCase().trim()
-              const isExactMatch = pNameLower === expectedProductName
-              const hasOtherConfig = otherConfigs.some(c => pNameLower.includes(c))
-              return isExactMatch && !hasOtherConfig
-            })
-            
-            // Tam eşleşme yoksa, kısmi eşleşme dene (ürün adı + konfigürasyon kelimesi geçmeli)
-            if (!foundProduct) {
-              // Önce tüm eşleşen ürünleri bul
-              const matchingProducts = products.filter(p => {
-                const pNameLower = p.name.toLowerCase().trim()
-                // Ürün adı hem base name hem de config keyword içermeli
-                const hasBaseName = pNameLower.includes(productBaseName)
-                const hasConfigKeyword = pNameLower.includes(configKeyword)
-                // Ama diğer konfigürasyon kelimelerini içermemeli (berjer seçildiyse üçlü içermemeli)
-                const hasOtherConfig = otherConfigs.some(c => pNameLower.includes(c))
-                return hasBaseName && hasConfigKeyword && !hasOtherConfig
-              })
-              
-              // Eğer birden fazla eşleşen ürün varsa, SKU'ya göre sırala (daha yüksek numaralı SKU'yu tercih et - PRD-894566 gibi)
-              if (matchingProducts.length > 1) {
-                console.log(`[Ürün Eşleştirme] ⚠️ Birden fazla eşleşen ürün bulundu (${matchingProducts.length} adet):`, matchingProducts.map(p => `${p.sku} - ${p.name}`))
-
-                const productWithBom = await findProductWithBom(matchingProducts)
-                if (productWithBom) {
-                  foundProduct = productWithBom
-                  if (!cancelled) {
-                    setSelectedProductId(productWithBom.id)
-                  }
-                  console.log(`[Ürün Eşleştirme] ✅ BOM olan ürün seçildi: ${productWithBom.sku} - ${productWithBom.name}`)
-                } else {
-                  // SKU'ya göre sırala (ters sırada - en yüksek numara önce)
-                  matchingProducts.sort((a, b) => {
-                    const aNum = parseInt(a.sku.replace(/[^0-9]/g, '')) || 0
-                    const bNum = parseInt(b.sku.replace(/[^0-9]/g, '')) || 0
-                    return bNum - aNum // Ters sıralama - en yüksek numara önce
-                  })
-
-                  // En yüksek SKU numaralı ürünü seç (PRD-894566 gibi)
-                  foundProduct = matchingProducts[0]
-                  console.log(`[Ürün Eşleştirme] ✅ En yüksek SKU numaralı ürün seçildi: ${foundProduct.sku} - ${foundProduct.name}`)
-                }
-              } else if (matchingProducts.length === 1) {
-                foundProduct = matchingProducts[0]
-              }
-            }
-            
-            if (foundProduct) {
-              console.log(`[Ürün Eşleştirme] ✅ Sipariş: "${order.product_name}" (${order.configuration}) → Bulunan Ürün: "${foundProduct.name}" (ID: ${foundProduct.id}, SKU: ${foundProduct.sku})`)
-              console.log(`  - productBaseName: "${productBaseName}", configKeyword: "${configKeyword}", expectedProductName: "${expectedProductName}"`)
-              if (!cancelled) {
-                setSelectedProductId(foundProduct.id)
-              }
-            } else {
-              console.warn(`[Ürün Eşleştirme] ❌ Sipariş: "${order.product_name}" (${order.configuration}) → Ürün bulunamadı`)
-              console.warn(`  - productBaseName: "${productBaseName}", configKeyword: "${configKeyword}", expectedProductName: "${expectedProductName}"`)
-              console.warn(`  - Mevcut ürünler:`, products.map(p => p.name).filter(n => n.toLowerCase().includes(productBaseName) || n.toLowerCase().includes(configKeyword)))
-              // Ürün bulunamadı - ürün seçme
-            }
-          }
-        }
-        
-        // Eğer yukarıdaki eşleştirme başarısız olduysa, product_id veya product_sku ile dene (son çare)
-        // Ama sadece bulunan ürünün adı konfigürasyonla uyuşuyorsa kullan
-        if (!foundProduct && order.product_id) {
-          const productById = products.find(p => p.id === order.product_id)
-          if (productById) {
-            if (!order.configuration || !hasConfigInProducts) {
-              console.log(`[Ürün Eşleştirme] ⚠️ Konfigürasyon ürün adında yok, product_id fallback kullanılıyor: "${productById.name}"`)
-              foundProduct = productById
-              setSelectedProductId(productById.id)
-            } else {
-              // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
-              const productNameLower = productById.name.toLowerCase()
-              const configLower = order.configuration?.toLowerCase() || ''
-              const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
-                                   configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
-                                   configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
-                                   configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
-              
-              if (hasConfigMatch) {
-                console.log(`[Ürün Eşleştirme] ✅ product_id ile bulundu: "${productById.name}" (ID: ${productById.id})`)
-                foundProduct = productById
-                if (!cancelled) {
-                  setSelectedProductId(productById.id)
-                }
-                foundProduct = productById
-                if (!cancelled) {
-                  setSelectedProductId(productById.id)
-                }
-              } else {
-                console.warn(`[Ürün Eşleştirme] ⚠️ product_id ile bulunan ürün konfigürasyonla uyuşmuyor: "${productById.name}" (sipariş: ${order.configuration})`)
-              }
-            }
-          }
-        }
-        
-        if (!foundProduct && order.product_sku) {
-          const productBySku = products.find(p => p.sku === order.product_sku)
-          if (productBySku) {
-            if (!order.configuration || !hasConfigInProducts) {
-              console.log(`[Ürün Eşleştirme] ⚠️ Konfigürasyon ürün adında yok, product_sku fallback kullanılıyor: "${productBySku.name}"`)
-              foundProduct = productBySku
-              setSelectedProductId(productBySku.id)
-            } else {
-              // Ürün adının konfigürasyonla uyuşup uyuşmadığını kontrol et
-              const productNameLower = productBySku.name.toLowerCase()
-              const configLower = order.configuration?.toLowerCase() || ''
-              const hasConfigMatch = configLower.includes('berjer') && productNameLower.includes('berjer') && !productNameLower.includes('üçlü') && !productNameLower.includes('uclu') ||
-                                   configLower.includes('üçlü') && productNameLower.includes('üçlü') && !productNameLower.includes('berjer') ||
-                                   configLower.includes('köşe') && productNameLower.includes('köşe') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü') ||
-                                   configLower.includes('ikili') && productNameLower.includes('ikili') && !productNameLower.includes('berjer') && !productNameLower.includes('üçlü')
-              
-              if (hasConfigMatch) {
-                console.log(`[Ürün Eşleştirme] ✅ product_sku ile bulundu: "${productBySku.name}" (ID: ${productBySku.id})`)
-                foundProduct = productBySku
-                if (!cancelled) {
-                  setSelectedProductId(productBySku.id)
-                }
-                foundProduct = productBySku
-                if (!cancelled) {
-                  setSelectedProductId(productBySku.id)
-                }
-              } else {
-                console.warn(`[Ürün Eşleştirme] ⚠️ product_sku ile bulunan ürün konfigürasyonla uyuşmuyor: "${productBySku.name}" (sipariş: ${order.configuration})`)
-              }
-            }
-          }
-        }
-
-        if (!foundProduct && order.product_name) {
-          const nameLower = order.product_name.toLowerCase().trim()
-          const nameMatch = products.find(p => p.name.toLowerCase().includes(nameLower))
-          if (nameMatch) {
-            console.log(`[Ürün Eşleştirme] ⚠️ Ürün adı ile fallback bulundu: "${nameMatch.name}" (ID: ${nameMatch.id})`)
-            foundProduct = nameMatch
-            if (!cancelled) {
-              setSelectedProductId(nameMatch.id)
-            }
-          }
-        }
-
-        if (!foundProduct && order.product_id) {
-          console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
-          if (!cancelled) {
-            setSelectedProductId(order.product_id)
-          }
-        }
-
-        if (!foundProduct && order.product_id) {
-          console.warn(`[Ürün Eşleştirme] ⚠️ Ürün adı eşleşmedi, sipariş product_id ile devam ediliyor: ${order.product_id}`)
-          if (!cancelled) {
-            setSelectedProductId(order.product_id)
-          }
-        }
         if (!cancelled) {
+          if (result.foundProduct) {
+            setSelectedProductId(result.foundProduct.id)
+            console.log(`[Ürün Eşleştirme] ✅ Bulunan Ürün: "${result.foundProduct.name}"`)
+          } else if (result.productId) {
+            setSelectedProductId(result.productId)
+          }
           setQuantity(order.quantity)
-        }
-        // Sipariş ID'yi de seçili olarak işaretle (tek sipariş seçimi için)
-        if (!cancelled) {
           setSelectedOrderId(firstOrderId)
         }
       }
@@ -565,19 +242,19 @@ export default function NewProductionOrderPage() {
     if (customerSearch === '') {
       return
     }
-    
+
     // Debounce için kısa bir gecikme ekle (kullanıcı yazmayı bitirdikten sonra)
     const timeoutId = setTimeout(() => {
       loadOrders(customerSearch.trim() || undefined)
     }, 300) // 300ms debounce
-    
+
     return () => clearTimeout(timeoutId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerSearch])
-  
+
   // Filtrelenmiş siparişler (sadece ürün filtresi için - müşteri filtresi API'de yapılıyor)
   const filteredOrders = orders.filter(order => {
-    const productMatch = !productSearch || 
+    const productMatch = !productSearch ||
       order.product_name?.toLowerCase().includes(productSearch.toLowerCase()) ||
       order.product_sku?.toLowerCase().includes(productSearch.toLowerCase())
     return productMatch
@@ -586,19 +263,19 @@ export default function NewProductionOrderPage() {
   // Ürün seçildiğinde hangi bayiye ait olduğunu göster
   const getDealerForProduct = (productId: string | null, productSku: string | null) => {
     if (!productId && !productSku) return null
-    
+
     // Önce product_id ile eşleşen siparişi bul
     if (productId) {
       const order = orders.find(o => o.product_id === productId)
       if (order) return order.dealer_name
     }
-    
+
     // Sonra product_sku ile eşleşen siparişi bul
     if (productSku) {
       const order = orders.find(o => o.product_sku === productSku)
       if (order) return order.dealer_name
     }
-    
+
     // Ürün bilgisini products listesinden al ve siparişlerde ara
     if (productId) {
       const product = products.find(p => p.id === productId)
@@ -607,7 +284,7 @@ export default function NewProductionOrderPage() {
         if (order) return order.dealer_name
       }
     }
-    
+
     return null
   }
 
@@ -624,10 +301,10 @@ export default function NewProductionOrderPage() {
       if (product) {
         console.log(`[BOM Yükleme] Ürün: ${product.name} (ID: ${productId}, SKU: ${product.sku})`)
       }
-      
+
       // API'den BOM verilerini al
       console.log(`[BOM Yükleme] BOM API çağrısı: /api/bom?product_id=${productId}`)
-      const bomProductId = await resolveBomProductId(productId)
+      const bomProductId = await resolveBomProductId(productId, products as any)
       if (bomProductId !== productId) {
         console.log(`[BOM Yükleme] ⚠️ Ürün BOM'u isim eşleşmesi ile bulundu: ${productId} → ${bomProductId}`)
       }
@@ -635,7 +312,7 @@ export default function NewProductionOrderPage() {
       // Önce resolve edilmiş product_id ile dene
       let response = await fetch(`/api/bom?product_id=${bomProductId}`)
       let bomData: any[] = []
-      
+
       if (response.ok) {
         bomData = await response.json()
         console.log(`[BOM Yükleme] API yanıtı (${bomProductId}): ${bomData?.length || 0} adet BOM öğesi`)
@@ -647,23 +324,9 @@ export default function NewProductionOrderPage() {
       // Ama yine de tüm ürünlerde arama yapalım
       if (!bomData || bomData.length === 0) {
         console.log(`[BOM Yükleme] BOM bulunamadı, tüm ürünlerde arama yapılıyor...`)
-        
-        // Ürün adından SKU kısmını çıkar
-        const extractProductName = (fullName: string): string => {
-          if (!fullName) return ''
-          if (fullName.includes(' - ')) {
-            const parts = fullName.split(' - ')
-            return parts[parts.length - 1].trim()
-          }
-          const skuMatch = fullName.match(/^PRD-\d+\s*-\s*(.+)$/i)
-          if (skuMatch) {
-            return skuMatch[1].trim()
-          }
-          return fullName.trim()
-        }
-        
+
         const productNameOnly = product ? extractProductName(product.name) : ''
-        
+
         // Aynı ürün adına sahip tüm ürünlerde BOM ara
         if (productNameOnly) {
           const candidates = products.filter(p => {
@@ -671,7 +334,7 @@ export default function NewProductionOrderPage() {
             const pNameOnly = extractProductName(p.name)
             return pNameOnly.toLowerCase().trim() === productNameOnly.toLowerCase().trim()
           })
-          
+
           for (const candidate of candidates) {
             try {
               const candidateBom = await fetchApi<any[]>(`/api/bom?product_id=${candidate.id}`)
@@ -691,7 +354,7 @@ export default function NewProductionOrderPage() {
         const productInfo = product ? `${product.name} (${product.sku})` : `ID: ${productId}`
         console.warn(`[BOM Yükleme] ⚠️ Ürün için BOM bulunamadı: ${productInfo}`)
         console.warn(`[BOM Yükleme] ⚠️ resolveBomProductId sonucu: ${bomProductId} (orijinal: ${productId})`)
-        
+
         // Son bir deneme daha: Backend'in fallback mekanizması çalışmış olabilir, tekrar kontrol et
         if (bomProductId !== productId) {
           console.log(`[BOM Yükleme] ⚠️ Eşleştirilmiş product_id ile tekrar deniyor: ${bomProductId}`)
@@ -708,7 +371,7 @@ export default function NewProductionOrderPage() {
             console.warn(`[BOM Yükleme] Retry başarısız:`, retryError)
           }
         }
-        
+
         if (!bomData || bomData.length === 0) {
           setBomItems([])
           setStockCheck({
@@ -732,11 +395,11 @@ export default function NewProductionOrderPage() {
             orderFabricCode = fabricMatch[1].trim()
             const orderFabricCodeLower = orderFabricCode!.toLowerCase().trim()
             console.log(`[BOM Yükleme] Siparişteki kumaş kodu: ${orderFabricCode}`)
-            
+
             // Hammadde depodan siparişteki kumaş koduna sahip malzemeyi bul
             try {
               const allMaterials = await fetchApi<any[]>('/api/materials')
-              orderFabricMaterial = allMaterials.find((m) => 
+              orderFabricMaterial = allMaterials.find((m) =>
                 m.category && m.category.toLowerCase() === 'kumaş' && (
                   m.name.toLowerCase().trim() === orderFabricCodeLower ||
                   m.name.toLowerCase().trim().includes(orderFabricCodeLower) ||
@@ -758,9 +421,9 @@ export default function NewProductionOrderPage() {
       // Her malzeme için güncel DEPO STOĞUNU al
       const items: BOMItem[] = await Promise.all(
         bomData.map(async (item: any) => {
-          const materialCategory = item.material_category?.toLowerCase() || 
-                                   (item.material_name?.toLowerCase().includes('kumaş') ? 'kumaş' : 'diğer')
-          
+          const materialCategory = item.material_category?.toLowerCase() ||
+            (item.material_name?.toLowerCase().includes('kumaş') ? 'kumaş' : 'diğer')
+
           // Eğer malzeme kumaş kategorisindeyse ve siparişteki kumaş kodu varsa, siparişteki kumaş koduna göre hammadde depodan kumaşı kullan
           if (materialCategory === 'kumaş' && orderFabricMaterial) {
             // Siparişteki kumaş koduna göre hammadde depodan kumaşı kullan
@@ -782,7 +445,7 @@ export default function NewProductionOrderPage() {
               is_available: isAvailable,
             }
           }
-          
+
           // Diğer malzemeler için normal işlem
           // Malzeme stok bilgisini al - DEPO STOĞU
           let availableStock = 0
@@ -799,10 +462,10 @@ export default function NewProductionOrderPage() {
             stock_id: item.material_id,
             stock_code: item.material_code || item.material_id,
             stock_name: item.material_name,
-            stock_category: item.material_category || 
-                           (item.material_name.toLowerCase().includes('kumaş') ? 'kumaş' : 
-                            item.material_name.toLowerCase().includes('sünger') ? 'sünger' : 
-                            item.material_name.toLowerCase().includes('ayak') ? 'ayak' : 'diğer'),
+            stock_category: item.material_category ||
+              (item.material_name.toLowerCase().includes('kumaş') ? 'kumaş' :
+                item.material_name.toLowerCase().includes('sünger') ? 'sünger' :
+                  item.material_name.toLowerCase().includes('ayak') ? 'ayak' : 'diğer'),
             stock_unit: item.material_unit,
             required_quantity: parseFloat(item.quantity_required),
             fire_percentage: firePercentage,
@@ -831,7 +494,7 @@ export default function NewProductionOrderPage() {
       // BOMItem'da fire_percentage yok, bu yüzden loadBOM'da hesaplanmış is_available kullanıyoruz
       return !item.is_available
     })
-    
+
     setStockCheck({
       allAvailable: insufficient.length === 0,
       insufficientItems: insufficient,
@@ -874,12 +537,12 @@ export default function NewProductionOrderPage() {
         const response = await fetch('/api/orders/convert-to-production', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             order_ids: Array.from(selectedOrderIds),
             due_date: dueDate || null // Frontend'deki teslim tarihini gönder
           })
         })
-        
+
         if (!response.ok) {
           const error = await response.json()
           let errorMsg = error.error || error.message || 'Dönüştürme başarısız'
@@ -891,15 +554,15 @@ export default function NewProductionOrderPage() {
 
         const result = await response.json()
         let alertMessage = result.message || 'İşlem tamamlandı'
-        
+
         if (result.skipped_orders && result.skipped_orders.length > 0) {
           alertMessage += `\n\n⚠️ Atlanan siparişler:\n${result.skipped_orders.join('\n')}`
         }
-        
+
         if (result.errors && result.errors.length > 0) {
           alertMessage += `\n\n❌ Hatalar:\n${result.errors.join('\n')}`
         }
-        
+
         toast.warning(alertMessage)
         setFormErrors({})
         setSelectedOrderIds(new Set())
@@ -922,22 +585,22 @@ export default function NewProductionOrderPage() {
     setLoading(true)
     try {
       // BOM verilerini API'den al
-      const bomProductId = await resolveBomProductId(selectedProductId)
+      const bomProductId = await resolveBomProductId(selectedProductId, products as any)
       const bomResponse = await fetch(`/api/bom?product_id=${bomProductId}`)
       if (!bomResponse.ok) {
         throw new Error('BOM bilgileri alınamadı')
       }
       const bomData = await bomResponse.json()
-      
+
       if (!bomData || bomData.length === 0) {
         toast.warning('Bu ürün için reçete (BOM) bulunamadı. Lütfen önce ürün reçetesini oluşturun.')
         setLoading(false)
         return
       }
-      
+
       // Güncel stok kontrolü yap - DEPO STOĞUNU KONTROL ET
       const insufficientItems: BOMItem[] = []
-      
+
       for (const item of bomData) {
         // Malzeme stok bilgisini al - DEPO STOĞU
         let availableStock = 0
@@ -959,22 +622,22 @@ export default function NewProductionOrderPage() {
           })
           continue
         }
-        
+
         // Fire yüzdesini hesaba kat
         const firePercentage = parseFloat(item.fire_percentage) || 0
         const quantityWithFire = parseFloat(item.quantity_required) * (1 + (firePercentage / 100))
         const totalRequired = quantityWithFire * quantity
-        
+
         // DEPO STOĞU YETERSİZSE EKLE
         if (availableStock < totalRequired) {
           insufficientItems.push({
             stock_id: item.material_id,
             stock_code: item.material_code || item.material_id,
             stock_name: item.material_name,
-            stock_category: item.material_category || 
-                           (item.material_name.toLowerCase().includes('kumaş') ? 'kumaş' : 
-                            item.material_name.toLowerCase().includes('sünger') ? 'sünger' : 
-                            item.material_name.toLowerCase().includes('ayak') ? 'ayak' : 'diğer'),
+            stock_category: item.material_category ||
+              (item.material_name.toLowerCase().includes('kumaş') ? 'kumaş' :
+                item.material_name.toLowerCase().includes('sünger') ? 'sünger' :
+                  item.material_name.toLowerCase().includes('ayak') ? 'ayak' : 'diğer'),
             stock_unit: item.material_unit,
             required_quantity: parseFloat(item.quantity_required),
             fire_percentage: firePercentage,
@@ -1108,8 +771,8 @@ export default function NewProductionOrderPage() {
             {selectedOrdersList.map((order) => {
               if (!order) return null
               return (
-                <div 
-                  key={order.id} 
+                <div
+                  key={order.id}
                   className="bg-[#1e293b] rounded-lg border border-[#334155] p-4 hover:bg-[#334155] transition-all duration-200 hover:shadow-lg"
                 >
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1125,15 +788,14 @@ export default function NewProductionOrderPage() {
                     <div>
                       <div className="text-xs text-[#94a3b8] mb-1">Durum</div>
                       <div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                          order.status === 'pending' ? 'bg-[#eab308]/10 text-[#eab308] border-[#eab308]/20' :
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${order.status === 'pending' ? 'bg-[#eab308]/10 text-[#eab308] border-[#eab308]/20' :
                           order.status === 'in_production' ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/20' :
-                          order.status === 'completed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20' :
-                          'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/20'
-                        }`}>
+                            order.status === 'completed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20' :
+                              'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/20'
+                          }`}>
                           {order.status === 'pending' ? 'Beklemede' :
-                           order.status === 'in_production' ? 'Üretimde' :
-                           order.status === 'completed' ? 'Tamamlandı' : 'İptal Edildi'}
+                            order.status === 'in_production' ? 'Üretimde' :
+                              order.status === 'completed' ? 'Tamamlandı' : 'İptal Edildi'}
                         </span>
                       </div>
                     </div>
@@ -1366,7 +1028,7 @@ export default function NewProductionOrderPage() {
                       const quantityWithFire = item.required_quantity * (1 + (item.fire_percentage / 100))
                       const totalRequired = quantityWithFire * quantity
                       const isAvailable = item.is_available
-                      
+
                       return (
                         <tr key={item.stock_id} className="hover:bg-[#334155]/30 transition-colors">
                           <td className="px-4 py-3 text-sm text-[#f1f5f9] font-medium">
@@ -1384,12 +1046,11 @@ export default function NewProductionOrderPage() {
                               </span>
                             )}
                           </td>
-                          <td className={`px-4 py-3 text-sm ${
-                            isNaN(item.available_quantity) || !isAvailable 
-                              ? 'text-red-400 font-semibold' 
-                              : 'text-white'
-                          }`}>
-                            {isNaN(item.available_quantity) ? '0' : item.available_quantity.toLocaleString('tr-TR', { 
+                          <td className={`px-4 py-3 text-sm ${isNaN(item.available_quantity) || !isAvailable
+                            ? 'text-red-400 font-semibold'
+                            : 'text-white'
+                            }`}>
+                            {isNaN(item.available_quantity) ? '0' : item.available_quantity.toLocaleString('tr-TR', {
                               minimumFractionDigits: item.stock_unit === 'metre' ? 2 : 0,
                               maximumFractionDigits: item.stock_unit === 'metre' ? 2 : 0
                             })} {item.stock_unit}
@@ -1440,7 +1101,7 @@ export default function NewProductionOrderPage() {
                   <ul className="list-disc list-inside text-red-200 text-sm space-y-1">
                     {stockCheck.insufficientItems.map((item) => (
                       <li key={item.stock_id}>
-                        {item.stock_name}: Gereken {item.required_quantity * quantity} {item.stock_unit}, 
+                        {item.stock_name}: Gereken {item.required_quantity * quantity} {item.stock_unit},
                         Mevcut {item.available_quantity} {item.stock_unit}
                       </li>
                     ))}
@@ -1473,7 +1134,7 @@ export default function NewProductionOrderPage() {
             <button
               onClick={handleStartProduction}
               disabled={
-                loading || 
+                loading ||
                 (selectedOrderIds.size === 0 && (!selectedProductId || quantity <= 0))
               }
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
@@ -1514,7 +1175,7 @@ export default function NewProductionOrderPage() {
                   Seçili Siparişlerin Reçete ve Stok Kontrolü
                 </h3>
                 <p className="text-blue-200 text-sm">
-                  Aşağıda seçili siparişlerin reçete (BOM) ve stok durumları gösterilmektedir. 
+                  Aşağıda seçili siparişlerin reçete (BOM) ve stok durumları gösterilmektedir.
                   Stoklar yetersiz olan siparişler üretime alınamaz.
                 </p>
               </div>
@@ -1547,7 +1208,7 @@ export default function NewProductionOrderPage() {
                   )}
                 </div>
               </div>
-              
+
               {result.bom_items.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-700">
@@ -1569,7 +1230,7 @@ export default function NewProductionOrderPage() {
                         const orderQuantity = order?.quantity || 1
                         const totalRequired = quantityWithFire * orderQuantity
                         const isAvailable = item.is_available
-                        
+
                         return (
                           <tr key={item.stock_id} className="hover:bg-gray-750">
                             <td className="px-4 py-2 text-sm text-white font-medium">
@@ -1642,18 +1303,18 @@ export default function NewProductionOrderPage() {
                   if (!confirm(`${selectedOrderIds.size} siparişten üretim emri oluşturmak istediğinize emin misiniz?`)) {
                     return
                   }
-                  
+
                   setConverting(true)
                   try {
                     const response = await fetch('/api/orders/convert-to-production', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ 
+                      body: JSON.stringify({
                         order_ids: Array.from(selectedOrderIds),
                         due_date: dueDate || null // Frontend'deki teslim tarihini gönder
                       })
                     })
-                    
+
                     if (!response.ok) {
                       const error = await response.json()
                       let errorMsg = error.error || error.message || 'Dönüştürme başarısız'
@@ -1665,15 +1326,15 @@ export default function NewProductionOrderPage() {
 
                     const result = await response.json()
                     let alertMessage = result.message || 'İşlem tamamlandı'
-                    
+
                     if (result.skipped_orders && result.skipped_orders.length > 0) {
                       alertMessage += `\n\n⚠️ Atlanan siparişler:\n${result.skipped_orders.join('\n')}`
                     }
-                    
+
                     if (result.errors && result.errors.length > 0) {
                       alertMessage += `\n\n❌ Hatalar:\n${result.errors.join('\n')}`
                     }
-                    
+
                     toast.warning(alertMessage)
                     setSelectedOrderIds(new Set())
                     setBomCheckResults([])
@@ -1740,7 +1401,7 @@ export default function NewProductionOrderPage() {
                 {stockCheck?.insufficientItems.map((item) => {
                   const totalRequired = item.required_quantity * quantity
                   const shortage = totalRequired - item.available_quantity
-                  
+
                   return (
                     <tr key={item.stock_id} className="hover:bg-gray-750">
                       <td className="px-4 py-3 text-sm text-white font-medium">

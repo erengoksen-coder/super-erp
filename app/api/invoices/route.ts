@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseJsonBody } from '@/lib/api/validate'
 import { withAuth } from '@/lib/api/withAuth'
+import { bayiFilter } from '@/lib/auth/bayi-filter'
 import { DEFAULT_WAREHOUSE_ID, getDatabase } from '@/lib/database/db'
 import { randomUUID } from 'crypto'
 import { applyMaterialStockChange } from '@/lib/materials/stock'
@@ -41,10 +42,14 @@ type InvoiceCreateInput = {
   tax_rate?: number
   /** Alış için belge türü: 'invoice' (Fatura) veya 'slip' (Fiş) */
   document_kind?: 'invoice' | 'slip'
+  /** Vade tarihi (ödeme planı) */
+  due_date?: string | null
+  /** Vade gün sayısı (fatura tarihi + bu gün = vade) */
+  payment_terms_days?: number
 }
 
 // GET: Faturaları listele (limit/offset ile sayfalama)
-export const GET = withAuth(async (request: NextRequest) => {
+export const GET = withAuth(async (request: NextRequest, user) => {
   try {
     const { searchParams } = new URL(request.url)
     const customerId = searchParams.get('customer_id')
@@ -83,6 +88,13 @@ export const GET = withAuth(async (request: NextRequest) => {
       params.push(endDate)
     }
 
+    // Bayi kullanıcılar sadece kendi faturalarını görür
+    const bf = bayiFilter(user.userId, user.role, 'a.name')
+    if (bf.clause) {
+      whereClause.push(bf.clause.replace(' AND ', ''))
+      params.push(...bf.params)
+    }
+
     const whereSql = whereClause.join(' AND ')
     const countRow = db.prepare(`
       SELECT COUNT(*) as total FROM invoices i
@@ -118,7 +130,7 @@ export const GET = withAuth(async (request: NextRequest) => {
 export const POST = withAuth(async (request: NextRequest) => {
   try {
     const body = await parseJsonBody(request) as InvoiceCreateInput
-    const { shipment_id, invoice_date, type = 'sale', notes, customer_id, items = [], tax_rate: bodyTaxRate, document_kind: documentKind } = body
+    const { shipment_id, invoice_date, type = 'sale', notes, customer_id, items = [], tax_rate: bodyTaxRate, document_kind: documentKind, due_date: bodyDueDate, payment_terms_days: bodyPaymentTermsDays } = body
 
     const db = getDatabase()
 
@@ -350,7 +362,7 @@ export const POST = withAuth(async (request: NextRequest) => {
           }
 
           const productNameOnly = extractProductName(product.name)
-          
+
           if (productNameOnly) {
             // Aynı isimli ürünlerde BOM ara
             const fallbackProducts = db.prepare(`
@@ -377,7 +389,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             if (fallbackProducts.length > 0) {
               const fallbackProduct = fallbackProducts[0]
               console.log(`[Fatura BOM] Fallback: ${product.name} (${product.id}) → ${fallbackProduct.name} (${fallbackProduct.id})`)
-              
+
               // Fallback ürün için BOM al
               bomItems = db.prepare(`
                 SELECT 
@@ -421,12 +433,12 @@ export const POST = withAuth(async (request: NextRequest) => {
       let unitPrice = (item.unit_price != null && item.unit_price > 0)
         ? item.unit_price
         : (bomCost > 0 ? bomCost : (() => {
-            const product = db.prepare('SELECT selling_price FROM active_products WHERE id = ?').get(item.product_id) as { selling_price?: number } | undefined
-            return product?.selling_price || 0
-          })())
-      
+          const product = db.prepare('SELECT selling_price FROM active_products WHERE id = ?').get(item.product_id) as { selling_price?: number } | undefined
+          return product?.selling_price || 0
+        })())
+
       const totalPrice = unitPrice * (item.quantity || 0)
-      
+
       baseTotalAmount += totalPrice
       itemsWithBomPrices.push({
         product_id: item.product_id,
@@ -441,7 +453,7 @@ export const POST = withAuth(async (request: NextRequest) => {
     const discountRate = customer.discount_rate ?? 0
     const discountAmount = (baseTotalAmount * discountRate) / 100
     const amountAfterDiscount = baseTotalAmount - discountAmount
-    
+
     const taxRate = shipment.tax_rate || 0
     const taxAmount = (amountAfterDiscount * taxRate) / 100
     const finalAmount = amountAfterDiscount + taxAmount
@@ -464,32 +476,65 @@ export const POST = withAuth(async (request: NextRequest) => {
       try {
         const result = db.transaction(() => {
           const invoiceNumber = getNextInvoiceNumber()
-          
+
           // Fatura kaydını oluştur (iskonto bilgisi ile)
           // total_amount = iskonto öncesi toplam (BOM fiyatları toplamı)
           // discount_amount = iskonto tutarı
           // amountAfterDiscount = iskonto sonrası tutar
           // tax_amount = KDV tutarı (iskonto sonrası üzerinden)
           // final_amount = nihai tutar (iskonto sonrası + KDV)
-          db.prepare(`
-            INSERT INTO invoices
-            (id, invoice_number, shipment_id, customer_id, invoice_date, type, status, total_amount, discount_rate, discount_amount, tax_rate, tax_amount, final_amount, notes)
-            VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            invoiceId,
-            invoiceNumber,
-            shipment_id,
-            shipment.customer_id,
-            invoiceDate,
-            type,
-            baseTotalAmount, // İskonto öncesi toplam (BOM fiyatları toplamı)
-            discountRate,
-            discountAmount,
-            taxRate,
-            taxAmount,
-            finalAmount,
-            notes || shipment.notes || null
-          )
+          const termsDays = typeof bodyPaymentTermsDays === 'number' && bodyPaymentTermsDays >= 0 ? bodyPaymentTermsDays : 0
+          let dueDate = (bodyDueDate && String(bodyDueDate).trim()) || null
+          if (!dueDate && termsDays > 0) {
+            const d = new Date(invoiceDate)
+            d.setDate(d.getDate() + termsDays)
+            dueDate = d.toISOString().split('T')[0]
+          }
+          try {
+            db.prepare(`
+              INSERT INTO invoices
+              (id, invoice_number, shipment_id, customer_id, invoice_date, due_date, payment_terms_days, type, status, total_amount, discount_rate, discount_amount, tax_rate, tax_amount, final_amount, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              invoiceId,
+              invoiceNumber,
+              shipment_id,
+              shipment.customer_id,
+              invoiceDate,
+              dueDate,
+              termsDays,
+              type,
+              baseTotalAmount,
+              discountRate,
+              discountAmount,
+              taxRate,
+              taxAmount,
+              finalAmount,
+              notes || shipment.notes || null
+            )
+          } catch (e: any) {
+            if (e.message?.includes('no such column: due_date') || e.message?.includes('no such column: payment_terms_days')) {
+              db.prepare(`
+                INSERT INTO invoices
+                (id, invoice_number, shipment_id, customer_id, invoice_date, type, status, total_amount, discount_rate, discount_amount, tax_rate, tax_amount, final_amount, notes)
+                VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                invoiceId,
+                invoiceNumber,
+                shipment_id,
+                shipment.customer_id,
+                invoiceDate,
+                type,
+                baseTotalAmount,
+                discountRate,
+                discountAmount,
+                taxRate,
+                taxAmount,
+                finalAmount,
+                notes || shipment.notes || null
+              )
+            } else throw e
+          }
 
           // Fatura kalemlerini ekle (BOM fiyatları ile - iskonto sonrası fiyatlar)
           // Her kalem için iskonto uygulanmış fiyatları kaydet
@@ -502,7 +547,7 @@ export const POST = withAuth(async (request: NextRequest) => {
             const itemDiscountAmount = (item.total_price * discountRate) / 100
             const itemTotalAfterDiscount = item.total_price - itemDiscountAmount
             const itemUnitPriceAfterDiscount = item.quantity > 0 ? itemTotalAfterDiscount / item.quantity : 0
-            
+
             insertItem.run(
               randomUUID(),
               invoiceId,

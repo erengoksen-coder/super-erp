@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
     const rawRole = (parsed.data.role || 'user').toString().trim().toLowerCase()
     const role =
       rawRole === 'admin' || rawRole === 'manager' || rawRole === 'viewer' ? rawRole
-      : /y[oö]netici/.test(rawRole) ? 'manager'
-      : /g[oö]r[uü]nt[uü]leyici/.test(rawRole) ? 'viewer'
-      : /kullan[iı]c[iı]/.test(rawRole) ? 'user'
-      : 'user'
+        : /y[oö]netici/.test(rawRole) ? 'manager'
+          : /g[oö]r[uü]nt[uü]leyici/.test(rawRole) ? 'viewer'
+            : /kullan[iı]c[iı]/.test(rawRole) ? 'user'
+              : 'user'
     const { username, email, password, full_name, job_title } = parsed.data
 
     const db = getDatabase()
@@ -97,6 +97,20 @@ export async function POST(request: NextRequest) {
       INSERT OR IGNORE INTO user_roles (id, user_id, role_id, company_id, branch_id)
       VALUES (?, ?, ?, ?, ?)
     `).run(`ur_${userId}_${roleId}`, userId, roleId, DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
+
+    // Telegram bildirimi gönder
+    try {
+      const { sendUserRegistrationNotification } = await import('@/lib/messaging/user-notification')
+      await sendUserRegistrationNotification({
+        username,
+        email,
+        full_name,
+        role: role as string,
+        method: 'form'
+      })
+    } catch (e) {
+      apiLogger.error('Failed to send registration notification', { error: e })
+    }
 
     return ok(
       {

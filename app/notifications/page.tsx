@@ -12,6 +12,7 @@ import { subscribeToTable } from '@/lib/supabase/realtime'
 import { toast } from '@/lib/notify'
 import { cn } from '@/lib/cn'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
 
 function getNotificationHref(refType: string | null | undefined, refId: string | null | undefined): string | null {
   if (!refType) return null
@@ -21,11 +22,13 @@ function getNotificationHref(refType: string | null | undefined, refId: string |
     case 'shipment':
       return refId ? `/shipments/${refId}` : '/shipments'
     case 'bayi_order':
-      return '/orders'
+      return refId ? `/orders?highlight=${encodeURIComponent(refId)}` : '/orders'
     default:
       return null
   }
 }
+
+const INAPP_ONLY_KEY = 'erp_notifications_inapp_only'
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -64,7 +67,7 @@ export default function NotificationsPage() {
         orderStatusChange: next.orderStatusChange,
         purchaseRequest: next.purchaseRequest,
       }),
-    }).catch(() => {})
+    }).catch(() => { })
   }, [types, setNotificationType])
 
   const [supported, setSupported] = useState(false)
@@ -73,6 +76,12 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(false)
   const [alerts, setAlerts] = useState<any[]>([])
   const [alertsLoading, setAlertsLoading] = useState(false)
+  const [isTunnel, setIsTunnel] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && /trycloudflare\.com|ngrok/i.test(window.location.hostname)) {
+      setIsTunnel(true)
+    }
+  }, [])
 
   type NotificationItem = { id: string; title: string; message: string; type?: string; read?: number; created_at: string; reference_type?: string | null; reference_id?: string | null }
   const router = useRouter()
@@ -110,10 +119,20 @@ export default function NotificationsPage() {
   }, [supported, permission, subscribed])
 
   async function checkSubscription() {
-    if (!('serviceWorker' in navigator)) return
-    const registration = await navigator.serviceWorker.ready
-    const subscription = await registration.pushManager.getSubscription()
-    setSubscribed(Boolean(subscription))
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(INAPP_ONLY_KEY) === '1') {
+        setSubscribed(true)
+        return
+      }
+      if (!('serviceWorker' in navigator)) return
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+      setSubscribed(Boolean(subscription))
+    } catch {
+      if (typeof window !== 'undefined' && localStorage.getItem(INAPP_ONLY_KEY) === '1') {
+        setSubscribed(true)
+      }
+    }
   }
 
   useEffect(() => {
@@ -171,8 +190,33 @@ export default function NotificationsPage() {
     if (!supported) return
     setLoading(true)
     try {
-      const { publicKey } = await fetchApi<{ publicKey: string }>('/api/notifications/vapid-public-key')
+      if (typeof window !== 'undefined' && typeof window.Notification !== 'undefined' && window.Notification.permission === 'default') {
+        const p = await window.Notification.requestPermission()
+        setPermission(p)
+        if (p === 'denied') {
+          toast.error('Bildirim izni reddedildi. Tarayıcı ayarlarından bu site için bildirimlere izin verin.')
+          setLoading(false)
+          return
+        }
+      }
+      if (permission === 'denied') {
+        toast.error('Bildirim izni daha önce reddedildi. Tarayıcı ayarlarından izin verin.')
+        setLoading(false)
+        return
+      }
 
+      const res = await fetchApi<{ publicKey?: string; data?: { publicKey: string } }>('/api/notifications/vapid-public-key')
+      const publicKey = res?.publicKey ?? res?.data?.publicKey
+      if (!publicKey) {
+        toast.error('Bildirim sunucusu yapılandırılamadı (VAPID anahtarı yok).')
+        setLoading(false)
+        return
+      }
+
+      if (!navigator.serviceWorker.controller) {
+        const reg = await navigator.serviceWorker.register('/sw.js')
+        await reg.ready
+      }
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -182,15 +226,30 @@ export default function NotificationsPage() {
       await fetchApi('/api/notifications/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription, user_id: userId }),
+        body: JSON.stringify({
+          subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+          user_id: userId,
+        }),
       })
 
       setSubscribed(true)
       if (typeof window !== 'undefined' && typeof window.Notification !== 'undefined') {
         setPermission(window.Notification.permission)
       }
+      toast.success('Bildirimler açıldı')
     } catch (error: any) {
-      toast.error(error.message || 'Bildirim aboneliği oluşturulamadı')
+      const msg = error?.message || error?.error || 'Bildirim aboneliği oluşturulamadı'
+      toast.error(msg)
+      // Tünel veya push yoksa uygulama içi bildirimlerle devam et (sayfa açıkken polling ile toast)
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(INAPP_ONLY_KEY, '1')
+          setSubscribed(true)
+          toast.success('Uygulama içi bildirimler açıldı. Sayfa açıkken bildirimler sağ üstte görünür.')
+        }
+      } catch {
+        // ignore
+      }
     } finally {
       setLoading(false)
     }
@@ -203,7 +262,9 @@ export default function NotificationsPage() {
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.getSubscription()
       if (!subscription) {
+        if (typeof window !== 'undefined') window.localStorage.removeItem(INAPP_ONLY_KEY)
         setSubscribed(false)
+        setLoading(false)
         return
       }
       await subscription.unsubscribe()
@@ -214,7 +275,11 @@ export default function NotificationsPage() {
       })
       setSubscribed(false)
     } catch (error: any) {
-      toast.error(error.message || 'Abonelik kaldırılamadı')
+      // Push aboneliği yoksa sadece yerel "uygulama içi" bayrağını kaldır
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(INAPP_ONLY_KEY)
+      }
+      setSubscribed(false)
     } finally {
       setLoading(false)
     }
@@ -223,10 +288,26 @@ export default function NotificationsPage() {
   async function sendTest() {
     setLoading(true)
     try {
+      if (typeof window !== 'undefined' && typeof window.Notification !== 'undefined' && window.Notification.permission === 'granted') {
+        try {
+          new window.Notification('LIVASOFA ERP', { body: 'Test bildirimi', icon: '/logo.png' })
+        } catch {
+          // ignore
+        }
+      }
       const data = await fetchApi<{ sent?: number }>('/api/notifications/test', { method: 'POST' })
-      toast.success(`Test bildirimi gönderildi. Başarılı: ${data.sent || 0}`)
+      const sent = data?.sent ?? 0
+      if (sent > 0) {
+        toast.success(`Test bildirimi gönderildi (${sent} cihaz).`)
+      } else {
+        if (window.Notification?.permission === 'granted') {
+          toast.success('Yerel test bildirimi gösterildi. Push için önce "Bildirimleri Aç" ile abone olun.')
+        } else {
+          toast.warning('Bildirim izni yok. Önce "Bildirimleri Aç" deyip tarayıcı iznini verin.')
+        }
+      }
     } catch (error: any) {
-      toast.error(error.message || 'Test bildirimi gönderilemedi')
+      toast.error(error?.message || 'Test bildirimi gönderilemedi')
     } finally {
       setLoading(false)
     }
@@ -260,6 +341,11 @@ export default function NotificationsPage() {
         <p className="text-sm text-gray-300">
           Yeni giriş yaptığınızda ve anlık bildirim geldiğinde mesaj ekranda (sağ üst) görünür. Bildirimleri açıp sesli uyarıyı etkinleştirirseniz ses de çalar.
         </p>
+        {isTunnel && (
+          <p className="text-amber-200/90 text-sm">
+            Tünel kullanıyorsunuz: Push yerine uygulama içi bildirimler kullanılır. &quot;Bildirimleri Aç&quot; ile sayfa açıkken sağ üstte bildirim alırsınız.
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-3">
           <button
@@ -342,15 +428,17 @@ export default function NotificationsPage() {
               />
               <span className="text-sm text-gray-300">Sipariş durum değişikliği</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={types.purchaseRequest}
-                onChange={(e) => setTypeAndSync('purchaseRequest', e.target.checked)}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-300">Yeni satın alma talebi</span>
-            </label>
+            <NewFeatureHighlight featureId="notification_purchase_request">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={types.purchaseRequest}
+                  onChange={(e) => setTypeAndSync('purchaseRequest', e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300">Yeni satın alma talebi</span>
+              </label>
+            </NewFeatureHighlight>
           </div>
         </div>
 
@@ -371,6 +459,8 @@ export default function NotificationsPage() {
           <ul className="space-y-2">
             {notificationsList.map((n) => {
               const href = getNotificationHref(n.reference_type, n.reference_id)
+              const isPurchaseRequest = n.reference_type === 'purchase_request' || (n.title || '').toLowerCase().includes('satın alma talebi')
+
               return (
                 <li
                   key={n.id}
@@ -379,13 +469,22 @@ export default function NotificationsPage() {
                   onClick={href ? () => router.push(href) : undefined}
                   onKeyDown={href ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(href) } } : undefined}
                   className={cn(
-                    'flex items-start justify-between gap-3 rounded-lg px-4 py-3 border',
-                    n.read ? 'bg-gray-800/50 border-gray-800 text-gray-400' : 'bg-gray-800 border-gray-700 text-white',
-                    href && 'cursor-pointer hover:bg-gray-750 transition-colors'
+                    'flex items-start justify-between gap-3 rounded-lg px-4 py-3 border transition-all duration-200',
+                    // Normal state
+                    !isPurchaseRequest && (n.read ? 'bg-gray-800/50 border-gray-800 text-gray-400' : 'bg-gray-800 border-gray-700 text-white'),
+                    // Purchase Request state (Red)
+                    isPurchaseRequest && (n.read ? 'bg-red-900/10 border-red-900/40 text-red-200/60' : 'bg-red-900/20 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.1)] text-white'),
+                    href && 'cursor-pointer hover:bg-gray-750'
                   )}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium">{n.title || 'Bildirim'}</div>
+                    <div className={cn(
+                      "font-bold flex items-center gap-2",
+                      isPurchaseRequest && !n.read ? "text-red-400" : ""
+                    )}>
+                      {isPurchaseRequest && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                      {n.title || 'Bildirim'}
+                    </div>
                     {n.message && <div className="text-sm mt-0.5 opacity-90">{n.message}</div>}
                     <div className="text-xs mt-1 opacity-60">{new Date(n.created_at).toLocaleString('tr-TR')}</div>
                   </div>
@@ -393,7 +492,10 @@ export default function NotificationsPage() {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id) }}
-                      className="shrink-0 px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition"
+                      className={cn(
+                        "shrink-0 px-3 py-1 rounded text-xs transition-colors",
+                        isPurchaseRequest ? "bg-red-600 hover:bg-red-700 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
+                      )}
                     >
                       Okundu işaretle
                     </button>

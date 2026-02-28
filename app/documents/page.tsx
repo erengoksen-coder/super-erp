@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { FileText, Upload, Search, Trash2, Download } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { FileText, Upload, Search, Trash2, Download, Plus } from 'lucide-react'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { LoadingState } from '@/components/ui/LoadingState'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
@@ -48,6 +50,7 @@ export default function DocumentsPage() {
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadCategory, setUploadCategory] = useState('diger')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -126,7 +129,7 @@ export default function DocumentsPage() {
       icon={FileText}
     >
       <div className="space-y-6">
-        <Card>
+        <Card id="documents-upload">
           <CardHeader>
             <h2 className="text-lg font-semibold text-white">Yeni doküman yükle</h2>
           </CardHeader>
@@ -157,12 +160,26 @@ export default function DocumentsPage() {
               </div>
               <div className="min-w-[220px]">
                 <label className="mb-1 block text-sm text-gray-400">Dosya (PDF, resim)</label>
-                <input
-                  type="file"
-                  accept=".pdf,image/jpeg,image/png,image/gif,image/webp"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  className="block w-full text-sm text-gray-400 file:mr-2 file:rounded file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-white"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,image/jpeg,image/png,image/gif,image/webp"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    className="sr-only"
+                    aria-hidden
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="rounded border-0 bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500"
+                  >
+                    Dosya seç
+                  </button>
+                  <span className="text-sm text-gray-400">
+                    {uploadFile ? uploadFile.name : 'Dosya seçilmedi'}
+                  </span>
+                </div>
               </div>
               <Button type="submit" disabled={uploading || !uploadFile || !uploadTitle.trim()}>
                 <Upload className="mr-2 h-4 w-4" />
@@ -200,9 +217,25 @@ export default function DocumentsPage() {
           </CardHeader>
           <CardBody>
             {loading ? (
-              <p className="text-gray-400">Yükleniyor…</p>
+              <LoadingState message="Doküman listesi yükleniyor…" />
             ) : list.length === 0 ? (
-              <p className="text-gray-400">Doküman bulunamadı. Yukarıdan yükleyebilirsiniz.</p>
+              <EmptyState
+                title="Henüz doküman yok"
+                description="Sözleşme, fatura kopyası veya teknik doküman gibi dosyaları yükleyerek başlayın."
+                icon={FileText}
+                action={
+                  <Button
+                    variant="solid"
+                    color="primary"
+                    size="sm"
+                    className="inline-flex items-center gap-2"
+                    onClick={() => document.getElementById('documents-upload')?.scrollIntoView({ behavior: 'smooth' })}
+                  >
+                    <Plus size={18} />
+                    İlk dokümanı yükle
+                  </Button>
+                }
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">

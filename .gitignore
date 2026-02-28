@@ -37,6 +37,7 @@ yarn-error.log*
 /uploads/
 
 # local env files
+.env
 .env*.local
 
 # ngrok token (paste your token in this file - do not commit)

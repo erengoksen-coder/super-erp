@@ -9,16 +9,26 @@ type WarehouseInput = {
   name?: string
 }
 
-// GET: Depoları listele
+// GET: Depoları listele (stok bilgisiyle birlikte)
 export const GET = withAuth(async (request) => {
   try {
     const db = getDatabase()
     const warehouses = db.prepare(`
-      SELECT *
-      FROM warehouses
-      WHERE deleted_at IS NULL
-        AND company_id = ? AND branch_id = ?
-      ORDER BY code ASC
+      SELECT w.*,
+        COALESCE(s.stock_count, 0) as stock_count,
+        COALESCE(s.stock_value, 0) as stock_value
+      FROM warehouses w
+      LEFT JOIN (
+        SELECT warehouse_id,
+          COUNT(DISTINCT material_id) as stock_count,
+          COALESCE(SUM(quantity), 0) as stock_value
+        FROM stock_movements
+        WHERE deleted_at IS NULL
+        GROUP BY warehouse_id
+      ) s ON s.warehouse_id = w.id
+      WHERE w.deleted_at IS NULL
+        AND w.company_id = ? AND w.branch_id = ?
+      ORDER BY w.code ASC
     `).all(DEFAULT_COMPANY_ID, DEFAULT_BRANCH_ID)
     return NextResponse.json(warehouses)
   } catch (error: any) {

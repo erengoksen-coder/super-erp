@@ -33,6 +33,7 @@ type UpdateInput = {
   given_to?: string | null
   given_at?: string | null
   given_to_account_id?: string | null
+  cash_box_id?: string | null
 }
 
 async function resolveId(request: NextRequest, context?: unknown): Promise<string> {
@@ -80,8 +81,8 @@ export const PUT = withAuth(async (request: NextRequest, _user, context?: unknow
     const body = await parseJsonBody(request) as UpdateInput
     const db = getDatabase()
     const existing = db.prepare(`
-      SELECT id, account_id, status, amount, direction, given_to_account_id FROM checks_and_notes WHERE id = ? AND deleted_at IS NULL
-    `).get(id) as { id: string; account_id: string; status: string; amount: number; direction: string; given_to_account_id: string | null } | undefined
+      SELECT id, account_id, status, amount, direction, given_to_account_id, cash_box_id FROM checks_and_notes WHERE id = ? AND deleted_at IS NULL
+    `).get(id) as { id: string; account_id: string; status: string; amount: number; direction: string; given_to_account_id: string | null; cash_box_id: string | null } | undefined
     if (!existing) return fail('Kayıt bulunamadı', { status: 404 })
 
     if (body.account_id != null) {
@@ -101,7 +102,7 @@ export const PUT = withAuth(async (request: NextRequest, _user, context?: unknow
     const allowed: (keyof UpdateInput)[] = [
       'type', 'direction', 'account_id', 'amount', 'currency',
       'issue_date', 'due_date', 'bank_name', 'check_or_note_number', 'status', 'notes',
-      'given_to', 'given_at', 'given_to_account_id'
+      'given_to', 'given_at', 'given_to_account_id', 'cash_box_id'
     ]
     for (const key of allowed) {
       const v = body[key]
@@ -130,7 +131,39 @@ export const PUT = withAuth(async (request: NextRequest, _user, context?: unknow
     const prevStatus = existing.status
     const prevGivenToAccountId = existing.given_to_account_id
     const newGivenToAccountId = body.given_to_account_id !== undefined ? (body.given_to_account_id || null) : prevGivenToAccountId
+    const cashBoxId = body.cash_box_id !== undefined ? (body.cash_box_id || null) : null
+    const prevCashBoxId = existing.cash_box_id
     const txId = randomUUID()
+
+    // Tahsilat: Alındığı cari çek/senet tahsil edildi → kasa girişi, cari mahsup (debit)
+    if (newStatus === 'collected' && prevStatus !== 'collected' && existing.direction === 'received') {
+      if (!cashBoxId) return fail('Tahsilat için kasa seçimi gerekli', { status: 400 })
+      const cashBox = db.prepare('SELECT id FROM cash_boxes WHERE id = ? AND deleted_at IS NULL').get(cashBoxId) as { id: string } | undefined
+      if (!cashBox) return fail('Kasa bulunamadı', { status: 404 })
+      const debitTxId = randomUUID()
+      const now = new Date().toISOString()
+      db.prepare(`
+        INSERT INTO account_transactions
+        (id, account_id, transaction_type, amount, reference_type, reference_id, description, created_at)
+        VALUES (?, ?, 'debit', ?, ?, ?, ?, ?)
+      `).run(debitTxId, accountId, amount, CHECK_NOTE_REFERENCE_TYPE, id, 'Çek/Senet tahsil edildi (kasa)', now)
+      db.prepare('UPDATE cash_boxes SET balance = balance + ?, updated_at = ? WHERE id = ?').run(amount, now, cashBoxId)
+      db.prepare('UPDATE checks_and_notes SET cash_box_id = ?, updated_at = ? WHERE id = ?').run(cashBoxId, now, id)
+      recalcAccountBalance(db, accountId)
+      return ok({ id }, { message: 'Çek/Senet tahsil edildi, kasa güncellendi' })
+    }
+    if (newStatus !== 'collected' && prevStatus === 'collected' && existing.direction === 'received') {
+      // Tahsilat geri alındı
+      if (prevCashBoxId) {
+        db.prepare('UPDATE cash_boxes SET balance = balance - ?, updated_at = ? WHERE id = ?').run(amount, new Date().toISOString(), prevCashBoxId)
+      }
+      db.prepare(`
+        DELETE FROM account_transactions
+        WHERE account_id = ? AND reference_type = ? AND reference_id = ? AND transaction_type = 'debit' AND description LIKE '%tahsil%'
+      `).run(accountId, CHECK_NOTE_REFERENCE_TYPE, id)
+      db.prepare('UPDATE checks_and_notes SET cash_box_id = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+      recalcAccountBalance(db, accountId)
+    }
 
     if (newStatus === 'given' && prevStatus !== 'given' && existing.direction === 'received') {
       // Alındığı cari: POST'ta zaten hareket oluşturulduysa sadece açıklamayı güncelle, yoksa insert (eski kayıtlar)

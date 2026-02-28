@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   const manifest = {
     name: 'LIVASOFA - Süper ERP',
-    short_name: 'Super ERP',
+    short_name: 'LIVASOFA ERP',
     description: 'Koltuk Üretim Yönetim Sistemi',
     start_url: '/',
     display: 'standalone',

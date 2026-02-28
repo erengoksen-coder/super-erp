@@ -46,23 +46,31 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // Dil değiştiğinde çevirileri yükle
   useEffect(() => {
-    if (!loadedTranslations[language] || Object.keys(loadedTranslations[language]).length === 0) {
-      loadTranslations(language).then(trans => {
-        setLoadedTranslations(prev => ({
-          ...prev,
-          [language]: trans
-        }))
-        translations[language] = trans
-      })
-    }
-  }, [language, loadedTranslations])
+    // Zaten yüklüyse veya yüklenen bir şey gelmişse tekrar deneme
+    if (Object.keys(loadedTranslations[language]).length > 0) return
 
-  // İlk yüklemede Türkçe çevirileri yükle
+    let active = true
+    loadTranslations(language).then(trans => {
+      if (!active) return
+      // Boş olsa bile yüklendiğini işaretlemek için sembolik bir alan ekleyebiliriz
+      // veya sadece trans'ın kendisini atayabiliriz.
+      // Eğer trans boş gelse bile bir kere denediğimizi bilmeliyiz.
+      setLoadedTranslations(prev => ({
+        ...prev,
+        [language]: Object.keys(trans).length > 0 ? trans : { __loaded: "true" }
+      }))
+      translations[language] = trans
+    })
+    return () => { active = false }
+  }, [language])
+
+  // İlk yüklemede Türkçe çevirileri yükle (eğer varsayılan TR ise yukarıdaki de yapacak ama güvenlik için)
   useEffect(() => {
+    if (language === 'tr') return // Zaten yukarıdaki useEffect halleder
     loadTranslations('tr').then(trans => {
       setLoadedTranslations(prev => ({
         ...prev,
-        tr: trans
+        tr: Object.keys(trans).length > 0 ? trans : { __loaded: "true" }
       }))
       translations.tr = trans
     })
@@ -70,11 +78,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const t = (key: string, params?: Record<string, string | number>): string => {
     const currentTranslations = loadedTranslations[language] || translations[language] || {}
-    
+
     // Nokta notasyonu ile nested key'leri destekle (örn: "common.save")
     const keys = key.split('.')
     let value: any = currentTranslations
-    
+
     for (const k of keys) {
       if (value && typeof value === 'object' && k in value) {
         value = value[k]
@@ -83,18 +91,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         return key
       }
     }
-    
+
     if (typeof value !== 'string') {
       return key
     }
-    
+
     // Parametreleri değiştir (örn: "Merhaba {name}" -> "Merhaba Ahmet")
     if (params) {
       return value.replace(/\{(\w+)\}/g, (match, paramKey) => {
         return params[paramKey]?.toString() || match
       })
     }
-    
+
     return value
   }
 

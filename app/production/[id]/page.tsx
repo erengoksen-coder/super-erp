@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer, Copy } from 'lucide-react'
+import { ArrowLeft, Save, AlertTriangle, CheckCircle, Clock, Truck, Package, User, RotateCcw, Printer, Copy, FileText, Eye } from 'lucide-react'
 import { fetchApi } from '@/lib/api/client'
 import { toast } from '@/lib/notify'
 import { formatDate } from '@/lib/utils/dateFormat'
@@ -48,6 +48,7 @@ interface Barcode {
   ready_for_shipment: number
   customer_id: string | null
   status: string
+  shipment_id?: string | null
 }
 
 export default function ProductionOrderDetailPage() {
@@ -64,6 +65,7 @@ export default function ProductionOrderDetailPage() {
   const [actualQuantities, setActualQuantities] = useState<Record<string, string>>({})
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [customers, setCustomers] = useState<any[]>([])
+  const [entries, setEntries] = useState<any[]>([])
 
   useEffect(() => {
     loadData()
@@ -112,6 +114,7 @@ export default function ProductionOrderDetailPage() {
         setConsumptions([])
         setBarcodes([])
         setCustomers([])
+        setEntries([])
         return
       }
 
@@ -126,7 +129,7 @@ export default function ProductionOrderDetailPage() {
       if (consumptionResponse.ok) {
         const data = await consumptionResponse.json()
         setConsumptions(data)
-        
+
         // Mevcut fiili miktarları state'e yükle
         const quantities: Record<string, string> = {}
         data.forEach((item: ActualConsumption) => {
@@ -143,6 +146,10 @@ export default function ProductionOrderDetailPage() {
         const barcodesData = await barcodesResponse.json()
         setBarcodes(barcodesData)
       }
+
+      // Muhasebe kayıtlarını yükle
+      const entriesResponse = await fetchApi<any[]>(`/api/accounting/journal-entries?reference_id=${productionOrderId}`)
+      setEntries(Array.isArray(entriesResponse) ? entriesResponse : [])
 
       // Müşterileri yükle (limit=500 ile tüm cariler)
       const customersData = await fetchApi<{ id: string; code: string; name: string }[]>('/api/accounts?type=customer&limit=500')
@@ -231,7 +238,7 @@ export default function ProductionOrderDetailPage() {
 
       const result = await response.json()
       toast.success(`Kaydedildi! Varyans: ${result.variancePercentage}%`)
-      
+
       // Veriyi yeniden yükle
       await loadData()
     } catch (error: any) {
@@ -248,8 +255,8 @@ export default function ProductionOrderDetailPage() {
       completed: { label: 'Tamamlandı', className: 'bg-green-900 text-green-300', icon: CheckCircle },
       cancelled: { label: 'İptal', className: 'bg-red-900 text-red-300', icon: AlertTriangle },
     }
-    const statusInfo = statusMap[status] || { 
-      label: status, 
+    const statusInfo = statusMap[status] || {
+      label: status,
       className: 'bg-gray-800 text-gray-300',
       icon: Clock
     }
@@ -378,9 +385,8 @@ export default function ProductionOrderDetailPage() {
                     </div>
                   </div>
                   {item.variance !== null && (
-                    <div className={`text-sm font-semibold ${
-                      item.variance > 0 ? 'text-red-400' : item.variance < 0 ? 'text-green-400' : 'text-gray-400'
-                    }`}>
+                    <div className={`text-sm font-semibold ${item.variance > 0 ? 'text-red-400' : item.variance < 0 ? 'text-green-400' : 'text-gray-400'
+                      }`}>
                       {item.variance > 0 ? '+' : ''}{item.variance.toFixed(2)} {item.unit}
                       <br />
                       <span className="text-xs">
@@ -480,9 +486,8 @@ export default function ProductionOrderDetailPage() {
             {barcodes.map((barcode) => (
               <div
                 key={barcode.id}
-                className={`bg-gray-800 rounded-lg border p-3 flex items-center justify-between ${
-                  barcode.ready_for_shipment ? 'border-green-700 bg-green-900/20' : 'border-gray-700'
-                }`}
+                className={`bg-gray-800 rounded-lg border p-3 flex items-center justify-between ${barcode.ready_for_shipment ? 'border-green-700 bg-green-900/20' : 'border-gray-700'
+                  }`}
               >
                 <div className="flex-1">
                   <div className="flex items-center space-x-3">
@@ -506,7 +511,12 @@ export default function ProductionOrderDetailPage() {
                     <Printer className="w-4 h-4" />
                     <span>Yazdır</span>
                   </button>
-                  {barcode.ready_for_shipment ? (
+                  {barcode.shipment_id ? (
+                    <span className="text-blue-400 text-sm font-semibold flex items-center space-x-1 px-3 py-1 bg-blue-900/40 rounded border border-blue-800">
+                      <Truck className="w-4 h-4" />
+                      <span>Sevk Edildi</span>
+                    </span>
+                  ) : barcode.ready_for_shipment ? (
                     <>
                       <span className="text-green-400 text-sm font-semibold flex items-center space-x-1">
                         <Truck className="w-4 h-4" />
@@ -537,6 +547,38 @@ export default function ProductionOrderDetailPage() {
             <p className="text-blue-300 text-sm">
               💡 Ürünleri sevk edilebilir olarak işaretledikten sonra, <Link href="/shipments/new" className="underline font-semibold">Sevkiyat</Link> sayfasından sevk fişi oluşturabilirsiniz.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Muhasebe Kayıtları */}
+      {entries.length > 0 && (
+        <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 mb-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <FileText className="w-5 h-5 text-indigo-400" />
+            Muhasebe Kayıtları
+          </h2>
+          <div className="space-y-3">
+            {entries.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-xl border border-gray-700/50 hover:bg-gray-800 transition">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">Yevmiye Fişi #{entry.entry_number}</div>
+                    <div className="text-xs text-gray-500">{entry.description || 'Üretim/Satış Kaydı'} • {new Date(entry.entry_date).toLocaleDateString()}</div>
+                  </div>
+                </div>
+                <Link
+                  href={`/finance/journal-entries/${entry.id}`}
+                  className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition"
+                  title="Detayı Gör"
+                >
+                  <Eye className="w-4 h-4" />
+                </Link>
+              </div>
+            ))}
           </div>
         </div>
       )}

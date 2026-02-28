@@ -32,6 +32,7 @@ export const ROLES = {
   ADMIN: 'admin',
   USER: 'user',
   BAYI: 'bayi',
+  BULUT_TEMSILCISI: 'bulut_temsilcisi',
 } as const
 
 /** Varsayılan sayfalama */

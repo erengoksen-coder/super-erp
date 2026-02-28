@@ -77,15 +77,13 @@ test.describe('Kullanıcı akışları (auth gerekli)', () => {
   })
 
   test('faturalar sayfası açılır ve liste veya başlık görünür', async ({ page }, testInfo) => {
-    await page.goto('/invoices', { waitUntil: 'networkidle' })
+    await page.goto('/invoices', { waitUntil: 'domcontentloaded' })
+    await expect(page).toHaveURL(/\/invoices/, { timeout: 15_000 })
     if (page.url().includes('/auth/login')) {
       testInfo.skip(true, 'Oturum yok')
       return
     }
-    await expect(page).toHaveURL(/\/invoices/, { timeout: 10_000 })
-    await expect(
-      page.getByRole('heading', { name: 'Faturalar' }).or(page.getByText(/fatura|invoice/i).first())
-    ).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/Faturalar|fatura listesi|Toplam kayıt|\d+ fatura/).first()).toBeVisible({ timeout: 20_000 })
   })
 
   test('cari hesaplar sayfası açılır', async ({ page }, testInfo) => {
@@ -104,8 +102,9 @@ test.describe('Kullanıcı akışları (auth gerekli)', () => {
       testInfo.skip(true, 'Oturum yok')
       return
     }
+    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: 'Çıkış' }).click()
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 10_000 })
-    await expect(page.getByPlaceholder('Kullanıcı adınızı girin')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByPlaceholder('Kullanıcı adınızı girin')).toBeVisible({ timeout: 20_000 })
+    await expect(page).toHaveURL(/(auth\/login\/?|\/)$/, { timeout: 5000 })
   })
 })

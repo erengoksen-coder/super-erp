@@ -28,9 +28,10 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string;
       username: string | null
     }
     const db = getDatabase()
+    const dataCols = 'COALESCE(a.old_data, a.before_data) as before_data, COALESCE(a.new_data, a.after_data) as after_data'
     const rows: Row[] = tableFilter
       ? (db.prepare(`
-          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, a.before_data, a.after_data, a.created_at,
+          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, ${dataCols}, a.created_at,
                  u.full_name as user_name, u.username
           FROM audit_logs a
           LEFT JOIN users u ON u.id = a.user_id
@@ -39,7 +40,7 @@ export const GET = withAuth(async (request: NextRequest, user: { userId: string;
           LIMIT ?
         `).all(tableFilter, limit) as Row[])
       : (db.prepare(`
-          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, a.before_data, a.after_data, a.created_at,
+          SELECT a.id, a.table_name, a.action, a.record_id, a.user_id, ${dataCols}, a.created_at,
                  u.full_name as user_name, u.username
           FROM audit_logs a
           LEFT JOIN users u ON u.id = a.user_id

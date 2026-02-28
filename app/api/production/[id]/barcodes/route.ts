@@ -13,6 +13,7 @@ type ProductSerialRow = {
   created_at: string
   product_name?: string
   product_sku?: string
+  shipment_id?: string | null
 }
 
 // GET: Üretim emrine ait barkodları getir
@@ -33,7 +34,8 @@ export const GET = withAuth(async (
       SELECT 
         psn.*,
         p.name as product_name,
-        p.sku as product_sku
+        p.sku as product_sku,
+        psn.shipment_id
       FROM product_serial_numbers psn
       JOIN active_products p ON psn.product_id = p.id
       WHERE psn.production_order_id = ?

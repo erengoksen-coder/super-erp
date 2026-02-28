@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Factory, Trash2, RotateCcw } from 'lucide-react'
+import { Plus, Search, Factory, Trash2, RotateCcw, BarChart3 } from 'lucide-react'
 import { useI18n } from '@/lib/i18n'
 import { fetchApi } from '@/lib/api/client'
-import { type ProductionOrder } from '@/components/production/KanbanBoard'
+import { KanbanBoard, type ProductionOrder } from '@/components/production/KanbanBoard'
 import { formatOrderDateDisplay } from '@/lib/utils/dateFormat'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -19,6 +19,22 @@ import { toast } from '@/lib/notify'
 
 
 const APP_TITLE = 'LIVASOFA ERP'
+
+const STATION_LABELS: Record<string, string> = {
+  iskelet: 'İskelet',
+  terzihane: 'Terzihane',
+  berjer: 'Berjer',
+  döseme: 'Döşeme',
+  montaj: 'Montaj',
+  sevkiyat: 'Sevkiyatta',
+  completed: 'Üretim tamamlandı',
+}
+
+function getStationLabel(station: string | null | undefined): string {
+  if (!station || !station.trim()) return 'İskelet'
+  const key = station.trim().toLowerCase()
+  return STATION_LABELS[key] ?? station
+}
 
 export default function ProductionPage() {
   const { t } = useI18n()
@@ -293,9 +309,9 @@ export default function ProductionPage() {
       order.customer_order_number,
       order.configuration,
     ].some((value) => normalize(value).includes(search))
-    
+
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter
-    
+
     return matchesSearch && matchesStatus
   })
 
@@ -324,6 +340,15 @@ export default function ProductionPage() {
       icon={Factory}
       actions={
         <>
+          <Button
+            variant="outline"
+            color="primary"
+            size="sm"
+            onClick={() => router.push('/production/dashboard')}
+          >
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Performans Paneli
+          </Button>
           <Button
             variant="solid"
             color="primary"
@@ -380,7 +405,7 @@ export default function ProductionPage() {
                 fullWidth
               />
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <Button
                 variant={statusFilter === 'all' ? 'solid' : 'outline'}
@@ -432,10 +457,10 @@ export default function ProductionPage() {
       <Card>
         <CardHeader title={
           statusFilter === 'in_progress' ? 'Devam Eden Siparişler' :
-          statusFilter === 'completed' ? 'Tamamlanan Siparişler' :
-          statusFilter === 'shipped' ? 'Sevk Edilen Siparişler' :
-          statusFilter === 'all' ? 'Tüm Siparişler' :
-          'Yeni Siparişler (Üretim Emirlerine Dönüştür)'
+            statusFilter === 'completed' ? 'Tamamlanan Siparişler' :
+              statusFilter === 'shipped' ? 'Sevk Edilen Siparişler' :
+                statusFilter === 'all' ? 'Tüm Siparişler' :
+                  'Yeni Siparişler (Üretim Emirlerine Dönüştür)'
         } />
         <CardBody>
           {statusFilter === 'all' ? (
@@ -492,6 +517,7 @@ export default function ProductionPage() {
                         <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
                         <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
                         <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className={`px-2 py-1 rounded text-xs border ${statusBadge.className}`}>{statusBadge.label}</span></div></div>
+                        <div><div className="text-xs text-gray-400 mb-1">Nerede devam ediyor</div><div className="text-white font-medium text-blue-300">{(order.status === 'in_production' || order.status === 'in_progress') ? <span className="px-2 py-1 rounded bg-blue-900/40 border border-blue-600">{getStationLabel(order.production_current_station)}</span> : '-'}</div></div>
                         <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
                         <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
                         <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
@@ -578,58 +604,48 @@ export default function ProductionPage() {
             filteredOrdersByStatus.length === 0 ? (
               <div className="text-sm text-gray-500">Devam eden sipariş yok.</div>
             ) : (
-              <div className="space-y-4">
-                {filteredOrdersByStatus.map((order) => {
-                  const notesText = normalizeNotes(order.notes).trim()
-                  const fabricMatch = notesText.match(/Kumaş:\s*([^|]+)/i)
-                  const caseMatch = notesText.match(/Kasa:\s*([^|]+)/i)
-                  const legMatch = notesText.match(/Ayak:\s*([^|]+)/i)
-                  const cushionMatch = notesText.match(/Kirlent:\s*([^|]+)/i)
-                  const unitMatch = notesText.match(/Birim:\s*([^|]+)/i)
-                  const cleanedNotes = notesText
-                    .replace(/Kumaş:\s*[^|]+/gi, '')
-                    .replace(/Kasa:\s*[^|]+/gi, '')
-                    .replace(/Ayak:\s*[^|]+/gi, '')
-                    .replace(/Kirlent:\s*[^|]+/gi, '')
-                    .replace(/Birim:\s*[^|]+/gi, '')
-                    .replace(/\|\s*\|\s*/g, '|')
-                    .replace(/^\|\s*|\s*\|$/g, '')
-                    .trim()
-                  const quantityUnit = (unitMatch?.[1] || order.unit || 'ADET').toString().trim()
+              <KanbanBoard
+                orders={filteredOrdersByStatus as ProductionOrder[]}
+                onOrderClick={(order) => router.push(`/production/${order.id}`)}
+                onOrderMoved={async (orderId, newStationId) => {
+                  try {
+                    // Update the local state optimistically
+                    setFilteredOrdersByStatus((prev) =>
+                      prev.map((order) => {
+                        if (order.id === orderId) {
+                          // Change the display station optimistically so UI doesn't bounce back
+                          return { ...order, current_station: newStationId, production_current_station: newStationId }
+                        }
+                        return order
+                      })
+                    )
 
-                  return (
-                    <div key={order.id} className="bg-gray-900 rounded-lg border-2 border-gray-600 p-4 hover:bg-gray-800/30">
-                      <div className="flex justify-between items-start gap-3 mb-4">
-                        <span className="text-xl font-bold text-white font-mono tracking-tight">{order.order_number || '-'}</span>
-                        {order.production_order_id && (
-                          <Button variant="outline" size="sm" className="!border-red-600 !text-red-400 hover:!bg-red-900/30 rounded-md" onClick={() => cancelProductionOrder(order.production_order_id)} disabled={cancellingProductionOrderId === order.production_order_id}>
-                            <RotateCcw className="w-4 h-4 mr-1" />
-                            {cancellingProductionOrderId === order.production_order_id ? 'İptal ediliyor...' : 'ÜRETİMİ İPTAL ET'}
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-                        <div><div className="text-xs text-gray-400 mb-1">Seç</div><div className="text-white text-sm">-</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-blue-900/30 text-blue-400 border-blue-700">Devam Eden</span></div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
-                        <div />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+                    const res = await fetchApi(`/api/production/${orderId}/station`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ station: newStationId })
+                    })
+                    toast.success('İstasyon güncellendi: ' + getStationLabel(newStationId))
+                    // Re-load numbers softly in the background
+                    loadOrdersCountsByStatus()
+
+                    // If moving directly to completed/sevk from Kanban
+                    if (newStationId === 'completed' || newStationId === 'sevkiyat') {
+                      setTimeout(() => {
+                        loadOrdersByStatus(statusFilter).then((list) => {
+                          setFilteredOrdersByStatus(Array.isArray(list) ? list : [])
+                        })
+                      }, 1000)
+                    }
+                  } catch (e: any) {
+                    toast.error('İstasyon güncellenemedi: ' + e.message)
+                    // Revert optimism
+                    loadOrdersByStatus(statusFilter).then((list) => {
+                      setFilteredOrdersByStatus(Array.isArray(list) ? list : [])
+                    })
+                  }
+                }}
+              />
             )
           ) : statusFilter === 'completed' ? (
             filteredOrdersByStatus.length === 0 ? (
@@ -659,23 +675,21 @@ export default function ProductionPage() {
                       <div className="flex justify-between items-start gap-3 mb-4">
                         <span className="text-xl font-bold text-white font-mono tracking-tight">{order.order_number || '-'}</span>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-                        <div><div className="text-xs text-gray-400 mb-1">Seç</div><div className="text-white text-sm">-</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-green-900/30 text-green-400 border-green-700">Tamamlandı</span></div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
-                        <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
-                        <div />
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Takip No</div><div className="text-slate-200 font-medium">{order.order_number || '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Cari Adı</div><div className="text-slate-200 font-medium">{order.dealer_name || '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Müşteri Adı</div><div className="text-slate-200 font-medium">{order.customer_name || '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Sipariş Tarihi</div><div className="text-slate-200 font-medium">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Ürün Adı</div><div className="text-slate-200 font-medium">{order.product_name || '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Sipariş Miktarı</div><div className="text-slate-200 font-medium">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Konfigürasyon</div><div className="text-slate-200 font-medium">{order.configuration || '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kasa</div><div className="text-slate-200 font-medium">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Ayak</div><div className="text-slate-200 font-medium">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kumaş Kodu</div><div className="text-slate-200 font-medium">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kırlent</div><div className="text-slate-200 font-medium">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Üretim Emri</div><div className="text-slate-200 font-medium">{order.production_order_id ? <a href={`/production/${order.production_order_id}`} className="text-blue-400 hover:text-blue-300 underline font-semibold">{order.production_order_number || order.production_order_id}</a> : '-'}</div></div>
+                        <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Durum</div><div><span className="px-2.5 py-1 rounded border bg-emerald-900/20 text-emerald-400 border-emerald-800/50 text-xs font-medium">Tamamlandı</span></div></div>
+                        <div className="col-span-full space-y-1"><div className="text-[11px] text-slate-500 font-medium">Açıklama</div><div className="text-slate-300 bg-slate-800/40 border border-slate-700/50 p-3 rounded-md min-h-[40px] text-sm break-words whitespace-normal leading-relaxed">{cleanedNotes || '-'}</div></div>
                       </div>
                     </div>
                   )
@@ -720,23 +734,20 @@ export default function ProductionPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-                      <div><div className="text-xs text-gray-400 mb-1">Seç</div><div className="text-white text-sm">-</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">TAKİP NO</div><div className="text-white text-sm font-mono">{order.order_number || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">KASA</div><div className="text-white text-sm">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">Durum</div><div><span className="px-2 py-1 rounded text-xs border bg-yellow-900/30 text-yellow-400 border-yellow-700">Beklemede</span></div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">CARİ ADI</div><div className="text-white text-sm">{order.dealer_name || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">AÇIKLAMA</div><div className="text-white text-sm break-words whitespace-normal">{cleanedNotes || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">KUMAŞ KODU</div><div className="text-white text-sm">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">Üretim Emri</div><div className="text-white text-sm">-</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">ÜRÜN ADI</div><div className="text-white text-sm">{order.product_name || order.matched_product_name || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">SİP MİKTAR</div><div className="text-white text-sm">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">KONFİGÜRASYON</div><div className="text-white text-sm">{order.configuration || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">SİP TRH</div><div className="text-white text-sm">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">MÜŞTERİ ADI</div><div className="text-white text-sm">{order.customer_name || '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">AYAK</div><div className="text-white text-sm">{legMatch ? legMatch[1].trim() : '-'}</div></div>
-                      <div><div className="text-xs text-gray-400 mb-1">KİRLENT</div><div className="text-white text-sm">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
-                      <div />
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Takip No</div><div className="text-slate-200 font-medium">{order.order_number || '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Cari Adı</div><div className="text-slate-200 font-medium">{order.dealer_name || '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Müşteri Adı</div><div className="text-slate-200 font-medium">{order.customer_name || '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Sipariş Tarihi</div><div className="text-slate-200 font-medium">{formatOrderDateDisplay(order.order_date, (order as any).created_at ?? null)}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Ürün Adı</div><div className="text-slate-200 font-medium">{order.product_name || order.matched_product_name || '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Sipariş Miktarı</div><div className="text-slate-200 font-medium">{order.quantity || '-'} {quantityUnit || 'ADET'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Konfigürasyon</div><div className="text-slate-200 font-medium">{order.configuration || '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kasa</div><div className="text-slate-200 font-medium">{caseMatch ? caseMatch[1].trim() : '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Ayak</div><div className="text-slate-200 font-medium">{legMatch ? legMatch[1].trim() : '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kumaş Kodu</div><div className="text-slate-200 font-medium">{fabricMatch ? fabricMatch[1].trim() : '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Kırlent</div><div className="text-slate-200 font-medium">{cushionMatch ? cushionMatch[1].trim() : '-'}</div></div>
+                      <div className="space-y-1"><div className="text-[11px] text-slate-500 font-medium">Durum</div><div><span className="px-2.5 py-1 rounded border bg-amber-900/20 text-amber-400 border-amber-800/50 text-xs font-medium">Beklemede</span></div></div>
+                      <div className="col-span-full space-y-1"><div className="text-[11px] text-slate-500 font-medium">Açıklama</div><div className="text-slate-300 bg-slate-800/40 border border-slate-700/50 p-3 rounded-md min-h-[40px] text-sm break-words whitespace-normal leading-relaxed">{cleanedNotes || '-'}</div></div>
                     </div>
                   </div>
                 )

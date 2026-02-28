@@ -105,21 +105,21 @@ export default function FireAnalysisPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-              <p className="text-gray-400 text-sm">Toplam Plan</p>
-              <p className="text-white text-2xl font-semibold">{totals.total_planned.toFixed(2)}</p>
+            <div className="bg-gradient-to-br from-blue-900/40 to-blue-800/20 border border-blue-800/50 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-blue-400 text-xs font-medium mb-1">📋 Toplam Plan</div>
+              <p className="text-white text-2xl font-bold">{totals.total_planned.toFixed(2)}</p>
             </div>
-            <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-              <p className="text-gray-400 text-sm">Toplam Fiili</p>
-              <p className="text-white text-2xl font-semibold">{totals.total_actual.toFixed(2)}</p>
+            <div className="bg-gradient-to-br from-green-900/40 to-green-800/20 border border-green-800/50 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-green-400 text-xs font-medium mb-1">✅ Toplam Fiili</div>
+              <p className="text-white text-2xl font-bold">{totals.total_actual.toFixed(2)}</p>
             </div>
-            <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-              <p className="text-gray-400 text-sm">Toplam Fire</p>
-              <p className="text-orange-400 text-2xl font-semibold">{totals.total_fire.toFixed(2)}</p>
+            <div className="bg-gradient-to-br from-orange-900/40 to-orange-800/20 border border-orange-800/50 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-orange-400 text-xs font-medium mb-1">🔥 Toplam Fire</div>
+              <p className="text-orange-400 text-2xl font-bold">{totals.total_fire.toFixed(2)}</p>
             </div>
-            <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
-              <p className="text-gray-400 text-sm">Maliyet Sapması</p>
-              <p className="text-red-400 text-2xl font-semibold">{totals.total_cost_variance.toFixed(2)} ₺</p>
+            <div className="bg-gradient-to-br from-red-900/40 to-red-800/20 border border-red-800/50 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-red-400 text-xs font-medium mb-1">💰 Maliyet Sapması</div>
+              <p className="text-red-400 text-2xl font-bold">{totals.total_cost_variance.toFixed(2)} ₺</p>
             </div>
           </div>
 

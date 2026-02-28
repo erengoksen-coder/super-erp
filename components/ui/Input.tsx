@@ -26,11 +26,11 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(({
 }, ref) => {
   const generatedId = React.useId()
   const inputId = id ?? generatedId
-  
-  const baseClasses = 'block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm transition-colors duration-200'
+
+  const baseClasses = 'block w-full rounded-xl px-4 py-2.5 border border-slate-700/50 bg-slate-900/50 text-slate-100 placeholder-slate-500/80 shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)] focus:bg-slate-800 focus:border-blue-500 focus:ring-[3px] focus:ring-blue-500/30 sm:text-sm transition-all duration-300 hover:border-slate-600/80 peer'
   const variantClasses = inputVariants[variant]
-  const errorClasses = error ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-  
+  const errorClasses = error ? 'border-red-500/50 focus:border-red-500 focus:ring-[3px] focus:ring-red-500/30' : ''
+
   const classes = cn(
     baseClasses,
     variantClasses,
@@ -41,43 +41,43 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(({
   )
 
   return (
-    <div className={cn('relative', fullWidth && 'w-full')}>
+    <div className={cn('relative group', fullWidth && 'w-full')}>
       {label && (
-        <label 
+        <label
           htmlFor={inputId}
-          className="block text-sm font-medium text-gray-700 mb-2"
+          className="block text-[13px] font-semibold text-slate-400 mb-1.5 tracking-wide transition-colors group-focus-within:text-blue-400"
         >
           {label}
         </label>
       )}
-      
+
       <div className="relative">
         {leftIcon && (
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <span className="text-gray-400 sm:text-sm">{leftIcon}</span>
           </div>
         )}
-        
+
         <input
           ref={ref}
           id={inputId}
           className={classes}
           {...props}
         />
-        
+
         {rightIcon && (
           <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
             <span className="text-gray-400 sm:text-sm">{rightIcon}</span>
           </div>
         )}
       </div>
-      
+
       {error && (
         <p className="mt-2 text-sm text-red-600" id={`${inputId}-error`}>
           {error}
         </p>
       )}
-      
+
       {helperText && !error && (
         <p className="mt-2 text-sm text-gray-500" id={`${inputId}-helper`}>
           {helperText}

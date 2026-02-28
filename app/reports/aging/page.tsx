@@ -7,6 +7,7 @@ import { fetchApi } from '@/lib/api/client'
 import { useAuthStore } from '@/lib/store/authStore'
 import { toast } from '@/lib/notify'
 import { LogoWithBackground } from '@/components/Logo'
+import { NewFeatureHighlight } from '@/components/NewFeatureHighlight'
 import { jsPDF } from 'jspdf'
 import * as XLSX from 'xlsx'
 
@@ -36,6 +37,23 @@ const BUCKET_LABELS: Record<string, string> = {
   '31-60': '31-60 gün',
   '61-90': '61-90 gün',
   '90+': '90+ gün',
+}
+
+/** PDF'de okunaklı metin için Türkçe karakterleri ASCII'ye çevirir (jsPDF varsayılan fontu Türkçe desteklemez). */
+function pdfSafeText(s: string): string {
+  return (s ?? '')
+    .replace(/ı/g, 'i')
+    .replace(/İ/g, 'I')
+    .replace(/ğ/g, 'g')
+    .replace(/Ğ/g, 'G')
+    .replace(/ü/g, 'u')
+    .replace(/Ü/g, 'U')
+    .replace(/ş/g, 's')
+    .replace(/Ş/g, 'S')
+    .replace(/ö/g, 'o')
+    .replace(/Ö/g, 'O')
+    .replace(/ç/g, 'c')
+    .replace(/Ç/g, 'C')
 }
 
 export default function AgingReportPage() {
@@ -74,7 +92,7 @@ export default function AgingReportPage() {
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Cari Yasadirma')
+    XLSX.utils.book_append_sheet(wb, ws, 'Cari Yaslandirma')
     XLSX.writeFile(wb, `cari_yaslandirma_${new Date().toISOString().split('T')[0]}.xlsx`)
     toast.success('Excel indirildi')
   }
@@ -86,17 +104,20 @@ export default function AgingReportPage() {
     }
     const doc = new jsPDF()
     doc.setFontSize(14)
-    doc.text('Cari Yaslandirma (Alacaklar)', 14, 16)
+    doc.text(pdfSafeText('Cari Yaşlandırma (Alacaklar)'), 14, 16)
     doc.setFontSize(10)
-    doc.text(`Toplam Alacak: ${(data.summary?.totalReceivables ?? 0).toLocaleString('tr-TR')} TL  |  Cari Sayisi: ${data.summary?.count ?? 0}`, 14, 24)
+    doc.text(
+      pdfSafeText(
+        `Toplam Alacak: ${(data.summary?.totalReceivables ?? 0).toLocaleString('tr-TR')} TL  |  Cari Sayısı: ${data.summary?.count ?? 0}`
+      ),
+      14,
+      24
+    )
     let y = 34
     doc.setFontSize(9)
     ;(data.items ?? []).slice(0, 50).forEach((row) => {
-      doc.text(
-        `${(row.code ?? '').slice(0, 10)} | ${row.name.slice(0, 18)} | ${row.balance.toLocaleString('tr-TR')} | ${row.days_since_transaction ?? '-'} | ${BUCKET_LABELS[row.aging_bucket] ?? row.aging_bucket}`,
-        14,
-        y
-      )
+      const line = `${(row.code ?? '').slice(0, 10)} | ${row.name.slice(0, 18)} | ${row.balance.toLocaleString('tr-TR')} | ${row.days_since_transaction ?? '-'} | ${BUCKET_LABELS[row.aging_bucket] ?? row.aging_bucket}`
+      doc.text(pdfSafeText(line), 14, y)
       y += 5
       if (y > 275) {
         doc.addPage()
@@ -131,26 +152,28 @@ export default function AgingReportPage() {
           Güncelle
         </button>
         {canExport && (
-          <>
-            <button
-              type="button"
-              onClick={downloadExcel}
-              disabled={!data?.items?.length}
-              className="px-4 py-2 bg-emerald-700 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
-            >
-              <FileDown className="w-4 h-4" />
-              Excel
-            </button>
-            <button
-              type="button"
-              onClick={downloadPdf}
-              disabled={!data}
-              className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 disabled:opacity-50 flex items-center gap-2"
-            >
-              <FileText className="w-4 h-4" />
-              PDF
-            </button>
-          </>
+          <NewFeatureHighlight featureId="aging_export">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={downloadExcel}
+                disabled={!data?.items?.length}
+                className="px-4 py-2 bg-emerald-700 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
+              >
+                <FileDown className="w-4 h-4" />
+                Excel
+              </button>
+              <button
+                type="button"
+                onClick={downloadPdf}
+                disabled={!data}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 disabled:opacity-50 flex items-center gap-2"
+              >
+                <FileText className="w-4 h-4" />
+                PDF
+              </button>
+            </div>
+          </NewFeatureHighlight>
         )}
       </div>
 

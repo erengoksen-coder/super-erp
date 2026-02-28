@@ -50,7 +50,7 @@ export const PATCH = withAuth(async (
 ) => {
   try {
     const body = await parseJsonBody(request)
-    const { stock_amount, min_stock_level, name, sku, price, selling_price, cost_price } = body
+    const { stock_amount, min_stock_level, name, sku, price, selling_price, cost_price, dealer_price, image_url } = body
 
     const db = getDatabase()
     const resolvedParams = await Promise.resolve(context?.params)
@@ -114,6 +114,16 @@ export const PATCH = withAuth(async (
     if (cost_price !== undefined) {
       updateQuery += ', cost_price = ?'
       updateParams.push(cost_price)
+    }
+
+    if (dealer_price !== undefined) {
+      updateQuery += ', dealer_price = ?'
+      updateParams.push(dealer_price)
+    }
+
+    if (image_url !== undefined) {
+      updateQuery += ', image_url = ?'
+      updateParams.push(image_url)
     }
 
     updateQuery += ' WHERE id = ? AND deleted_at IS NULL'

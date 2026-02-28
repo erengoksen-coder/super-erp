@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2, Copy, Printer } from 'lucide-react'
+import { ArrowLeft, Truck, Edit, Save, X, Percent, DollarSign, ChevronDown, ChevronRight, Trash2, Copy, Printer, PlusCircle } from 'lucide-react'
 import { fetchApi, getAuthHeaders } from '@/lib/api/client'
 import { formatDate, formatDateTime } from '@/lib/utils/dateFormat'
 import { toast } from '@/lib/notify'
@@ -94,6 +94,12 @@ export default function AccountDetailPage() {
   const [clearingData, setClearingData] = useState(false)
   const [applyingDiscount, setApplyingDiscount] = useState(false)
   const [checks, setChecks] = useState<CheckNote[]>([])
+  const [showManualEntry, setShowManualEntry] = useState(false)
+  const [manualEntryType, setManualEntryType] = useState<'debit' | 'credit'>('debit')
+  const [manualEntryAmount, setManualEntryAmount] = useState('')
+  const [manualEntryDescription, setManualEntryDescription] = useState('')
+  const [manualEntrySaving, setManualEntrySaving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -111,6 +117,20 @@ export default function AccountDetailPage() {
       loadTransactions(id)
       loadChecks(id)
     }
+  }, [params?.id])
+
+  // Sekme odaklandığında veriyi yenile (diğer sekmede girilen borç/alacak hemen görünsün)
+  useEffect(() => {
+    const id = params?.id as string
+    if (!id || id === 'undefined') return
+    function onFocus() {
+      loadAccount(id)
+      loadShipments(id)
+      loadTransactions(id)
+      loadChecks(id)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [params?.id])
 
   async function loadAccount(id: string) {
@@ -185,6 +205,23 @@ export default function AccountDetailPage() {
     } catch (error) {
       console.error('Çek/senet yüklenirken hata:', error)
       setChecks([])
+    }
+  }
+
+  async function handleRefresh() {
+    const id = (account?.id ?? params?.id) as string
+    if (!id) return
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        loadAccount(id),
+        loadShipments(id),
+        loadTransactions(id),
+        loadChecks(id)
+      ])
+      toast.success('Veriler yenilendi')
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -319,7 +356,7 @@ export default function AccountDetailPage() {
   }
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 lg:p-8">
+    <div key={params?.id ?? 'loading'} className="p-3 sm:p-4 md:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto print-area">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between no-print">
@@ -329,6 +366,16 @@ export default function AccountDetailPage() {
           >
             <ArrowLeft className="w-4 h-4" />
             <span>← Geri</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-gray-700 text-white hover:bg-gray-600 transition disabled:opacity-60"
+            title="Bakiye ve hareketleri yenile (diğer sekmede yapılan girişler görünür)"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Yenileniyor...' : 'Yenile'}
           </button>
           <button
             type="button"
@@ -355,6 +402,9 @@ export default function AccountDetailPage() {
         {/* Cari Hesap Bilgileri */}
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 md:p-6 mb-6">
           <h1 className="text-xl md:text-2xl font-bold text-white mb-4">{account.name}</h1>
+          <p className="text-xs text-gray-500 mb-3 no-print" title="Aynı cari farklı tarayıcıda farklı ID ile açıksa farklı kayıt (ve bakiye) görünür.">
+            Hesap ID: <span className="font-mono text-gray-400">{account.id}</span>
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <div className="text-gray-400 mb-1">Kod:</div>
@@ -402,7 +452,7 @@ export default function AccountDetailPage() {
             )}
             <div>
               <div className="text-gray-400 mb-1">Bakiye:</div>
-              <div className={`text-lg font-bold flex items-center space-x-2 ${
+              <div className={`text-lg font-bold flex flex-wrap items-center gap-2 ${
                 account.balance > 0 ? 'text-red-400' :
                 account.balance < 0 ? 'text-green-400' :
                 'text-gray-400'
@@ -422,6 +472,20 @@ export default function AccountDetailPage() {
                     {account.balance > 0 ? 'Borçlu' : 'Alacaklı'}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowManualEntry(true)
+                    setManualEntryAmount('')
+                    setManualEntryDescription('')
+                    setManualEntryType('debit')
+                  }}
+                  className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium"
+                  title="Cariye manuel borç veya alacak girişi yap"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Borç/Alacak Girişi
+                </button>
               </div>
             </div>
             <div>
@@ -1232,6 +1296,103 @@ export default function AccountDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Borç/Alacak Girişi modal */}
+      {showManualEntry && account && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 no-print" onClick={() => !manualEntrySaving && setShowManualEntry(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white mb-4">Borç / Alacak Girişi</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              <strong>Borç:</strong> Cari bize borçlu (örn. satış). <strong>Alacak:</strong> Biz cariye borçluyuz (örn. tahsilat/iade).
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Tip</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualEntryType('debit')}
+                    className={`flex-1 py-2 px-3 rounded-lg border font-medium ${manualEntryType === 'debit' ? 'bg-red-900/40 border-red-600 text-red-200' : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-gray-500'}`}
+                  >
+                    Borç (cari bize borçlu)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualEntryType('credit')}
+                    className={`flex-1 py-2 px-3 rounded-lg border font-medium ${manualEntryType === 'credit' ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-gray-500'}`}
+                  >
+                    Alacak (biz cariye borçluyuz)
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Tutar (₺) <span className="text-red-400">*</span></label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={manualEntryAmount}
+                  onChange={(e) => setManualEntryAmount(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Açıklama (opsiyonel)</label>
+                <input
+                  type="text"
+                  value={manualEntryDescription}
+                  onChange={(e) => setManualEntryDescription(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Örn: Manuel borç, iade, düzeltme"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => !manualEntrySaving && setShowManualEntry(false)}
+                className="flex-1 py-2.5 px-4 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-800 font-medium"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                disabled={manualEntrySaving || !manualEntryAmount || Number(manualEntryAmount) <= 0}
+                onClick={async () => {
+                  const amt = Number(manualEntryAmount)
+                  if (!account?.id || !Number.isFinite(amt) || amt <= 0) return
+                  setManualEntrySaving(true)
+                  try {
+                    await fetchApi(`/api/accounts/${account.id}/transactions`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        transaction_type: manualEntryType,
+                        amount: amt,
+                        description: manualEntryDescription || undefined
+                      })
+                    })
+                    toast.success(manualEntryType === 'debit' ? 'Borç girişi kaydedildi' : 'Alacak girişi kaydedildi')
+                    setShowManualEntry(false)
+                    setManualEntryAmount('')
+                    setManualEntryDescription('')
+                    loadAccount(account.id)
+                    loadTransactions(account.id)
+                  } catch (e: any) {
+                    toast.error(e?.message ?? 'Kayıt başarısız')
+                  } finally {
+                    setManualEntrySaving(false)
+                  }
+                }}
+                className="flex-1 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {manualEntrySaving ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx global>{`
         @media print {

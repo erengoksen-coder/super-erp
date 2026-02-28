@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 import { formatDate } from '@/lib/utils/dateFormat'
 import { MoreHorizontal, Clock, User, Calendar, Package, Plus } from 'lucide-react'
+import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 
 export interface ProductionOrder {
   id: string
@@ -38,12 +39,12 @@ interface KanbanColumnProps {
   className?: string
 }
 
-export const KanbanColumn = ({ 
-  title, 
-  status, 
-  orders, 
+export const KanbanColumn = ({
+  title,
+  status,
+  orders,
   onOrderClick,
-  className 
+  className
 }: KanbanColumnProps) => {
   const statusColors = {
     pending: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -64,125 +65,148 @@ export const KanbanColumn = ({
       <CardBody className="p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900">{title}</h3>
-          <Badge 
-            variant="soft" 
+          <Badge
+            variant="soft"
             color="primary"
             className="text-xs"
           >
             {orders.length}
           </Badge>
         </div>
-        
-        <div className="space-y-3">
-          {orders.map((order) => (
-            <Card
-              key={order.id}
+
+        <Droppable droppableId={status}>
+          {(provided, snapshot) => (
+            <div
+              ref={provided.innerRef}
+              {...provided.droppableProps}
               className={cn(
-                'cursor-pointer hover-lift transition-all duration-200',
-                statusColors[order.status as keyof typeof statusColors]
+                "space-y-3 min-h-[150px] transition-colors rounded-lg",
+                snapshot.isDraggingOver ? "bg-gray-50/50" : ""
               )}
-              onClick={() => onOrderClick?.(order)}
-              variant="flat"
             >
-              <CardBody className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="font-medium text-gray-900 text-sm">
-                      {order.order_number}
-                    </h4>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {order.product_name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {order.sku}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                  >
-                    <MoreHorizontal className="w-3 h-3" />
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2">
-                    <Package className="w-3 h-3 text-gray-500" />
-                    <span className="text-xs font-medium text-gray-700">
-                      {order.quantity} adet
-                    </span>
-                  </div>
-                  <Badge
-                    size="sm"
-                    variant="soft"
-                    color={order.priority === 'urgent' ? 'error' : 
-                           order.priority === 'high' ? 'warning' : 
-                           order.priority === 'medium' ? 'primary' : 'secondary'}
-                  >
-                    {order.priority === 'urgent' ? 'Acil' :
-                     order.priority === 'high' ? 'Yüksek' :
-                     order.priority === 'medium' ? 'Orta' : 'Düşük'}
-                  </Badge>
-                </div>
-
-                <div className="space-y-2">
-                  {order.assigned_to && (
-                    <div className="flex items-center space-x-2">
-                      <User className="w-3 h-3 text-gray-500" />
-                      <span className="text-xs text-gray-600">
-                        {order.assigned_to}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {order.estimated_completion && (
-                    <div className="flex items-center space-x-2">
-                      <Clock className="w-3 h-3 text-gray-500" />
-                      <span className="text-xs text-gray-600">
-                        {formatDate(order.estimated_completion)}
-                      </span>
-                    </div>
-                  )}
-
-                  {order.started_at && (
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="w-3 h-3 text-gray-500" />
-                      <span className="text-xs text-gray-600">
-                        Başlangıç: {formatDate(order.started_at)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-3 pt-3 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {order.current_station}
-                    </span>
-                    <Badge
-                      size="sm"
-                      variant="outline"
-                      color="primary"
+              {orders.map((order, index) => (
+                <Draggable key={order.id} draggableId={order.id} index={index}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      {...provided.dragHandleProps}
+                      style={provided.draggableProps.style}
                     >
-                      {order.status === 'pending' ? 'Bekliyor' :
-                       order.status === 'in_progress' ? 'Devam Ediyor' :
-                       order.status === 'completed' ? 'Tamamlandı' : 'Gecikti'}
-                    </Badge>
+                      <Card
+                        className={cn(
+                          'cursor-grab hover-lift transition-all duration-200',
+                          snapshot.isDragging ? 'shadow-lg ring-2 ring-primary/20 scale-[1.02]' : '',
+                          statusColors[order.status as keyof typeof statusColors]
+                        )}
+                        onClick={() => onOrderClick?.(order)}
+                        variant="flat"
+                      >
+                        <CardBody className="p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <h4 className="font-medium text-gray-900 text-sm">
+                                {order.order_number}
+                              </h4>
+                              <p className="text-xs text-gray-600 mt-1">
+                                {order.product_name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {order.sku}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                            >
+                              <MoreHorizontal className="w-3 h-3" />
+                            </Button>
+                          </div>
+
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-2">
+                              <Package className="w-3 h-3 text-gray-500" />
+                              <span className="text-xs font-medium text-gray-700">
+                                {order.quantity} adet
+                              </span>
+                            </div>
+                            <Badge
+                              size="sm"
+                              variant="soft"
+                              color={order.priority === 'urgent' ? 'error' :
+                                order.priority === 'high' ? 'warning' :
+                                  order.priority === 'medium' ? 'primary' : 'secondary'}
+                            >
+                              {order.priority === 'urgent' ? 'Acil' :
+                                order.priority === 'high' ? 'Yüksek' :
+                                  order.priority === 'medium' ? 'Orta' : 'Düşük'}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-2">
+                            {order.assigned_to && (
+                              <div className="flex items-center space-x-2">
+                                <User className="w-3 h-3 text-gray-500" />
+                                <span className="text-xs text-gray-600">
+                                  {order.assigned_to}
+                                </span>
+                              </div>
+                            )}
+
+                            {order.estimated_completion && (
+                              <div className="flex items-center space-x-2">
+                                <Clock className="w-3 h-3 text-gray-500" />
+                                <span className="text-xs text-gray-600">
+                                  {formatDate(order.estimated_completion)}
+                                </span>
+                              </div>
+                            )}
+
+                            {order.started_at && (
+                              <div className="flex items-center space-x-2">
+                                <Calendar className="w-3 h-3 text-gray-500" />
+                                <span className="text-xs text-gray-600">
+                                  Başlangıç: {formatDate(order.started_at)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-gray-500">
+                                {order.current_station}
+                              </span>
+                              <Badge
+                                size="sm"
+                                variant="outline"
+                                color="primary"
+                              >
+                                {order.status === 'pending' ? 'Bekliyor' :
+                                  order.status === 'in_progress' ? 'Devam Ediyor' :
+                                    order.status === 'completed' ? 'Tamamlandı' : 'Gecikti'}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+
+              {orders.length === 0 && !snapshot.isDraggingOver && (
+                <div className="text-center py-12">
+                  <div className="text-gray-400 text-sm">
+                    Bu istasyonda bekleyen üretim emri yok
                   </div>
                 </div>
-              </CardBody>
-            </Card>
-          ))}
-          
-          {orders.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-gray-400 text-sm">
-                Bu istasyonda bekleyen üretim emri yok
-              </div>
+              )}
             </div>
           )}
-        </div>
+        </Droppable>
       </CardBody>
     </Card>
   )
@@ -191,23 +215,38 @@ export const KanbanColumn = ({
 interface KanbanBoardProps {
   orders: ProductionOrder[]
   onOrderClick?: (order: ProductionOrder) => void
+  onOrderMoved?: (orderId: string, newStationId: string) => void
   className?: string
 }
 
-export const KanbanBoard = ({ orders, onOrderClick, className }: KanbanBoardProps) => {
+export const KanbanBoard = ({ orders, onOrderClick, onOrderMoved, className }: KanbanBoardProps) => {
   const stations = [
     { id: 'iskelet', title: 'İskelet', status: 'iskelet' },
     { id: 'terzihane', title: 'Terzihane', status: 'terzihane' },
-    { id: 'döseme', title: 'Döseme', status: 'döseme' },
+    { id: 'döseme', title: 'Döşeme', status: 'döseme' },
     { id: 'montaj', title: 'Montaj', status: 'montaj' },
     { id: 'sevkiyat', title: 'Sevkiyat', status: 'sevkiyat' }
   ]
 
-  // Usta Terminali / Genel Durum ile aynı veri: Sipariş, kartı bulunan her istasyon sütununda görünsün
   const getOrdersByStation = (station: string) => {
     return orders.filter(order =>
       (order.stations && order.stations.includes(station)) || order.current_station === station
     )
+  }
+
+  const handleDragEnd = (result: DropResult) => {
+    const { destination, source, draggableId } = result
+
+    if (!destination) return
+
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) {
+      return
+    }
+
+    onOrderMoved?.(draggableId, destination.droppableId)
   }
 
   return (
@@ -224,18 +263,20 @@ export const KanbanBoard = ({ orders, onOrderClick, className }: KanbanBoardProp
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 overflow-x-auto">
-        {stations.map((station) => (
-          <KanbanColumn
-            key={station.id}
-            title={station.title}
-            status={station.status}
-            orders={getOrdersByStation(station.id)}
-            onOrderClick={onOrderClick}
-            className="min-w-[280px]"
-          />
-        ))}
-      </div>
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 overflow-x-auto min-h-[600px] items-start">
+          {stations.map((station) => (
+            <KanbanColumn
+              key={station.id}
+              title={station.title}
+              status={station.status}
+              orders={getOrdersByStation(station.id)}
+              onOrderClick={onOrderClick}
+              className="min-w-[280px]"
+            />
+          ))}
+        </div>
+      </DragDropContext>
     </div>
   )
 }

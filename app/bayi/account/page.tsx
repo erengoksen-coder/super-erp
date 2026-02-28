@@ -27,6 +27,21 @@ type Transaction = {
   created_at: string
 }
 
+const statusLabels: Record<string, string> = {
+  pending: 'Beklemede',
+  in_transit: 'Yolda / Kargo',
+  delivered: 'Teslim Edildi',
+  cancelled: 'İptal',
+}
+
+const typeLabels: Record<string, string> = {
+  credit: 'Alacak',
+  debit: 'Borç',
+  payment: 'Ödeme',
+  invoice: 'Fatura',
+  return: 'İade',
+}
+
 function formatDate(s: string) {
   try {
     const d = new Date(s)
@@ -106,8 +121,8 @@ export default function BayiAccountPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-        <Wallet className="w-5 h-5" />
+      <h2 className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent flex items-center gap-2 drop-shadow-sm">
+        <Wallet className="w-6 h-6 text-blue-400" />
         Cari Hesabım
       </h2>
 
@@ -119,43 +134,43 @@ export default function BayiAccountPage() {
 
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
-          <p className="text-slate-500 text-sm">Cari Kodu</p>
-          <p className="font-mono font-medium text-white mt-0.5">{account.code}</p>
+          <p className="text-blue-200/60 text-sm font-black uppercase tracking-widest">Cari Kodu</p>
+          <p className="font-mono font-black text-blue-100 mt-1">{account.code}</p>
         </div>
         <div>
-          <p className="text-slate-500 text-sm">Ünvan</p>
-          <p className="font-medium text-white mt-0.5 break-words">{account.name}</p>
+          <p className="text-blue-200/60 text-sm font-black uppercase tracking-widest">Ünvan</p>
+          <p className="font-extrabold text-sky-100 mt-1 break-words">{account.name}</p>
         </div>
         <div>
-          <p className="text-slate-500 text-sm">Bakiye</p>
-          <p className={`text-xl font-bold mt-0.5 ${account.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          <p className="text-blue-200/60 text-sm font-black uppercase tracking-widest">Bakiye</p>
+          <p className={`text-2xl font-black mt-1 drop-shadow-md ${account.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(account.balance)}
           </p>
         </div>
         {account.risk_limit != null && account.risk_limit > 0 && (
           <div>
-            <p className="text-slate-500 text-sm">Risk Limiti</p>
-            <p className="font-medium text-white mt-0.5">{new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(account.risk_limit)}</p>
+            <p className="text-blue-200/60 text-sm font-black uppercase tracking-widest">Risk Limiti</p>
+            <p className="font-black text-blue-100 mt-1">{new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(account.risk_limit)}</p>
           </div>
         )}
       </div>
 
       <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 overflow-hidden">
         <div className="p-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-700/60">
-          <h3 className="font-medium text-white">İşlemler</h3>
+          <h3 className="font-black text-blue-100">Cari İşlemler Geçmişi</h3>
           <div className="flex flex-wrap gap-2 items-center">
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-1.5 rounded-lg bg-slate-800 border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
             />
             <span className="text-slate-500 text-sm">–</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-1.5 rounded-lg bg-slate-800 border-slate-700 text-blue-100 text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
             />
           </div>
         </div>
@@ -169,11 +184,11 @@ export default function BayiAccountPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400 text-xs">
-                  <th className="p-3 font-medium">Tarih</th>
-                  <th className="p-3 font-medium">Tür</th>
-                  <th className="p-3 font-medium">Açıklama</th>
-                  <th className="p-3 font-medium text-right">Tutar</th>
+                <tr className="border-b border-slate-700 text-blue-200/60 text-[10px] font-black uppercase tracking-widest">
+                  <th className="p-3">Tarih</th>
+                  <th className="p-3">İşlem Türü</th>
+                  <th className="p-3">Açıklama</th>
+                  <th className="p-3 text-right">Tutar</th>
                 </tr>
               </thead>
               <tbody>
@@ -181,11 +196,13 @@ export default function BayiAccountPage() {
                   const isCredit = t.transaction_type === 'credit' || t.amount > 0
                   return (
                     <tr key={t.id} className="border-b border-slate-700/60 hover:bg-slate-700/20">
-                      <td className="p-3 text-slate-400 text-sm whitespace-nowrap">{formatDate(t.created_at)}</td>
-                      <td className="p-3 text-slate-300 text-sm">{t.transaction_type || '–'}</td>
-                      <td className="p-3 text-slate-300 text-sm max-w-[200px] truncate" title={t.description || undefined}>{t.description || '–'}</td>
+                      <td className="p-3 text-slate-400 text-xs font-medium whitespace-nowrap">{formatDate(t.created_at)}</td>
+                      <td className="p-3 text-blue-100 text-sm font-bold uppercase tracking-tight">
+                        {typeLabels[t.transaction_type] || t.transaction_type || '–'}
+                      </td>
+                      <td className="p-3 text-sky-100/70 text-sm max-w-[200px] truncate font-medium" title={t.description || undefined}>{t.description || '–'}</td>
                       <td className="p-3 text-right whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 font-medium ${isCredit ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className={`inline-flex items-center gap-1 font-black ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {isCredit ? <ArrowDownCircle className="w-4 h-4 flex-shrink-0" /> : <ArrowUpCircle className="w-4 h-4 flex-shrink-0" />}
                           {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(t.amount)}
                         </span>

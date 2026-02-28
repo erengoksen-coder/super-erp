@@ -11,6 +11,7 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   title?: string
   subtitle?: string
+  icon?: React.ElementType
   actions?: React.ReactNode
 }
 
@@ -44,23 +45,31 @@ export const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(({
   className,
   title,
   subtitle,
+  icon: Icon,
   actions,
   children,
   ...props
 }, ref) => {
   return (
     <div ref={ref} className={cn('flex items-center justify-between mb-4', className)} {...props}>
-      <div className="flex-1">
-        {title && (
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white dark:group-hover:text-white transition-colors">
-            {title}
-          </h3>
+      <div className="flex items-center gap-3 flex-1 overflow-hidden">
+        {Icon && (
+          <div className="p-2 bg-gray-100 dark:bg-slate-800 rounded-lg group-hover:scale-110 transition-transform">
+            <Icon className="w-5 h-5 text-gray-700 dark:text-slate-400 group-hover:text-blue-400" />
+          </div>
         )}
-        {subtitle && (
-          <p className="text-sm text-gray-600 dark:text-slate-400 dark:group-hover:text-white mt-0.5 transition-colors">
-            {subtitle}
-          </p>
-        )}
+        <div className="flex-1 min-w-0">
+          {title && (
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white dark:group-hover:text-white transition-colors truncate">
+              {title}
+            </h3>
+          )}
+          {subtitle && (
+            <p className="text-sm text-gray-600 dark:text-slate-400 dark:group-hover:text-white mt-0.5 transition-colors truncate">
+              {subtitle}
+            </p>
+          )}
+        </div>
         {children}
       </div>
       {actions && (

@@ -7,6 +7,7 @@ export type AccessTokenPayload = JWTPayload & {
   userId: string
   role: string
   username: string
+  sessionToken?: string
   permissions?: Array<{
     page_path: string
     can_view: number

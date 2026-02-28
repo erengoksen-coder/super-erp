@@ -67,32 +67,53 @@ export async function getCurrentUser() {
   return data.user
 }
 
-let isLoggingOut = false
+let isLoggingOutFlag = false
 
-export function logout() {
+export async function logout() {
   // Çift tıklama veya çoklu çağrıları engelle
-  if (isLoggingOut) {
+  if (isLoggingOutFlag) {
     return
   }
-  
-  isLoggingOut = true
-  
-  const clearAuth = useAuthStore.getState().clearAuth
-  clearAuth()
-  
-  if (typeof window !== 'undefined') {
-    // localStorage'da logout flag'i set et
-    sessionStorage.setItem('logging_out', 'true')
-    
-    // JWT tabanlı sistemde logout API'sine istek atmaya gerek yok
-    // Sadece local state temizle ve yönlendir
-    window.location.href = '/auth/login'
-    
-    // Flag'i temizle (yönlendirme sonrası)
+
+  isLoggingOutFlag = true
+
+  try {
+    // 1. Sunucu taraflı session ve HttpOnly cookie'leri temizle (Max 1.5 sn bekle)
+    const logoutPromise = fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }).catch(err => console.error('Logout API error:', err))
+
+    await Promise.race([
+      logoutPromise,
+      new Promise(resolve => setTimeout(resolve, 1500))
+    ])
+
+    // 2. Lokal state'i temizle
+    const clearAuth = useAuthStore.getState().clearAuth
+    clearAuth()
+
+    if (typeof window !== 'undefined') {
+      // 3. localStorage'daki tokenları temizle (isteğe bağlı ama güvenli)
+      localStorage.removeItem('auth-token')
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
+      sessionStorage.setItem('logging_out', 'true')
+
+      // 4. Giriş sayfasına yönlendir
+      window.location.href = '/auth/login'
+    }
+  } catch (error) {
+    console.error('Logout error:', error)
+    // Hata olsa bile en azından yönlendirmeyi dene
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth/login'
+    }
+  } finally {
+    // Flag'i temizle (yönlendirme olmazsa veya hata durumunda)
     setTimeout(() => {
-      sessionStorage.removeItem('logging_out')
-      isLoggingOut = false
-    }, 1000)
+      isLoggingOutFlag = false
+    }, 2000)
   }
 }
 

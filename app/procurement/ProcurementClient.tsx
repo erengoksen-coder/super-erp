@@ -20,8 +20,21 @@ type PurchaseRequest = {
   notes?: string | null
 }
 
+type Account = { id: string; name: string; code?: string | null }
+
+const DURUM_ETIKET: Record<string, string> = {
+  draft: 'Taslak',
+  ordered: 'Sipariş Verildi',
+  completed: 'Tamamlandı',
+  cancelled: 'İptal',
+}
+function durumEtiketi(status: string): string {
+  return DURUM_ETIKET[status] ?? status
+}
+
 export default function ProcurementClient() {
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
+  const [suppliers, setSuppliers] = useState<Account[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -56,6 +69,12 @@ export default function ProcurementClient() {
 
   useEffect(() => {
     loadRequests()
+  }, [])
+
+  useEffect(() => {
+    fetchApi<Account[]>('/api/accounts?type=supplier')
+      .then((data) => setSuppliers(Array.isArray(data) ? data : []))
+      .catch(() => setSuppliers([]))
   }, [])
 
   useEffect(() => {
@@ -164,7 +183,7 @@ export default function ProcurementClient() {
           <div className="grid gap-3 md:grid-cols-5">
             <input
               className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400"
-              placeholder="Material ID"
+              placeholder="Malzeme kodu veya ID"
               value={form.material_id}
               onChange={(e) => setForm((prev) => ({ ...prev, material_id: e.target.value }))}
             />
@@ -180,12 +199,23 @@ export default function ProcurementClient() {
               value={form.unit_price}
               onChange={(e) => setForm((prev) => ({ ...prev, unit_price: e.target.value }))}
             />
-            <input
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400"
-              placeholder="Tedarikçi"
-              value={form.supplier_name}
-              onChange={(e) => setForm((prev) => ({ ...prev, supplier_name: e.target.value }))}
-            />
+            <select
+              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+              value={suppliers.find((s) => s.name === form.supplier_name)?.id ?? ''}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  supplier_name: suppliers.find((s) => s.id === e.target.value)?.name ?? '',
+                }))
+              }
+            >
+              <option value="">Tedarikçi seçin</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code ? `${s.code} - ` : ''}{s.name}
+                </option>
+              ))}
+            </select>
             <Button
               onClick={createRequest}
               disabled={loading || !form.material_id.trim() || !form.requested_quantity.trim()}
@@ -243,7 +273,7 @@ export default function ProcurementClient() {
                     <td className="py-2">{request.request_number}</td>
                     <td className="py-2">{request.material_name || request.material_id}</td>
                     <td className="py-2">{request.requested_quantity}</td>
-                    <td className="py-2">{request.status}</td>
+                    <td className="py-2">{durumEtiketi(request.status)}</td>
                     <td className="py-2 text-right">
                       <Button
                         variant="ghost"
@@ -297,7 +327,7 @@ export default function ProcurementClient() {
               </div>
               <div>
                 <div className="text-xs text-gray-400">Durum</div>
-                <div className="text-sm text-gray-200">{selectedRequest.status}</div>
+                <div className="text-sm text-gray-200">{durumEtiketi(selectedRequest.status)}</div>
               </div>
               <div>
                 <div className="text-xs text-gray-400">Toplam</div>
@@ -328,12 +358,23 @@ export default function ProcurementClient() {
                 value={editForm.unit_price}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, unit_price: e.target.value }))}
               />
-              <input
-                className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400"
-                placeholder="Tedarikçi"
-                value={editForm.supplier_name}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, supplier_name: e.target.value }))}
-              />
+              <select
+                className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+                value={suppliers.find((s) => s.name === editForm.supplier_name)?.id ?? ''}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    supplier_name: suppliers.find((s) => s.id === e.target.value)?.name ?? '',
+                  }))
+                }
+              >
+                <option value="">Tedarikçi seçin</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code ? `${s.code} - ` : ''}{s.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex items-center gap-2">

@@ -15,36 +15,36 @@ export type VariantProps<T extends Record<string, Record<string, string>>> = {
 // Button variants
 export const buttonVariants = {
   solid: {
-    primary: 'bg-primary text-white hover:bg-primary-600 active:bg-primary-700 shadow-sm',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 active:bg-gray-300',
-    success: 'bg-emerald-500 text-white hover:bg-emerald-600 active:bg-emerald-700',
-    warning: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700',
-    error: 'bg-red-500 text-white hover:bg-red-600 active:bg-red-700',
-    ghost: 'bg-transparent text-gray-700 hover:bg-gray-100 active:bg-gray-200',
+    primary: 'bg-gradient-to-tr from-blue-700 to-blue-500 text-white hover:from-blue-600 hover:to-blue-400 active:from-blue-800 active:to-blue-600 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5 border border-blue-400/20',
+    secondary: 'bg-slate-800 text-slate-100 hover:bg-slate-700 active:bg-slate-900 shadow-md shadow-black/20 hover:shadow-lg border border-slate-600/50 hover:-translate-y-0.5',
+    success: 'bg-gradient-to-tr from-emerald-600 to-emerald-500 text-white hover:from-emerald-500 hover:to-emerald-400 active:from-emerald-700 active:to-emerald-600 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 border border-emerald-400/20 hover:-translate-y-0.5',
+    warning: 'bg-gradient-to-tr from-amber-600 to-amber-500 text-white hover:from-amber-500 hover:to-amber-400 active:from-amber-700 active:to-amber-600 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 border border-amber-400/20 hover:-translate-y-0.5',
+    error: 'bg-gradient-to-tr from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 active:from-red-700 active:to-red-600 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 border border-red-400/20 hover:-translate-y-0.5',
+    ghost: 'bg-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800 border border-transparent hover:border-slate-700/50',
   },
   outline: {
-    primary: 'border-2 border-primary text-primary hover:bg-primary hover:text-white',
-    secondary: 'border-2 border-gray-300 text-gray-700 hover:bg-gray-50',
-    success: 'border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50',
-    warning: 'border-2 border-amber-500 text-amber-600 hover:bg-amber-50',
-    error: 'border-2 border-red-500 text-red-600 hover:bg-red-50',
+    primary: 'border-2 border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:border-blue-500 hover:-translate-y-0.5 shadow-sm',
+    secondary: 'border-2 border-slate-600 text-slate-300 hover:bg-slate-800 hover:border-slate-500 hover:-translate-y-0.5 shadow-sm',
+    success: 'border-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500 hover:-translate-y-0.5 shadow-sm',
+    warning: 'border-2 border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500 hover:-translate-y-0.5 shadow-sm',
+    error: 'border-2 border-red-500/50 text-red-400 hover:bg-red-500/10 hover:border-red-500 hover:-translate-y-0.5 shadow-sm',
   },
   ghost: {
-    primary: 'text-primary hover:bg-primary-50 active:bg-primary-100',
-    secondary: 'text-gray-700 hover:bg-gray-100 active:bg-gray-200',
-    success: 'text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100',
-    warning: 'text-amber-600 hover:bg-amber-50 active:bg-amber-100',
-    error: 'text-red-600 hover:bg-red-50 active:bg-red-100',
+    primary: 'text-blue-400 hover:bg-blue-500/10 active:bg-blue-500/20 hover:text-blue-300 transition-colors',
+    secondary: 'text-slate-400 hover:bg-slate-800/50 active:bg-slate-800 hover:text-slate-200 transition-colors',
+    success: 'text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20 hover:text-emerald-300 transition-colors',
+    warning: 'text-amber-400 hover:bg-amber-500/10 active:bg-amber-500/20 hover:text-amber-300 transition-colors',
+    error: 'text-red-400 hover:bg-red-500/10 active:bg-red-500/20 hover:text-red-300 transition-colors',
   }
 }
 
 export const buttonSizes = {
-  xs: 'px-2 py-1 text-xs rounded-md',
-  sm: 'px-3 py-1.5 text-sm rounded-md',
-  md: 'px-4 py-2 text-sm rounded-md',
-  lg: 'px-6 py-3 text-base rounded-md',
-  xl: 'px-8 py-4 text-lg rounded-lg',
-  icon: 'p-2 aspect-square rounded-md',
+  xs: 'px-3 py-1.5 text-xs rounded-lg font-semibold',
+  sm: 'px-4 py-2 text-sm rounded-xl font-semibold',
+  md: 'px-5 py-2.5 text-sm rounded-xl font-semibold tracking-wide',
+  lg: 'px-7 py-3.5 text-base rounded-2xl font-bold tracking-wide',
+  xl: 'px-9 py-4 text-lg rounded-2xl font-bold tracking-wide',
+  icon: 'p-2.5 aspect-square rounded-xl',
 }
 
 // Card variants (dark mode: koyu arka plan, beyaz yazı okunabilir)
@@ -76,28 +76,28 @@ export const inputVariants = {
 // Badge variants
 export const badgeVariants = {
   solid: {
-    primary: 'bg-primary text-white',
-    secondary: 'bg-gray-100 text-gray-800',
-    success: 'bg-emerald-100 text-emerald-800',
-    warning: 'bg-amber-100 text-amber-800',
-    error: 'bg-red-100 text-red-800',
-    info: 'bg-blue-100 text-blue-800',
+    primary: 'bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.15)] backdrop-blur-sm',
+    secondary: 'bg-slate-500/10 text-slate-300 border border-slate-500/20 backdrop-blur-sm',
+    success: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.15)] backdrop-blur-sm',
+    warning: 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.15)] backdrop-blur-sm',
+    error: 'bg-red-500/10 text-red-400 border border-red-500/20 shadow-[0_0_10px_rgba(239,68,68,0.15)] backdrop-blur-sm',
+    info: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.15)] backdrop-blur-sm',
   },
   outline: {
-    primary: 'border border-primary text-primary',
-    secondary: 'border border-gray-300 text-gray-700',
-    success: 'border border-emerald-500 text-emerald-700',
-    warning: 'border border-amber-500 text-amber-700',
-    error: 'border border-red-500 text-red-700',
-    info: 'border border-blue-500 text-blue-700',
+    primary: 'border border-blue-500/50 text-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.1)]',
+    secondary: 'border border-slate-500 text-slate-300',
+    success: 'border border-emerald-500/50 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.1)]',
+    warning: 'border border-amber-500/50 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.1)]',
+    error: 'border border-red-500/50 text-red-400 shadow-[0_0_8px_rgba(239,68,68,0.1)]',
+    info: 'border border-cyan-500/50 text-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.1)]',
   },
   soft: {
-    primary: 'bg-primary/10 text-primary',
-    secondary: 'bg-gray-100 text-gray-700',
-    success: 'bg-emerald-50 text-emerald-700',
-    warning: 'bg-amber-50 text-amber-700',
-    error: 'bg-red-50 text-red-700',
-    info: 'bg-blue-50 text-blue-700',
+    primary: 'bg-blue-500/5 text-blue-400',
+    secondary: 'bg-slate-500/5 text-slate-400',
+    success: 'bg-emerald-500/5 text-emerald-400',
+    warning: 'bg-amber-500/5 text-amber-400',
+    error: 'bg-red-500/5 text-red-400',
+    info: 'bg-cyan-500/5 text-cyan-400',
   }
 }
 

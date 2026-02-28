@@ -21,14 +21,14 @@ function loadMessengerPosition(): { bottom: number; right: number } {
       const p = JSON.parse(s) as { bottom?: number; right?: number }
       if (typeof p.bottom === 'number' && typeof p.right === 'number') return { bottom: p.bottom, right: p.right }
     }
-  } catch {}
+  } catch { }
   return { bottom: DEFAULT_BOTTOM, right: DEFAULT_RIGHT }
 }
 
 function saveMessengerPosition(bottom: number, right: number) {
   try {
     localStorage.setItem(MESSENGER_POSITION_KEY, JSON.stringify({ bottom, right }))
-  } catch {}
+  } catch { }
 }
 
 type OnlineUser = { id: string; username: string; full_name: string | null }
@@ -43,9 +43,9 @@ type Message = {
   is_mine: boolean
 }
 
-const POLL_ONLINE_MS = 15000
-const POLL_MESSAGES_MS = 5000
-const POLL_LATEST_INCOMING_MS = 5000
+const POLL_ONLINE_MS = 30000
+const POLL_MESSAGES_MS = 12000
+const POLL_LATEST_INCOMING_MS = 15000
 
 function getDisplayName(u: OnlineUser | RecentUser): string {
   return u.full_name || u.username || u.id
@@ -148,7 +148,7 @@ export default function MessengerBox() {
             const showDesktopNotif = () => {
               try {
                 new Notification('Yeni mesajınız var', { body: desc, tag: 'msg-' + data.id })
-              } catch {}
+              } catch { }
             }
             if (Notification.permission === 'granted') {
               showDesktopNotif()
@@ -279,7 +279,7 @@ export default function MessengerBox() {
     if (didDragRef.current) return
     setOpen((o) => !o)
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
+      Notification.requestPermission().catch(() => { })
     }
   }
 
@@ -294,147 +294,146 @@ export default function MessengerBox() {
             className="absolute bottom-full right-0 mb-2 z-[9999] flex w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-slate-600/80 bg-slate-800/95 shadow-2xl backdrop-blur-sm"
             style={{ height: '440px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)' }}
           >
-          <div className="flex items-center justify-between border-b border-slate-600/80 bg-gradient-to-r from-slate-700/90 to-slate-800/90 px-4 py-3.5">
-            {view === 'chat' && selectedUser ? (
-              <>
-                <button
-                  type="button"
-                  onClick={backToList}
-                  className="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-slate-600/80 hover:text-white"
-                  aria-label="Geri"
-                >
-                  ← Liste
-                </button>
-                <span className="font-semibold text-white">{getDisplayName(selectedUser)}</span>
-                <span className="w-16" />
-              </>
-            ) : (
-              <>
-                <span className="font-semibold tracking-tight text-white">Mesajlaşma</span>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-600/80 hover:text-white"
-                  aria-label="Kapat"
-                >
-                  <X className="h-5 w-5" strokeWidth={2} />
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-1 flex-col overflow-hidden bg-slate-800/50">
-            {view === 'list' && (
-              <div className="flex-1 overflow-y-auto p-3">
-                {(() => {
-                  const list: Array<OnlineUser | RecentUser> = [...recent, ...online.filter((o) => !recent.some((r) => r.id === o.id))]
-                  if (list.length === 0) {
-                    return (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700/80">
-                          <User className="h-7 w-7 text-slate-500" />
-                        </div>
-                        <p className="text-sm font-medium text-slate-400">Henüz konuşma yok</p>
-                        <p className="mt-1 text-xs text-slate-500">Mesajlaşmaya başladığınızda veya biri giriş yaptığında burada görünecek</p>
-                      </div>
-                    )
-                  }
-                  return (
-                    <ul className="space-y-1.5">
-                      {list.map((u, idx) => {
-                        const isOnline = online.some((o) => o.id === u.id)
-                        const isRecent = recent.some((r) => r.id === u.id)
-                        return (
-                          <li key={u.id}>
-                            <button
-                              type="button"
-                              onClick={() => openChat(u)}
-                              className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition hover:bg-slate-700/80 active:scale-[0.99]"
-                            >
-                              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-white shadow-lg ring-2 font-bold text-sm ${AVATAR_COLORS[idx % AVATAR_COLORS.length]} ring-indigo-400/30`}>
-                                {getInitials(u)}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate font-semibold text-slate-100">{getDisplayName(u)}</p>
-                                <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
-                                  {isOnline ? (
-                                    <>
-                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                                      Çevrimiçi
-                                    </>
-                                  ) : isRecent ? (
-                                    'Son konuşma'
-                                  ) : (
-                                    'Kullanıcı'
-                                  )}
-                                </p>
-                              </div>
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )
-                })()}
-              </div>
-            )}
-
-            {view === 'chat' && selectedUser && (
-              <>
-                <div className="flex-1 space-y-3 overflow-y-auto p-4">
-                  {messages.map((m) => {
-                    const isMine = Boolean(m.is_mine)
-                    return (
-                    <div
-                      key={m.id}
-                      className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[82%] rounded-2xl px-4 py-2.5 shadow-md ${
-                          isMine
-                            ? 'rounded-br-md bg-gradient-to-br from-indigo-500 to-indigo-600 text-white'
-                            : 'rounded-bl-md bg-slate-700/90 text-slate-100 ring-1 ring-slate-600/50'
-                        }`}
-                      >
-                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.body}</p>
-                        <p className={`mt-1.5 text-xs ${isMine ? 'text-indigo-200/90' : 'text-slate-500'}`}>
-                          {formatDateTime(m.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-                <div className="border-t border-slate-600/80 bg-slate-800/80 p-3">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault()
-                      sendMessage()
-                    }}
-                    className="flex gap-2"
+            <div className="flex items-center justify-between border-b border-slate-600/80 bg-gradient-to-r from-slate-700/90 to-slate-800/90 px-4 py-3.5">
+              {view === 'chat' && selectedUser ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={backToList}
+                    className="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-slate-600/80 hover:text-white"
+                    aria-label="Geri"
                   >
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder="Mesaj yazın..."
-                      className="flex-1 rounded-xl border border-slate-600 bg-slate-700/80 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                      maxLength={2000}
-                    />
-                    <button
-                      type="submit"
-                      disabled={sending || !input.trim()}
-                      className="rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 px-4 py-2.5 text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:shadow-none"
-                    >
-                      <Send className="h-5 w-5" strokeWidth={2} />
-                    </button>
-                  </form>
+                    ← Liste
+                  </button>
+                  <span className="font-semibold text-white">{getDisplayName(selectedUser)}</span>
+                  <span className="w-16" />
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold tracking-tight text-white">Mesajlaşma</span>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-600/80 hover:text-white"
+                    aria-label="Kapat"
+                  >
+                    <X className="h-5 w-5" strokeWidth={2} />
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="flex flex-1 flex-col overflow-hidden bg-slate-800/50">
+              {view === 'list' && (
+                <div className="flex-1 overflow-y-auto p-3">
+                  {(() => {
+                    const list: Array<OnlineUser | RecentUser> = [...recent, ...online.filter((o) => !recent.some((r) => r.id === o.id))]
+                    if (list.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-12 text-center">
+                          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700/80">
+                            <User className="h-7 w-7 text-slate-500" />
+                          </div>
+                          <p className="text-sm font-medium text-slate-400">Henüz konuşma yok</p>
+                          <p className="mt-1 text-xs text-slate-500">Mesajlaşmaya başladığınızda veya biri giriş yaptığında burada görünecek</p>
+                        </div>
+                      )
+                    }
+                    return (
+                      <ul className="space-y-1.5">
+                        {list.map((u, idx) => {
+                          const isOnline = online.some((o) => o.id === u.id)
+                          const isRecent = recent.some((r) => r.id === u.id)
+                          return (
+                            <li key={u.id}>
+                              <button
+                                type="button"
+                                onClick={() => openChat(u)}
+                                className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition hover:bg-slate-700/80 active:scale-[0.99]"
+                              >
+                                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-white shadow-lg ring-2 font-bold text-sm ${AVATAR_COLORS[idx % AVATAR_COLORS.length]} ring-indigo-400/30`}>
+                                  {getInitials(u)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-semibold text-slate-100">{getDisplayName(u)}</p>
+                                  <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                                    {isOnline ? (
+                                      <>
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                        Çevrimiçi
+                                      </>
+                                    ) : isRecent ? (
+                                      'Son konuşma'
+                                    ) : (
+                                      'Kullanıcı'
+                                    )}
+                                  </p>
+                                </div>
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )
+                  })()}
                 </div>
-              </>
-            )}
+              )}
+
+              {view === 'chat' && selectedUser && (
+                <>
+                  <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                    {messages.map((m) => {
+                      const isMine = Boolean(m.is_mine)
+                      return (
+                        <div
+                          key={m.id}
+                          className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`max-w-[82%] rounded-2xl px-4 py-2.5 shadow-md ${isMine
+                                ? 'rounded-br-md bg-gradient-to-br from-indigo-500 to-indigo-600 text-white'
+                                : 'rounded-bl-md bg-slate-700/90 text-slate-100 ring-1 ring-slate-600/50'
+                              }`}
+                          >
+                            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{m.body}</p>
+                            <p className={`mt-1.5 text-xs ${isMine ? 'text-indigo-200/90' : 'text-slate-500'}`}>
+                              {formatDateTime(m.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+                  <div className="border-t border-slate-600/80 bg-slate-800/80 p-3">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        sendMessage()
+                      }}
+                      className="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Mesaj yazın..."
+                        className="flex-1 rounded-xl border border-slate-600 bg-slate-700/80 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                        maxLength={2000}
+                      />
+                      <button
+                        type="submit"
+                        disabled={sending || !input.trim()}
+                        className="rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 px-4 py-2.5 text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:shadow-none"
+                      >
+                        <Send className="h-5 w-5" strokeWidth={2} />
+                      </button>
+                    </form>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
         )}
 
         <button

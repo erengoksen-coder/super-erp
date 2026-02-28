@@ -2,29 +2,33 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  Package, 
-  Factory, 
-  AlertTriangle, 
-  TrendingUp, 
-  DollarSign, 
-  Clock, 
-  AlertCircle, 
-  BarChart3, 
-  ShoppingCart, 
-  X, 
-  QrCode, 
-  Calendar, 
-  User, 
+import {
+  Package,
+  Factory,
+  AlertTriangle,
+  TrendingUp,
+  DollarSign,
+  Clock,
+  AlertCircle,
+  BarChart3,
+  ShoppingCart,
+  X,
+  QrCode,
+  Calendar,
+  User,
   Heart,
   MoreHorizontal,
   Plus,
   Activity,
   FileDown,
   Wallet,
-  FileText
+  FileText,
+  Warehouse,
+  ClipboardCheck,
+  Truck
 } from 'lucide-react'
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Area, AreaChart, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import { LogoWithBackground } from '@/components/Logo'
 import { AppDashboardLayout } from '@/components/layouts/AppDashboardLayout'
 import { fetchApi } from '@/lib/api/client'
@@ -38,6 +42,8 @@ import { formatDate } from '@/lib/utils/dateFormat'
 import { StockRealtime } from '@/app/inventory/components/StockRealtime'
 import { ProductionRealtime } from '@/app/production/components/ProductionRealtime'
 import { OrdersRealtime } from '@/app/orders/components/OrdersRealtime'
+import { AgingWidget } from '@/app/dashboard/AgingWidget'
+import { AIPredictionsWidget } from '@/app/dashboard/AIPredictionsWidget'
 
 interface DashboardStats {
   totalStockValue: number
@@ -49,6 +55,10 @@ interface DashboardStats {
   salesThisMonth?: number
   salesLastMonth?: number
   totalReceivables?: number
+  todayOrders?: number
+  todayInvoices?: number
+  todayShipments?: number
+  readyForShipment?: number
   productionTrend: Array<{
     date: string
     count: number
@@ -60,6 +70,13 @@ interface DashboardStats {
     count: number
     total_quantity: number
   }>
+  aging?: {
+    range_0_30: number
+    range_30_60: number
+    range_60_90: number
+    range_90_plus: number
+  }
+  salesTrend?: Array<{ month: string; total: number }>
 }
 
 interface CriticalMaterial {
@@ -99,6 +116,28 @@ export default function DashboardPage() {
   const [criticalList, setCriticalList] = useState<CriticalMaterial[]>([])
   const user = useAuthStore((state) => state.user)
   const canExport = user?.can_export !== 0
+  const [isClient, setIsClient] = useState(false)
+
+  // Sürükle-bırak için bölümler
+  const defaultSections = ['critical', 'quick-access', 'summary', 'charts']
+  const [sectionOrder, setSectionOrder] = useState<string[]>(defaultSections)
+
+  useEffect(() => {
+    setIsClient(true)
+    const savedOrder = localStorage.getItem('erp_dashboard_layout')
+    if (savedOrder) {
+      try { setSectionOrder(JSON.parse(savedOrder)) } catch { }
+    }
+  }, [])
+
+  function handleDragEnd(result: DropResult) {
+    if (!result.destination) return
+    const items = Array.from(sectionOrder)
+    const [reorderedItem] = items.splice(result.source.index, 1)
+    items.splice(result.destination.index, 0, reorderedItem)
+    setSectionOrder(items)
+    localStorage.setItem('erp_dashboard_layout', JSON.stringify(items))
+  }
 
   useEffect(() => {
     let mounted = true
@@ -237,24 +276,43 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const hour = new Date().getHours()
+  const greeting = hour < 5 ? 'İyi Geceler' : hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi Günler' : 'İyi Akşamlar'
+
   return (
     <AppDashboardLayout
-      title={userName ? `Hoş Geldin, ${userName}` : 'Dashboard'}
+      title={userName ? `${greeting}, ${userName}` : 'Dashboard'}
       subtitle={formatDate(new Date())}
       icon={Activity}
       actions={
         <>
           {canExport && (
-          <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={exporting}>
-            <FileDown className="w-4 h-4 mr-2" />
-            {exporting ? 'İndiriliyor...' : 'Excel İndir'}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/50 shadow-md shadow-emerald-500/10 transition-all font-medium"
+              onClick={handleExportExcel}
+              disabled={exporting}
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              {exporting ? 'İndiriliyor...' : 'Excel İndir'}
+            </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => router.push('/production/calendar')}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20 hover:text-purple-300 hover:border-purple-500/50 shadow-md shadow-purple-500/10 transition-all font-medium"
+            onClick={() => router.push('/production/calendar')}
+          >
             <Calendar className="w-4 h-4 mr-2" />
             Plan
           </Button>
-          <Button variant="solid" color="primary" size="sm" onClick={() => router.push('/production/new')}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-500/50 shadow-md shadow-blue-500/10 transition-all font-medium"
+            onClick={() => router.push('/production/new')}
+          >
             <Plus className="w-4 h-4 mr-2" />
             Yeni Üretim
           </Button>
@@ -262,308 +320,307 @@ export default function DashboardPage() {
       }
     >
 
-      {/* Welcome Message */}
+      {/* DAİMA ÜSTTE KALAN KISIMLAR */}
       {showWelcome && userName && (
-        <Card className="bg-gradient-to-r from-primary to-purple-600 text-white border-0">
-          <CardBody className="p-6">
+        <Card variant="elevated" className="bg-gradient-to-r from-blue-600/20 to-indigo-600/20 backdrop-blur-md border border-blue-500/30">
+          <CardBody className="p-4 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <div className="p-3 bg-white/20 rounded-xl">
-                  <Heart className="w-6 h-6 text-white animate-pulse" />
+                <div className="p-3 bg-blue-500/20 rounded-xl shadow-inner">
+                  <Activity className="w-6 h-6 text-blue-400" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">Harika Bir Gün! 🎉</h2>
-                  <p className="text-white/80">
-                    Bugün {stats?.pendingProduction || 0} bekleyen üretim emriniz var
+                  <h2 className="text-lg md:text-xl font-bold text-white">Sisteme Hoş Geldiniz!</h2>
+                  <p className="text-sm md:text-base text-blue-100/80 mt-1">
+                    Bugün aktif {stats?.pendingProduction || 0} üretim emri, {(stats?.todayOrders ?? 0)} yeni sipariş ve {stats?.readyForShipment || 0} sevkiyat bekleyen ürününüz var.
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowWelcome(false)}
-                className="text-white hover:bg-white/20"
-              >
-                <X className="w-4 h-4" />
+              <Button variant="ghost" size="sm" onClick={() => setShowWelcome(false)} className="text-white hover:bg-white/10 rounded-full">
+                <X className="w-5 h-5" />
               </Button>
             </div>
           </CardBody>
         </Card>
       )}
 
-      {/* 1. KPI Kartları - En üstte */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 lg:gap-6">
-        <StatWidget
-          title="Stok Değeri"
-          value={`₺${stats?.totalStockValue?.toLocaleString('tr-TR') || '0'}`}
-          icon={<DollarSign className="w-6 h-6" />}
-          color="primary"
-          loading={loading}
-        />
-        <StatWidget
-          title="Bu Ay Ciro"
-          value={`₺${(stats?.salesThisMonth ?? 0).toLocaleString('tr-TR')}`}
-          change={
-            stats?.salesLastMonth != null && stats.salesLastMonth > 0 && stats.salesThisMonth != null
-              ? (() => {
-                  const pct = ((stats.salesThisMonth - stats.salesLastMonth) / stats.salesLastMonth) * 100
-                  return { value: `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`, type: pct >= 0 ? 'increase' : 'decrease' }
-                })()
-              : undefined
-          }
-          icon={<TrendingUp className="w-6 h-6" />}
-          color="success"
-          loading={loading}
-        />
-        <StatWidget
-          title="Bekleyen Tahsilat"
-          value={`₺${(stats?.totalReceivables ?? 0).toLocaleString('tr-TR')}`}
-          icon={<Wallet className="w-6 h-6" />}
-          color="primary"
-          loading={loading}
-        />
-        <StatWidget
-          title="Bekleyen Üretim"
-          value={stats?.pendingProduction || 0}
-          change={
-            stats?.pendingProduction && stats.pendingProduction > 0
-              ? { value: '+12%', type: 'increase' }
-              : undefined
-          }
-          icon={<Factory className="w-6 h-6" />}
-          color="warning"
-          loading={loading}
-        />
-        <StatWidget
-          title="Kritik Stok"
-          value={stats?.criticalStock || 0}
-          change={
-            stats?.criticalStock && stats.criticalStock > 0
-              ? { value: '-5%', type: 'decrease' }
-              : undefined
-          }
-          icon={<AlertTriangle className="w-6 h-6" />}
-          color="error"
-          loading={loading}
-        />
-        <StatWidget
-          title="Son 7 Gün Üretim"
-          value={chartData.reduce((sum, item) => sum + item['Üretilen Miktar'], 0)}
-          icon={<BarChart3 className="w-6 h-6" />}
-          color="success"
-          loading={loading}
-        />
-        {canViewOrders && (
-          <div className="cursor-pointer" onClick={() => router.push('/orders')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/orders')}>
-            <StatWidget
-              title="Bu Hafta Teslim"
-              value={stats?.deliveriesThisWeek ?? 0}
-              icon={<Calendar className="w-6 h-6" />}
-              color="primary"
-              loading={loading}
-            />
-          </div>
-        )}
-        {canViewOrders && (
-          <div className="cursor-pointer" onClick={() => router.push('/orders?overdue=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/orders?overdue=1')}>
-            <StatWidget
-              title="Gecikmiş Sipariş"
-              value={stats?.overdueOrders ?? 0}
-              icon={<AlertCircle className="w-6 h-6" />}
-              color="error"
-              loading={loading}
-            />
-          </div>
-        )}
-        <div className="cursor-pointer" onClick={() => router.push('/checks-notes?overdue=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/checks-notes?overdue=1')}>
-          <StatWidget
-            title="Vadesi geçmiş çek/senet"
-            value={stats?.overdueChecksNotes ?? 0}
-            icon={<FileText className="w-6 h-6" />}
-            color="error"
-            loading={loading}
-          />
-        </div>
-      </div>
-
-      {/* Hızlı İşlemler - KPI altında, tek satır */}
-      <Card className="border border-gray-200/80">
-        <CardBody className="py-3 px-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-gray-600 dark:text-slate-400 hover:text-slate-200 dark:hover:text-slate-200 transition-colors">Hızlı İşlemler:</span>
-            <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/barcodes/scan')}>
-              <QrCode className="w-4 h-4 mr-1.5" />
-              Barkod Oku
-            </Button>
-            <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/inventory/materials/new')}>
-              <Package className="w-4 h-4 mr-1.5" />
-              Stok Ekle
-            </Button>
-            <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/production')}>
-              <Factory className="w-4 h-4 mr-1.5" />
-              Üretim
-            </Button>
-            <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/reports')}>
-              <BarChart3 className="w-4 h-4 mr-1.5" />
-              Raporlar
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* 2. Realtime Overview - Stok / Üretim / Sipariş (yetkiye göre gösterilir) */}
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {canViewInventory && (
-            <Card
-              className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-              onClick={() => router.push('/inventory/materials')}
-            >
-              <CardHeader title="📦 Stok Durumu" />
-              <CardBody>
-                <StockRealtime />
-              </CardBody>
-            </Card>
-          )}
-
-          {canViewProduction && (
-            <Card
-              className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-              onClick={() => router.push('/production')}
-            >
-              <CardHeader title="🏭 Üretim Durumu" />
-              <CardBody>
-                <ProductionRealtime />
-              </CardBody>
-            </Card>
-          )}
-        </div>
-
-        {canViewOrders && (
-          <Card
-            className="cursor-pointer transition-colors hover:bg-gray-50 hover:shadow-md"
-            onClick={() => router.push('/orders')}
-          >
-            <CardHeader title="🛒 Sipariş Takibi" />
-            <CardBody>
-              <OrdersRealtime />
-            </CardBody>
-          </Card>
-        )}
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartWidget
-          title="Üretim Trendi"
-          subtitle="Son 7 gün"
-          loading={loading}
+      {/* 🚀 HIZLI YENİ İŞLEM BUTONLARI */}
+      <div className="flex flex-wrap gap-4 mt-4 mb-2">
+        <Button
+          variant="outline"
+          className="rounded-xl px-6 py-2.5 bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/50 shadow-lg shadow-amber-500/10 transition-all hover:-translate-y-1 font-semibold tracking-wide"
+          onClick={() => router.push('/orders?new=1')}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" stroke="#666" />
-              <YAxis stroke="#666" />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px'
-                }}
-              />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="Üretim Emri" 
-                stroke="#6366f1" 
-                strokeWidth={2}
-                dot={{ fill: '#6366f1', r: 4 }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="Üretilen Miktar" 
-                stroke="#10b981" 
-                strokeWidth={2}
-                dot={{ fill: '#10b981', r: 4 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartWidget>
-
-        <ChartWidget
-          title="İstasyon Durumu"
-          subtitle="Bekleyen işler"
-          loading={loading}
+          <ShoppingCart className="w-5 h-5 mr-2" />
+          Yeni Sipariş
+        </Button>
+        <Button
+          variant="outline"
+          className="rounded-xl px-6 py-2.5 bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-500/50 shadow-lg shadow-blue-500/10 transition-all hover:-translate-y-1 font-semibold tracking-wide"
+          onClick={() => router.push('/invoices/new')}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stationChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" stroke="#666" />
-              <YAxis stroke="#666" />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px'
-                }}
-              />
-              <Legend />
-              <Bar
-                dataKey="Bekleyen"
-                fill="#6366f1"
-                radius={[8, 8, 0, 0]}
-                onClick={handleStationChartClick}
-                cursor="pointer"
-              />
-              <Bar
-                dataKey="Toplam Adet"
-                fill="#10b981"
-                radius={[8, 8, 0, 0]}
-                onClick={handleStationChartClick}
-                cursor="pointer"
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartWidget>
+          <FileText className="w-5 h-5 mr-2" />
+          Fatura Kes
+        </Button>
+        <Button
+          variant="outline"
+          className="rounded-xl px-6 py-2.5 bg-indigo-500/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 hover:text-indigo-300 hover:border-indigo-500/50 shadow-lg shadow-indigo-500/10 transition-all hover:-translate-y-1 font-semibold tracking-wide"
+          onClick={() => router.push('/waybills/new')}
+        >
+          <ClipboardCheck className="w-5 h-5 mr-2" />
+          İrsaliye Oluştur
+        </Button>
+        <Button
+          variant="outline"
+          className="rounded-xl px-6 py-2.5 bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/50 shadow-lg shadow-emerald-500/10 transition-all hover:-translate-y-1 font-semibold tracking-wide"
+          onClick={() => router.push('/checks-notes')}
+        >
+          <DollarSign className="w-5 h-5 mr-2" />
+          Çek / Senet Ekle
+        </Button>
       </div>
 
-      {/* Lists Row - Aktif kartlar: 2 adet (Aktif Üretim Emirleri + Kritik Stoklar) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-label="2 kart: Aktif Üretim Emirleri ve Kritik Stoklar">
-        <ListWidget
-          title={`Aktif Üretim Emirleri${planningData?.total_cards != null ? ` (${planningData.total_cards} kart)` : planning?.length ? ` (${planning.length} emir)` : ''}`}
-          items={
-            (planningData?.active_cards?.length
-              ? planningData.active_cards.slice(0, 10).map((ac) => ({
-                  id: ac.order_id,
-                  title: ac.order_number,
-                  subtitle: `${ac.product_name} - ${ac.card_count} adet`,
-                  status: ac.station_label,
-                  statusColor: 'warning' as const,
-                }))
-              : planning?.slice(0, 5).map((order: PlanningOrder) => ({
-                  id: order.id,
-                  title: order.order_number,
-                  subtitle: `${order.product_name} - ${order.quantity} adet`,
-                  status: order.current_station || '',
-                  statusColor: 'warning' as const,
-                }))) || []
-          }
-          loading={loading}
-          onItemClick={(item) => router.push(`/production/${item.id}`)}
-        />
-        <ListWidget
-          title="Kritik Stoklar"
-          items={criticalList.slice(0, 5).map((material: CriticalMaterial) => ({
-            id: material.id,
-            title: material.name,
-            subtitle: `${material.stock_amount} / ${material.min_stock_level} ${material.unit}`,
-            status: 'Kritik',
-            statusColor: 'error'
-          })) || []}
-          loading={loading}
-          empty="Kritik stok bulunmamaktadır"
-        />
-      </div>
+      {isClient && (
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="dashboard-sections">
+            {(provided) => (
+              <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-6 mt-4 pb-12">
+                {sectionOrder.map((sectionId, index) => (
+                  <Draggable key={sectionId} draggableId={sectionId} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        className={`transition-all ${snapshot.isDragging ? 'ring-2 ring-blue-500 shadow-2xl rounded-xl opacity-90 scale-[1.02] bg-slate-900/80 z-50' : ''}`}
+                      >
+                        {/* Drag Handle (Görünmez tutma alanı veya küçük bir ikon eklenebilir. Şimdilik bölüm başlıkları drag handle olacak) */}
+                        <div {...provided.dragHandleProps} className="group relative">
+                          <div className={`absolute -left-3 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-0.5 cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-800 ${snapshot.isDragging ? 'opacity-100 cursor-grabbing' : ''}`}>
+                            <div className="w-1 h-1 bg-slate-500 rounded-full" />
+                            <div className="w-1 h-1 bg-slate-500 rounded-full" />
+                            <div className="w-1 h-1 bg-slate-500 rounded-full" />
+                            <div className="w-1 h-1 bg-slate-500 rounded-full" />
+                          </div>
+
+                          {sectionId === 'critical' && (
+                            <div className="space-y-3 pl-2">
+                              <h2 className="text-sm font-semibold uppercase tracking-wider text-rose-500/80 px-1 select-none">Kritik & Acil</h2>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="cursor-pointer" onClick={() => router.push('/purchase/critical-stock')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/purchase/critical-stock')}>
+                                  <StatWidget
+                                    title="Kritik Stok"
+                                    value={stats?.criticalStock || 0}
+                                    icon={<AlertTriangle className="w-6 h-6" />}
+                                    color="error"
+                                    loading={loading}
+                                    className="hover:-translate-y-1"
+                                  />
+                                </div>
+                                <div className="cursor-pointer" onClick={() => router.push('/checks-notes?overdue=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/checks-notes?overdue=1')}>
+                                  <StatWidget
+                                    title="Vadesi Geçmiş Ödemeler"
+                                    value={stats?.overdueChecksNotes ?? 0}
+                                    icon={<FileText className="w-6 h-6" />}
+                                    color="error"
+                                    loading={loading}
+                                    className="hover:-translate-y-1"
+                                  />
+                                </div>
+                                <div className="cursor-pointer" onClick={() => router.push('/orders')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/orders')}>
+                                  <StatWidget
+                                    title="Gecikmiş Siparişler"
+                                    value={stats?.overdueOrders ?? 0}
+                                    icon={<AlertCircle className="w-6 h-6" />}
+                                    color="warning"
+                                    loading={loading}
+                                    className="hover:-translate-y-1"
+                                  />
+                                </div>
+                                <div className="cursor-pointer" onClick={() => router.push('/accounts?has_debt=1')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/accounts?has_debt=1')}>
+                                  <StatWidget
+                                    title="Bekleyen Tahsilat (Toplam)"
+                                    value={`₺${(stats?.totalReceivables ?? 0).toLocaleString('tr-TR')}`}
+                                    icon={<Wallet className="w-6 h-6" />}
+                                    color="warning"
+                                    loading={loading}
+                                    className="hover:-translate-y-1"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {sectionId === 'quick-access' && (
+                            <div className="space-y-3 pl-2">
+                              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 px-1 select-none">Modüller & Hızlı İşlemler</h2>
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                                {[
+                                  { label: 'Siparişler', icon: ShoppingCart, href: '/orders', color: 'from-amber-600/20 to-amber-900/10', text: 'text-amber-400', border: 'border-amber-800/50 hover:border-amber-500/80' },
+                                  { label: 'Faturalar', icon: FileText, href: '/invoices', color: 'from-blue-600/20 to-blue-900/10', text: 'text-blue-400', border: 'border-blue-800/50 hover:border-blue-500/80' },
+                                  { label: 'İrsaliyeler', icon: ClipboardCheck, href: '/waybills', color: 'from-indigo-600/20 to-indigo-900/10', text: 'text-indigo-400', border: 'border-indigo-800/50 hover:border-indigo-500/80' },
+                                  { label: 'Çek / Senet', icon: DollarSign, href: '/checks-notes', color: 'from-emerald-600/20 to-emerald-900/10', text: 'text-emerald-400', border: 'border-emerald-800/50 hover:border-emerald-500/80' },
+                                  { label: 'Stok', icon: Package, href: '/inventory/materials', color: 'from-cyan-600/20 to-cyan-900/10', text: 'text-cyan-400', border: 'border-cyan-800/50 hover:border-cyan-500/80' },
+                                  { label: 'Üretim', icon: Factory, href: '/production', color: 'from-violet-600/20 to-violet-900/10', text: 'text-violet-400', border: 'border-violet-800/50 hover:border-violet-500/80' },
+                                  { label: 'Üretim Paneli', icon: Activity, href: '/production/dashboard', color: 'from-fuchsia-600/20 to-fuchsia-900/10', text: 'text-fuchsia-400', border: 'border-fuchsia-800/50 hover:border-fuchsia-500/80' },
+                                  { label: 'Cari Hesaplar', icon: User, href: '/accounts', color: 'from-slate-600/30 to-slate-900/10', text: 'text-slate-300', border: 'border-slate-700/50 hover:border-slate-400/80' },
+                                  { label: 'Raporlar', icon: BarChart3, href: '/reports', color: 'from-pink-600/20 to-pink-900/10', text: 'text-pink-400', border: 'border-pink-800/50 hover:border-pink-500/80' },
+                                ].map((item, idx) => (
+                                  <div key={idx} className="cursor-pointer" onClick={() => router.push(item.href)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push(item.href)}>
+                                    <Card variant="elevated" hover className={`h-full bg-gradient-to-br ${item.color} ${item.border} transition-all p-3 flex flex-col items-center justify-center gap-2 text-center group`}>
+                                      <item.icon className={`w-6 h-6 ${item.text} group-hover:scale-110 transition-transform`} />
+                                      <span className="font-medium text-slate-200 text-xs sm:text-sm">{item.label}</span>
+                                    </Card>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {sectionId === 'summary' && (
+                            <div className="space-y-3 pl-2 mt-2">
+                              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 px-1 select-none">Performans Özeti</h2>
+                              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                                <StatWidget
+                                  title="Bu Ay Ciro"
+                                  value={`₺${(stats?.salesThisMonth ?? 0).toLocaleString('tr-TR')}`}
+                                  change={
+                                    stats?.salesLastMonth != null && stats.salesLastMonth > 0 && stats.salesThisMonth != null
+                                      ? (() => {
+                                        const pct = ((stats.salesThisMonth - stats.salesLastMonth) / stats.salesLastMonth) * 100
+                                        return { value: `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`, type: pct >= 0 ? 'increase' : 'decrease' as any }
+                                      })()
+                                      : undefined
+                                  }
+                                  icon={<TrendingUp className="w-6 h-6" />}
+                                  color="success"
+                                  loading={loading}
+                                />
+                                <StatWidget
+                                  title="Stok Değeri"
+                                  value={`₺${stats?.totalStockValue?.toLocaleString('tr-TR') || '0'}`}
+                                  icon={<Package className="w-6 h-6" />}
+                                  color="primary"
+                                  loading={loading}
+                                />
+                                <StatWidget
+                                  title="Bekleyen Üretim"
+                                  value={stats?.pendingProduction || 0}
+                                  icon={<Factory className="w-6 h-6" />}
+                                  color="primary"
+                                  loading={loading}
+                                />
+                                <StatWidget
+                                  title="Bu Hafta Teslim"
+                                  value={stats?.deliveriesThisWeek ?? 0}
+                                  icon={<Calendar className="w-6 h-6" />}
+                                  color="primary"
+                                  loading={loading}
+                                />
+                                <div className="cursor-pointer" onClick={() => router.push('/production/dashboard')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && router.push('/production/dashboard')}>
+                                  <StatWidget
+                                    title="Sevkiyat Bekleyen"
+                                    value={stats?.readyForShipment ?? 0}
+                                    icon={<Truck className="w-6 h-6" />}
+                                    color="success"
+                                    loading={loading}
+                                    className="hover:-translate-y-1"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {sectionId === 'charts' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pl-2 mt-2">
+                              {/* Sol Sütun: Finans */}
+                              <div className="space-y-6">
+                                <ChartWidget title="Aylık Ciro Trendi" subtitle="Son 6 ay performansı" loading={loading}>
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={stats?.salesTrend?.map(s => ({ ay: s.month, Ciro: s.total })) || []}>
+                                      <defs>
+                                        <linearGradient id="colorCiro" x1="0" y1="0" x2="0" y2="1">
+                                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.8} />
+                                        </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                      <XAxis dataKey="ay" stroke="#64748b" fontSize={12} axisLine={false} tickLine={false} dy={10} />
+                                      <YAxis stroke="#64748b" fontSize={12} axisLine={false} tickLine={false} dx={-10} tickFormatter={(v: number) => `₺${(v / 1000).toFixed(0)}K`} />
+                                      <Tooltip
+                                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(51, 65, 85, 0.5)', borderRadius: '16px', color: '#f1f5f9', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(59,130,246,0.3)' }}
+                                        itemStyle={{ color: '#60a5fa', fontWeight: 'bold' }}
+                                        formatter={(value: number) => [`₺${value.toLocaleString('tr-TR')}`, 'Ciro']}
+                                        cursor={{ fill: 'rgba(51, 65, 85, 0.2)', opacity: 1 }}
+                                      />
+                                      <Bar dataKey="Ciro" fill="url(#colorCiro)" radius={[8, 8, 0, 0]} barSize={36} animationDuration={1500} animationEasing="ease-out" />
+                                    </BarChart>
+                                  </ResponsiveContainer>
+                                </ChartWidget>
+                                <AgingWidget />
+                                <AIPredictionsWidget />
+                              </div>
+
+                              {/* Sağ Sütun: Üretim/Operasyon */}
+                              <div className="space-y-6">
+                                <ChartWidget title="Üretim Trendi" subtitle="Son 7 gün emri ve üretim miktarı" loading={loading}>
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={chartData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                                      <defs>
+                                        <linearGradient id="colorOemri" x1="0" y1="0" x2="0" y2="1">
+                                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4} />
+                                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="colorUretimMiktar" x1="0" y1="0" x2="0" y2="1">
+                                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                        </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} opacity={0.5} />
+                                      <XAxis dataKey="date" stroke="#64748b" fontSize={12} axisLine={false} tickLine={false} dy={10} />
+                                      <YAxis stroke="#64748b" fontSize={12} axisLine={false} tickLine={false} />
+                                      <Tooltip
+                                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(51, 65, 85, 0.5)', borderRadius: '16px', color: '#f1f5f9', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}
+                                      />
+                                      <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                                      <Area type="monotone" dataKey="Üretim Emri" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorOemri)" activeDot={{ r: 8, strokeWidth: 0, fill: '#c4b5fd', style: { filter: 'drop-shadow(0px 0px 5px rgba(139,92,246,0.8))' } }} />
+                                      <Area type="monotone" dataKey="Üretilen Miktar" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorUretimMiktar)" activeDot={{ r: 8, strokeWidth: 0, fill: '#6ee7b7', style: { filter: 'drop-shadow(0px 0px 5px rgba(16,185,129,0.8))' } }} />
+                                    </AreaChart>
+                                  </ResponsiveContainer>
+                                </ChartWidget>
+
+                                <div className="grid grid-cols-1 gap-6">
+                                  {canViewProduction && (
+                                    <Card className="hover:shadow-lg transition-shadow bg-slate-800/50 border-slate-700">
+                                      <CardHeader title="🏭 Aktif Üretim Emirleri" className="border-b border-slate-700/50 pb-3" />
+                                      <CardBody className="pt-4">
+                                        <ProductionRealtime />
+                                      </CardBody>
+                                    </Card>
+                                  )}
+                                  {canViewOrders && (
+                                    <Card className="hover:shadow-lg transition-shadow bg-slate-800/50 border-slate-700">
+                                      <CardHeader title="🛒 Son Siparişler" className="border-b border-slate-700/50 pb-3" />
+                                      <CardBody className="pt-4">
+                                        <OrdersRealtime />
+                                      </CardBody>
+                                    </Card>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      )}
     </AppDashboardLayout>
   )
 }
