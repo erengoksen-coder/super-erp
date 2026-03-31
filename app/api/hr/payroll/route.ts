@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/database/db'
+import { getDatabase } from '@/lib/database/db'
 
 export async function POST(request: Request) {
   try {
+    const db = getDatabase()
     const { month, year } = await request.json()
     
     // Get all active employees

@@ -88,7 +88,7 @@ export default function AttendancePage() {
   const filteredRecords = localRecords.filter(r => 
     `${r.first_name} ${r.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
     r.department?.toLowerCase().includes(search.toLowerCase())
-  )
+  );
 
   return (
     <div className="p-4 md:p-8 space-y-8 min-h-screen bg-[#030712] text-white">
@@ -276,7 +276,7 @@ export default function AttendancePage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

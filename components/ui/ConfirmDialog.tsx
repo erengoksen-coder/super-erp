@@ -10,6 +10,9 @@ interface ConfirmDialogProps {
   title: string
   message: string
   variant?: 'danger' | 'warning' | 'info' | 'success'
+  confirmText?: string
+  cancelText?: string
+  loading?: boolean
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -18,7 +21,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   title,
   message,
-  variant = 'warning'
+  variant = 'warning',
+  confirmText,
+  cancelText,
+  loading,
 }) => {
   if (!isOpen) return null
 
@@ -67,15 +73,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <div className="grid grid-cols-2 gap-4 pt-4">
             <button 
               onClick={onClose}
+              disabled={loading}
               className="px-6 py-4 bg-gray-950 hover:bg-gray-800 text-gray-500 font-black text-[10px] uppercase tracking-widest rounded-2xl border border-gray-800 transition-all active:scale-95"
             >
-              İPTAL
+              {cancelText || 'İPTAL'}
             </button>
             <button 
               onClick={onConfirm}
+              disabled={loading}
               className={`px-6 py-4 ${v.button} text-white font-black text-[10px] uppercase tracking-widest rounded-2xl shadow-xl transition-all active:scale-95`}
             >
-              ONAYLIYORUM
+              {confirmText || 'ONAYLIYORUM'}
             </button>
           </div>
         </div>

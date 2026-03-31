@@ -3,18 +3,178 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 3, 7, 18;
-  --background-end-rgb: 3, 7, 18;
+  /* Default Theme (Indigo) */
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --surface: #1e293b;
+  --surface-rgb: 30, 41, 59;
+  --surface-light: #334155;
+  --primary: #6366f1;
+  --primary-rgb: 99, 102, 241;
+  --border: #334155;
+  --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --selection: rgba(99, 102, 241, 0.3);
+  --accent: #4f46e5;
+  --accent-rgb: 79, 70, 229;
+}
+
+.light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-rgb: 255, 255, 255;
+  --surface-light: #f1f5f9;
+  --primary: #4f46e5;
+  --primary-rgb: 79, 70, 229;
+  --border: #e2e8f0;
+  --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --selection: rgba(79, 70, 229, 0.15);
+  --accent: #6366f1;
+  --accent-rgb: 99, 102, 241;
+}
+
+/* Platinum Theme Overrides */
+.theme-platinum {
+  --primary: #94a3b8; /* Slate 400 */
+  --primary-rgb: 148, 163, 184;
+  --accent: #64748b; /* Slate 500 */
+  --accent-rgb: 100, 116, 139;
+  --selection: rgba(148, 163, 184, 0.2);
+}
+
+.light.theme-platinum {
+  --primary: #64748b; /* Slate 500 */
+  --primary-rgb: 100, 116, 139;
+  --accent: #475569; /* Slate 600 */
+  --accent-rgb: 71, 85, 105;
+}
+
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+html, body {
+  scroll-behavior: smooth;
+  scroll-padding-top: 2rem;
+  overflow-anchor: none;
+  height: 100%;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-start-rgb));
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', sans-serif;
+  @apply antialiased subpixel-antialiased;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+#app-main {
+  overflow-anchor: none;
+}
+
+/* Modern Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Sidebar Specific Scrollbar */
+aside nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+aside nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Date Picker Visibility Improvements */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: brightness(0) invert(1);
+  margin-left: 5px;
+  padding: 5px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  opacity: 0.8;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+  opacity: 1;
+}
+
+input[type="date"] {
+  position: relative;
+  min-height: 38px;
+  color-scheme: dark;
+}
+
+.light input[type="date"] {
+  color-scheme: light;
+}
+
+/* Glassmorphism Classes */
+.glass {
+  background: rgba(var(--surface-rgb), 0.7);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.light .glass {
+  background: rgba(var(--surface-rgb), 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+/* Shimmer Animation for Skeletons */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 5px rgba(var(--primary-rgb), 0.2); }
+  to { box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4); }
+}
+
+.animate-reveal {
+  animation: reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+/* Selection */
+::selection {
+  background: var(--selection);
+  color: var(--foreground);
+}
+
+/* Utilities */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 500px;
 }

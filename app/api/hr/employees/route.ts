@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/database/db'
+import { getDatabase } from '@/lib/database/db'
 
 export async function GET() {
   try {
+    const db = getDatabase()
     const employees = db.prepare('SELECT * FROM hr_employees WHERE status = "active" ORDER BY first_name ASC').all()
     return NextResponse.json(employees)
   } catch (error) {
@@ -12,6 +13,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const db = getDatabase()
     const body = await request.json()
     const result = db.prepare(`
       INSERT INTO hr_employees (id, first_name, last_name, email, phone, department, title, hire_date, salary, status)

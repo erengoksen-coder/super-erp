@@ -1,13 +1,32 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Outfit } from 'next/font/google'
 import './globals.css'
+import './design-system.css'
+import './mobile-optimization.css'
+import './animations.css'
+import './performance.css'
 import Sidebar from '@/components/Sidebar'
+import { SidebarProvider } from '@/components/SidebarContext'
+import AuthGuard from '@/components/AuthGuard'
+import { I18nProvider } from '@/lib/i18n'
+import SWRProvider from '@/components/SWRProvider'
+import ServiceWorker from '@/components/ServiceWorker'
+import GlobalBarcodeListener from '@/components/GlobalBarcodeListener'
+import { ThemeProvider } from '@/lib/theme'
+import ScrollToTop from '@/components/ScrollToTop'
+import MainShell from '@/components/MainShell'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import SuppressHydrationWarnings from './suppress-hydration-warnings'
+import { Toaster } from 'sonner'
+import { ThemeInjector } from '@/components/ThemeInjector'
+import { TopLoader } from '@/components/ui/TopLoader'
+import { CommandPalette } from '@/components/ui/CommandPalette'
 
-const inter = Inter({ subsets: ['latin'] })
+const outfit = Outfit({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Livasofa ERP - Human Resources',
-  description: 'Enterprise Resource Planning for Furniture Manufacturing',
+  title: 'LIVASOFA - Süper ERP',
+  description: 'Koltuk Üretim Yönetim Sistemi',
 }
 
 export default function RootLayout({
@@ -16,14 +35,33 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="tr">
-      <body className={`${inter.className} bg-[#030712]`}>
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1 ml-72">
-            {children}
-          </main>
-        </div>
+    <html lang="tr" className="dark" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+        <link rel="manifest" href="/manifest.json" />
+      </head>
+      <body className={`${outfit.className} bg-gray-950 text-gray-100`} suppressHydrationWarning style={{ margin: 0, padding: 0, overflow: 'hidden', width: '100vw', height: '100vh', position: 'fixed', inset: 0 }}>
+        <SuppressHydrationWarnings />
+        <ThemeProvider>
+          <TopLoader />
+          <I18nProvider>
+            <SWRProvider>
+              <AuthGuard>
+                <ServiceWorker />
+                <GlobalBarcodeListener />
+                <ScrollToTop />
+                <Toaster richColors position="top-right" closeButton />
+                <SidebarProvider>
+                  <CommandPalette />
+                  <Sidebar />
+                  <MainShell>
+                    <ErrorBoundary>{children}</ErrorBoundary>
+                  </MainShell>
+                </SidebarProvider>
+              </AuthGuard>
+          </SWRProvider>
+        </I18nProvider>
+      </ThemeProvider>
       </body>
     </html>
   )

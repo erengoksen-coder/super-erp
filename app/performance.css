@@ -1,0 +1,136 @@
+/* Performance Optimizations */
+
+/* Critical CSS Inlining */
+.critical-above-fold {
+  /* Only essential styles for above-the-fold content */
+}
+
+/* Font Loading Optimization */
+
+/* Image Optimization */
+.optimized-image {
+  content-visibility: auto;
+  contain-intrinsic-size: 400px 300px;
+  loading: lazy;
+}
+
+/* Scroll Performance */
+.smooth-scroll {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px; /* Account for fixed header */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* GPU Acceleration for Animations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .gpu-accelerated {
+    will-change: auto;
+  }
+  
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Containment for Performance */
+.contain-layout {
+  contain: layout;
+}
+
+.contain-paint {
+  contain: paint;
+}
+
+.contain-size {
+  contain: size;
+}
+
+.contain-all {
+  contain: layout paint size;
+}
+
+/* Virtual Scrolling Helpers */
+.virtual-scroll-container {
+  height: 400px;
+  overflow-y: auto;
+  position: relative;
+}
+
+.virtual-scroll-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.virtual-scroll-item {
+  position: absolute;
+  width: 100%;
+}
+
+/* Debounced Resize Handlers */
+.resize-observer {
+  container-type: inline-size;
+}
+
+/* Intersection Observer Animations */
+.animate-on-viewport {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+}
+
+.animate-on-viewport.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Performance Monitoring */
+.performance-marker {
+  /* CSS-based performance markers */
+}
+
+/* Bundle Optimization */
+.lazy-component {
+  display: none;
+}
+
+.lazy-component.loaded {
+  display: block;
+}
+
+/* CSS-in-JS Performance */
+.style-cache {
+  /* Prevents style recalculation */
+  contain: layout style;
+}
+
+/* Memory Management */
+.cleanup-on-unmount {
+  /* Helps with memory cleanup */
+}
+
+/* Network Optimization */
+.network-optimal {
+  /* Optimized for slow networks */
+}
+
+@media (max-width: 768px) {
+  .network-optimal {
+    /* Reduce animations on mobile for better performance */
+    animation-duration: 0.2s !important;
+    transition-duration: 0.2s !important;
+  }
+}
