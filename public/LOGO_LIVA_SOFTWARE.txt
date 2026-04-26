@@ -1,0 +1,4 @@
+LIVASOFTWARE logosu:
+- Giriş, kayıt ve sevkiyat fişinde /liva-software-logo.png kullanılır (LIVASOFTWARE markası).
+- Logoyu bu klasöre "liva-software-logo.png" adıyla kopyalayın.
+- Dosya yoksa otomatik olarak mevcut logo.png gösterilir.

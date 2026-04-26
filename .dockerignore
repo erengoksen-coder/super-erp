@@ -1,0 +1,47 @@
+# Core
+**/node_modules
+**/.next
+# Host outputs ignored (Multi-stage build handles this)
+**/out
+**/build
+**/.turbo
+**/coverage
+
+# IDE & System
+**/.idea
+**/.vscode
+**/.git
+**/*.swp
+**/*.swo
+**/.DS_Store
+**/Thumbs.db
+
+# Data & DBs (Aggressive recursive exclusion)
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.bak
+**/*.backup
+**/*.corrupt
+**/data
+**/backups
+**/temp_ext
+**/tmp
+**/test-results
+
+# Archives
+**/*.rar
+**/*.zip
+**/*.7z
+**/*.tar.gz
+**/*.iso
+
+# Logs
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# Env
+**/.env*

@@ -1,0 +1,1 @@
+export { GET } from '../../../../products/[id]/movements/route'

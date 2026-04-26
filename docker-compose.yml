@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    platform: linux/amd64
+    container_name: super-erp
+    ports:
+      - "3007:3007"
+    volumes:
+      - erp_data:/app/data
+    env_file:
+      - .env
+    environment:
+      - PORT=3007
+      - DATABASE_PATH=/app/data/erp.db
+    restart: always
+
+volumes:
+  erp_data:
+    driver: local

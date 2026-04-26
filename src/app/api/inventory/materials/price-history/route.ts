@@ -1,0 +1,1 @@
+export { GET } from '../../../materials/price-history/route'

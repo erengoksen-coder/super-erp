@@ -1,0 +1,1 @@
+export { PATCH } from '../../../../shipments/[id]/status/route'

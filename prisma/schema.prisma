@@ -1,0 +1,1941 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model app_meta {
+  key   String @id
+  value String?
+
+  @@map("_app_meta")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model test {
+  val String?
+
+  @@map("_test")
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model account_transactions {
+  id               String @id
+  account_id       String
+  transaction_type String
+  amount           Float
+  reference_type   String?
+  reference_id     String?
+  description      String?
+  created_at       String?  @default("CURRENT_TIMESTAMP")
+  company_id       String?  @default("company_default")
+  branch_id        String?  @default("branch_default")
+  deleted_at       String?
+  accounts         accounts @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([account_id, created_at], map: "idx_account_transactions_account")
+  @@index([account_id], map: "idx_account_transactions_account_id")
+}
+
+model accounts {
+  id                      String @id
+  code                    String                  @unique(map: "sqlite_autoindex_accounts_2")
+  name                    String
+  type                    String                  @default("customer")
+  tax_number              String?
+  phone                   String?
+  email                   String?
+  address                 String?
+  balance                 Float?                  @default(0)
+  risk_limit              Float?                  @default(0)
+  discount_rate           Float?                  @default(0)
+  authorized_person_name  String?
+  authorized_person_phone String?
+  is_approved             Int?                    @default(1)
+  company_id              String?                 @default("company_default")
+  branch_id               String?                 @default("branch_default")
+  created_at              String?                 @default("CURRENT_TIMESTAMP")
+  updated_at              String?                 @default("CURRENT_TIMESTAMP")
+  deleted_at              String?
+  created_by              String?
+  updated_by              String?
+  account_transactions    account_transactions[]  @ignore
+  invoices                invoices[]
+  material_reservations   material_reservations[] @ignore
+  payments                payments[]              @ignore
+  purchase_orders         purchase_orders[]
+  quotations              quotations[]
+  sales_orders            sales_orders[]
+  shipments               shipments[]
+  waybills                waybills[]
+
+  @@index([code], map: "idx_accounts_code")
+  @@index([type], map: "idx_accounts_type")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model actual_expenses {
+  id            String @id
+  company_id    String
+  period        String
+  category      String
+  actual_amount Float   @default(0)
+  created_at    String? @default("CURRENT_TIMESTAMP")
+
+  @@index([company_id, period], map: "idx_actual_expenses_company_period")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model announcements {
+  id              String @id
+  title           String
+  content         String?
+  target_audience String? @default("all")
+  priority        String? @default("normal")
+  valid_until     String?
+  company_id      String?
+  created_at      String? @default("datetime('now')")
+}
+
+model api_tokens {
+  id              String @id
+  name            String
+  token           String  @unique(map: "sqlite_autoindex_api_tokens_2")
+  last_used_at    String?
+  is_active       Int?    @default(1)
+  user_id         String?
+  scopes          String?
+  ip_restrictions String?
+  expires_at      String?
+  company_id      String? @default("company_default")
+  branch_id       String? @default("branch_default")
+  created_at      String? @default("CURRENT_TIMESTAMP")
+  updated_at      String? @default("CURRENT_TIMESTAMP")
+  users           users?  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model app_settings {
+  id            String @id
+  setting_key   String  @unique(map: "sqlite_autoindex_app_settings_2")
+  setting_value String?
+  updated_at    String? @default("datetime('now')")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model approval_requests {
+  id               String @id
+  document_type    String
+  document_id      String
+  requester_id     String
+  approver_role_id String?
+  approver_id      String?
+  status           String? @default("pending")
+  amount           Float?  @default(0)
+  notes            String?
+  rejection_reason String?
+  company_id       String? @default("company_default")
+  branch_id        String? @default("branch_default")
+  created_at       String? @default("datetime('now')")
+  updated_at       String? @default("datetime('now')")
+  deleted_at       String?
+
+  @@index([status], map: "idx_approval_requests_status")
+  @@index([document_type, document_id], map: "idx_approval_requests_doc")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model approval_rules {
+  id               String @id
+  document_type    String
+  min_amount       Float?  @default(0)
+  max_amount       Float?
+  approver_role_id String
+  is_active        Int?    @default(1)
+  company_id       String? @default("company_default")
+  branch_id        String? @default("branch_default")
+  created_at       String? @default("datetime('now')")
+  updated_at       String? @default("datetime('now')")
+  deleted_at       String?
+
+  @@index([document_type], map: "idx_approval_rules_doc_type")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model audit_logs {
+  id          String @id
+  table_name  String
+  action      String
+  record_id   String?
+  user_id     String?
+  company_id  String? @default("company_default")
+  branch_id   String? @default("branch_default")
+  before_data String?
+  after_data  String?
+  created_at  String? @default("CURRENT_TIMESTAMP")
+  old_data    String?
+  new_data    String?
+  ip_address  String?
+  action_type String?
+  entity_name String?
+  entity_id   String?
+  description String?
+  user_agent  String?
+  deleted_at  String?
+
+  @@index([user_id], map: "idx_audit_logs_user_id")
+  @@index([entity_name, entity_id], map: "idx_audit_logs_entity")
+  @@index([company_id, branch_id], map: "idx_audit_logs_company_branch")
+  @@index([created_at], map: "idx_audit_logs_created_at")
+  @@index([table_name, record_id], map: "idx_audit_logs_table_record")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model banks {
+  id         String @id
+  name       String
+  iban       String?
+  account_no String?
+  currency   String?    @default("TRY")
+  balance    Float?     @default(0)
+  company_id String?    @default("company_default")
+  branch_id  String?    @default("branch_default")
+  created_at String?    @default("CURRENT_TIMESTAMP")
+  updated_at String?    @default("CURRENT_TIMESTAMP")
+  deleted_at String?
+  payments   payments[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model bom {
+  id                String @id
+  version_id        String?
+  product_id        String
+  material_id       String
+  parent_id         String?
+  quantity_required Float
+  fire_percentage   Float?    @default(0)
+  created_at        String?   @default("CURRENT_TIMESTAMP")
+  updated_at        String?   @default("CURRENT_TIMESTAMP")
+  deleted_at        String?
+  waste_percentage  Float?    @default(0)
+  unit              String?
+  company_id        String?   @default("company_default")
+  branch_id         String?   @default("branch_default")
+  materials         materials @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products          products  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([version_id, product_id, material_id, parent_id], map: "uniq_bom_version_item")
+  @@index([material_id], map: "idx_bom_material_id")
+  @@index([product_id], map: "idx_bom_product_id")
+  @@index([version_id], map: "idx_bom_version_id")
+  @@index([parent_id], map: "idx_bom_parent_id")
+}
+
+model bom_versions {
+  id              String @id
+  product_id      String
+  version_no      Int
+  effective_date  String
+  revision_reason String?
+  is_active       Int?     @default(1)
+  created_at      String?  @default("CURRENT_TIMESTAMP")
+  updated_at      String?  @default("CURRENT_TIMESTAMP")
+  deleted_at      String?
+  company_id      String?  @default("company_default")
+  branch_id       String?  @default("branch_default")
+  products        products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([product_id, version_no], map: "sqlite_autoindex_bom_versions_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model branches {
+  id         String @id
+  company_id String
+  name       String
+  created_at String? @default("CURRENT_TIMESTAMP")
+  updated_at String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model budgets {
+  id              String @id
+  company_id      String
+  period          String
+  category        String
+  budgeted_amount Float   @default(0)
+  created_at      String? @default("CURRENT_TIMESTAMP")
+
+  @@index([company_id, period], map: "idx_budgets_company_period")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model cash_boxes {
+  id         String @id
+  name       String
+  currency   String?    @default("TRY")
+  balance    Float?     @default(0)
+  company_id String?    @default("company_default")
+  branch_id  String?    @default("branch_default")
+  created_at String?    @default("CURRENT_TIMESTAMP")
+  updated_at String?    @default("CURRENT_TIMESTAMP")
+  deleted_at String?
+  payments   payments[]
+}
+
+model chart_of_accounts {
+  id                      String @id
+  code                    String                @unique(map: "sqlite_autoindex_chart_of_accounts_2")
+  name                    String
+  account_type            String
+  parent_id               String?
+  balance                 Float?                @default(0)
+  is_active               Int?                  @default(1)
+  created_at              String?               @default("CURRENT_TIMESTAMP")
+  updated_at              String?               @default("CURRENT_TIMESTAMP")
+  type                    String?
+  deleted_at              String?
+  company_id              String?               @default("company_default")
+  branch_id               String?               @default("branch_default")
+  chart_of_accounts       chart_of_accounts?    @relation("chart_of_accountsTochart_of_accounts", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_chart_of_accounts chart_of_accounts[]   @relation("chart_of_accountsTochart_of_accounts")
+  general_ledger          general_ledger[]      @ignore
+  journal_entry_lines     journal_entry_lines[] @ignore
+
+  @@index([code], map: "idx_chart_of_accounts_code")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model checks_and_notes {
+  id                   String @id
+  type                 String
+  direction            String
+  account_id           String
+  amount               Float
+  currency             String? @default("TRY")
+  issue_date           String?
+  due_date             String
+  bank_name            String?
+  check_or_note_number String?
+  status               String  @default("pending")
+  notes                String?
+  company_id           String? @default("company_default")
+  branch_id            String? @default("branch_default")
+  created_at           String? @default("CURRENT_TIMESTAMP")
+  updated_at           String? @default("CURRENT_TIMESTAMP")
+  deleted_at           String?
+  created_by           String?
+  updated_by           String?
+  given_to             String?
+  given_at             String?
+  given_to_account_id  String?
+  cash_box_id          String?
+}
+
+model companies {
+  id         String @id
+  name       String  @unique(map: "sqlite_autoindex_companies_2")
+  created_at String? @default("CURRENT_TIMESTAMP")
+  updated_at String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model contracts {
+  id         String @id
+  company_id String?
+  branch_id  String?
+  account_id String
+  title      String
+  start_date String?
+  end_date   String
+  status     String? @default("active")
+  notes      String?
+  created_at String? @default("CURRENT_TIMESTAMP")
+  updated_at String? @default("CURRENT_TIMESTAMP")
+
+  @@index([status], map: "idx_contracts_status")
+  @@index([end_date], map: "idx_contracts_end_date")
+  @@index([account_id], map: "idx_contracts_account")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model crm_leads {
+  id           String @id
+  title        String
+  company      String?
+  contact_name String?
+  value        Float?  @default(0)
+  status       String? @default("new")
+  company_id   String?
+  created_at   String? @default("datetime('now')")
+  updated_at   String? @default("datetime('now')")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model crm_opportunities {
+  id                  String @id
+  company_id          String?
+  account_id          String
+  title               String
+  stage               String? @default("lead")
+  amount              Float?  @default(0)
+  expected_close_date String?
+  notes               String?
+  created_at          String? @default("CURRENT_TIMESTAMP")
+  updated_at          String? @default("CURRENT_TIMESTAMP")
+
+  @@index([stage], map: "idx_crm_opportunities_stage")
+  @@index([account_id], map: "idx_crm_opportunities_account")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model currency_rates {
+  id            String @id
+  from_currency String  @default("USD")
+  to_currency   String  @default("TRY")
+  rate          Float
+  rate_date     String
+  created_at    String? @default("CURRENT_TIMESTAMP")
+
+  @@index([from_currency, to_currency, rate_date], map: "idx_currency_rates_pair_date")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model customer_groups {
+  id          String @id
+  name        String
+  code        String? @unique(map: "sqlite_autoindex_customer_groups_2")
+  description String?
+  company_id  String?
+  created_at  String? @default("datetime('now')")
+  updated_at  String? @default("datetime('now')")
+  deleted_at  String?
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model customer_return_items {
+  id               String @id
+  return_id        String
+  product_id       String
+  product_name     String?
+  quantity         Float            @default(0)
+  unit_price       Float?           @default(0)
+  total_price      Float?           @default(0)
+  reason           String?
+  barcode_id       String?
+  created_at       String?          @default("datetime('now')")
+  products         products         @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customer_returns customer_returns @relation(fields: [return_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model customer_returns {
+  id                    String @id
+  return_number         String                  @unique(map: "sqlite_autoindex_customer_returns_2")
+  customer_id           String
+  account_id            String
+  return_date           String
+  status                String                  @default("draft")
+  total_amount          Float?                  @default(0)
+  notes                 String?
+  shipment_id           String?
+  invoice_id            String?
+  company_id            String?                 @default("company_default")
+  branch_id             String?                 @default("branch_default")
+  created_at            String?                 @default("datetime('now')")
+  updated_at            String?                 @default("datetime('now')")
+  deleted_at            String?
+  created_by            String?
+  customer_return_items customer_return_items[] @ignore
+}
+
+model dealer_targets {
+  id            String @id
+  customer_id   String
+  year          Int
+  month         Int
+  target_amount Float?  @default(0)
+  currency      String? @default("TRY")
+  company_id    String?
+  created_at    String? @default("datetime('now')")
+
+  @@unique([customer_id, year, month], map: "sqlite_autoindex_dealer_targets_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model direct_messages {
+  id                                        String @id
+  from_user_id                              String
+  to_user_id                                String
+  body                                      String
+  read_at                                   String?
+  created_at                                String? @default("CURRENT_TIMESTAMP")
+  company_id                                String? @default("company_default")
+  branch_id                                 String? @default("branch_default")
+  users_direct_messages_to_user_idTousers   users   @relation("direct_messages_to_user_idTousers", fields: [to_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_direct_messages_from_user_idTousers users   @relation("direct_messages_from_user_idTousers", fields: [from_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_direct_messages_created_at")
+  @@index([from_user_id, to_user_id], map: "idx_direct_messages_from_to")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model documents {
+  id           String @id
+  company_id   String?
+  branch_id    String?
+  title        String
+  category     String?
+  file_name    String
+  file_path    String
+  file_size    Int?
+  mime_type    String?
+  related_type String?
+  related_id   String?
+  created_by   String?
+  created_at   String? @default("CURRENT_TIMESTAMP")
+  updated_at   String? @default("CURRENT_TIMESTAMP")
+
+  @@index([created_at], map: "idx_documents_created_at")
+  @@index([related_type, related_id], map: "idx_documents_related")
+  @@index([category], map: "idx_documents_category")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model e_invoice_integrations {
+  id          String @id
+  provider    String
+  config_json String
+  is_active   Int?    @default(0)
+  created_at  String? @default("CURRENT_TIMESTAMP")
+  updated_at  String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model e_invoice_logs {
+  id               String @id
+  invoice_id       String
+  provider         String
+  action           String
+  status           String
+  request_payload  String?
+  response_payload String?
+  created_at       String?  @default("CURRENT_TIMESTAMP")
+  invoices         invoices @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model general_ledger {
+  id                    String @id
+  account_id            String
+  entry_date            String
+  journal_entry_id      String
+  journal_entry_line_id String
+  debit                 Float?              @default(0)
+  credit                Float?              @default(0)
+  balance               Float?              @default(0)
+  description           String?
+  reference_type        String?
+  reference_id          String?
+  created_at            String?             @default("CURRENT_TIMESTAMP")
+  updated_at            String?
+  deleted_at            String?
+  company_id            String?             @default("company_default")
+  branch_id             String?             @default("branch_default")
+  journal_entry_lines   journal_entry_lines @relation(fields: [journal_entry_line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal_entries       journal_entries     @relation(fields: [journal_entry_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  chart_of_accounts     chart_of_accounts   @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entry_date], map: "idx_general_ledger_date")
+  @@index([account_id], map: "idx_general_ledger_account")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hr_employee_documents {
+  id           String @id
+  employee_id  String
+  file_name    String
+  file_type    String
+  file_url     String
+  category     String?      @default("other")
+  company_id   String?
+  uploaded_at  String?      @default("datetime('now')")
+  hr_employees hr_employees @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_hr_doc_company")
+  @@index([employee_id], map: "idx_hr_doc_employee")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hr_employees {
+  id                    String @id
+  company_id            String?                 @default("company_default")
+  branch_id             String?                 @default("branch_default")
+  email                 String?
+  full_name             String
+  status                String?                 @default("active")
+  created_at            String?                 @default("CURRENT_TIMESTAMP")
+  updated_at            String?                 @default("CURRENT_TIMESTAMP")
+  deleted_at            String?
+  hr_employee_documents hr_employee_documents[]
+  hr_leave_requests     hr_leave_requests[]
+  hr_payroll_records    hr_payroll_records[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hr_leave_requests {
+  id           String @id
+  employee_id  String
+  type         String
+  start_date   String
+  end_date     String
+  days         Float
+  reason       String?
+  status       String?      @default("pending")
+  approved_by  String?
+  company_id   String?
+  created_at   String?      @default("datetime('now')")
+  updated_at   String?      @default("datetime('now')")
+  users        users?       @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  hr_employees hr_employees @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model hr_payroll_records {
+  id           String @id
+  employee_id  String
+  period_year  Int
+  period_month Int
+  base_salary  Float?       @default(0)
+  bonuses      Float?       @default(0)
+  deductions   Float?       @default(0)
+  net_salary   Float
+  status       String?      @default("draft")
+  payment_date String?
+  company_id   String?
+  created_at   String?      @default("datetime('now')")
+  updated_at   String?      @default("datetime('now')")
+  hr_employees hr_employees @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+
+  @@unique([employee_id, period_year, period_month], map: "sqlite_autoindex_hr_payroll_records_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model invoice_items {
+  id          String @id
+  invoice_id  String
+  product_id  String
+  quantity    Int
+  unit_price  Float?   @default(0)
+  total_price Float?   @default(0)
+  notes       String?
+  created_at  String?  @default("CURRENT_TIMESTAMP")
+  deleted_at  String?
+  company_id  String?  @default("company_default")
+  branch_id   String?  @default("branch_default")
+  products    products @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invoices    invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model invoices {
+  id                 String @id
+  invoice_number     String           @unique(map: "sqlite_autoindex_invoices_2")
+  shipment_id        String?
+  customer_id        String
+  invoice_date       String
+  type               String?          @default("sale")
+  status             String?          @default("issued")
+  total_amount       Float?           @default(0)
+  tax_rate           Float?           @default(0)
+  tax_amount         Float?           @default(0)
+  final_amount       Float?           @default(0)
+  notes              String?
+  created_at         String?          @default("CURRENT_TIMESTAMP")
+  updated_at         String?          @default("CURRENT_TIMESTAMP")
+  deleted_at         String?
+  discount_rate      Float?           @default(0)
+  discount_amount    Float?           @default(0)
+  document_kind      String?
+  due_date           String?
+  payment_terms_days Int?             @default(0)
+  company_id         String?          @default("company_default")
+  branch_id          String?          @default("branch_default")
+  e_invoice_logs     e_invoice_logs[] @ignore
+  invoice_items      invoice_items[]  @ignore
+  accounts           accounts         @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipments          shipments?       @relation(fields: [shipment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payments           payments[]       @ignore
+}
+
+model journal_entries {
+  id                  String @id
+  entry_number        String                @unique(map: "sqlite_autoindex_journal_entries_2")
+  entry_date          String
+  description         String?
+  reference_type      String?
+  reference_id        String?
+  total_debit         Float?                @default(0)
+  total_credit        Float?                @default(0)
+  created_at          String?               @default("CURRENT_TIMESTAMP")
+  created_by          String?
+  company_id          String?               @default("company_default")
+  branch_id           String?               @default("branch_default")
+  deleted_at          String?
+  general_ledger      general_ledger[]      @ignore
+  journal_entry_lines journal_entry_lines[] @ignore
+
+  @@index([entry_date], map: "idx_journal_entries_date")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model journal_entry_lines {
+  id                String @id
+  journal_entry_id  String
+  account_id        String
+  debit             Float?            @default(0)
+  credit            Float?            @default(0)
+  description       String?
+  created_at        String?           @default("CURRENT_TIMESTAMP")
+  company_id        String?           @default("company_default")
+  branch_id         String?           @default("branch_default")
+  deleted_at        String?
+  general_ledger    general_ledger[]
+  chart_of_accounts chart_of_accounts @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal_entries   journal_entries   @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([account_id], map: "idx_journal_entry_lines_account")
+  @@index([journal_entry_id], map: "idx_journal_entry_lines_entry")
+}
+
+model label_settings {
+  id            String @id
+  setting_key   String  @unique(map: "sqlite_autoindex_label_settings_2")
+  setting_value String?
+  updated_at    String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model material_prices {
+  id          String @id
+  material_id String
+  price       Float
+  price_type  String?   @default("purchase")
+  source_type String?
+  source_id   String?
+  created_at  String?   @default("CURRENT_TIMESTAMP")
+  deleted_at  String?
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_material_prices_created_at")
+  @@index([material_id], map: "idx_material_prices_material")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model material_reservations {
+  id             String @id
+  material_id    String
+  customer_id    String?
+  reference_type String?
+  reference_id   String?
+  quantity       Float
+  status         String?   @default("active")
+  notes          String?
+  created_at     String?   @default("CURRENT_TIMESTAMP")
+  updated_at     String?   @default("CURRENT_TIMESTAMP")
+  deleted_at     String?
+  company_id     String?   @default("company_default")
+  branch_id      String?   @default("branch_default")
+  accounts       accounts? @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  materials      materials @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_material_reservations_status")
+  @@index([customer_id], map: "idx_material_reservations_customer")
+  @@index([material_id], map: "idx_material_reservations_material")
+}
+
+model material_stocks {
+  id           String @id
+  material_id  String
+  warehouse_id String
+  quantity     Float?     @default(0)
+  created_at   String?    @default("CURRENT_TIMESTAMP")
+  updated_at   String?    @default("CURRENT_TIMESTAMP")
+  company_id   String?    @default("company_default")
+  branch_id    String?    @default("branch_default")
+  deleted_at   String?
+  warehouses   warehouses @relation(fields: [warehouse_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  materials    materials  @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+
+  @@unique([material_id, warehouse_id], map: "sqlite_autoindex_material_stocks_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model materials {
+  id                            String @id
+  name                          String
+  unit                          String
+  stock_amount                  Float?                          @default(0)
+  min_stock_level               Float?                          @default(0)
+  created_at                    String?                         @default("CURRENT_TIMESTAMP")
+  updated_at                    String?                         @default("CURRENT_TIMESTAMP")
+  purchase_price                Float?                          @default(0)
+  code                          String?
+  category                      String?
+  supplier_id                   String?
+  last_purchase_date            String?
+  unit_price                    Float?                          @default(0)
+  company_id                    String?                         @default("company_default")
+  branch_id                     String?                         @default("branch_default")
+  deleted_at                    String?
+  reserved_quantity             Float?                          @default(0)
+  version                       Int?                            @default(0)
+  location                      String?
+  lead_time_days                Int?                            @default(0)
+  max_stock_level               Float?                          @default(0)
+  bom                           bom[]
+  material_prices               material_prices[]
+  material_reservations         material_reservations[]
+  material_stocks               material_stocks[]
+  production_actual_consumption production_actual_consumption[]
+  purchase_order_items          purchase_order_items[]
+  purchase_requests             purchase_requests[]
+  stock_alerts                  stock_alerts[]
+  stock_count_items             stock_count_items[]
+  stock_movements               stock_movements[]
+  stock_reservations            stock_reservations[]
+
+  @@index([category], map: "idx_materials_category")
+  @@index([code], map: "idx_materials_code")
+  @@index([deleted_at], map: "idx_materials_deleted_at")
+  @@index([supplier_id], map: "idx_materials_supplier_id")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model mobile_scan_results {
+  code       String @id
+  barcode    String
+  created_at String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model notifications {
+  id             String @id
+  user_id        String
+  title          String
+  message        String?
+  type           String? @default("info")
+  is_read        Int?    @default(0)
+  link           String?
+  reference_type String?
+  reference_id   String?
+  created_at     String? @default("CURRENT_TIMESTAMP")
+  read_at        String?
+  company_id     String? @default("company_default")
+  branch_id      String? @default("branch_default")
+  users          users   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_notifications_user_id")
+  @@index([created_at], map: "idx_notifications_created_at")
+  @@index([reference_type, reference_id], map: "idx_notifications_reference")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model operations {
+  id                          String @id
+  code                        String?                       @unique(map: "sqlite_autoindex_operations_2")
+  name                        String
+  description                 String?
+  standard_duration_minutes   Int?                          @default(0)
+  is_active                   Int?                          @default(1)
+  created_at                  String?                       @default("CURRENT_TIMESTAMP")
+  updated_at                  String?                       @default("CURRENT_TIMESTAMP")
+  deleted_at                  String?
+  company_id                  String?                       @default("company_default")
+  branch_id                   String?                       @default("branch_default")
+  production_order_operations production_order_operations[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model order_approvals {
+  id               String @id
+  order_id         String
+  requested_by     String
+  requested_at     String  @default("datetime('now')")
+  approved_by      String?
+  approved_at      String?
+  status           String  @default("pending")
+  notes            String?
+  order_amount     Float?  @default(0)
+  threshold_amount Float?  @default(0)
+  orders           orders  @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_order_approvals_status")
+  @@index([order_id], map: "idx_order_approvals_order")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model order_items {
+  id                  String @id
+  order_id            String
+  product_id          String?
+  product_name        String?
+  quantity            Float
+  unit_price          Float
+  tax_rate            Float?    @default(20)
+  tax_amount          Float?    @default(0)
+  total_price         Float
+  status              String?   @default("pending")
+  company_id          String?   @default("company_default")
+  created_at          String?   @default("CURRENT_TIMESTAMP")
+  updated_at          String?   @default("CURRENT_TIMESTAMP")
+  deleted_at          String?
+  production_order_id String?
+  branch_id           String?   @default("branch_default")
+  products            products? @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+  orders              orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([product_id], map: "idx_order_items_product")
+  @@index([order_id], map: "idx_order_items_order")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model orders {
+  id                      String @id
+  order_number            String?            @unique(map: "sqlite_autoindex_orders_2")
+  customer_name           String?
+  customer_code           String?
+  product_name            String?
+  product_sku             String?
+  product_id              String?
+  quantity                Int
+  unit_price              Float?
+  total_amount            Float?
+  delivery_date           String?
+  status                  String?            @default("pending")
+  production_order_id     String?
+  notes                   String?
+  excel_row_number        Int?
+  created_at              String?            @default("CURRENT_TIMESTAMP")
+  updated_at              String?            @default("CURRENT_TIMESTAMP")
+  dealer_name             String?
+  configuration           String?
+  order_date              String?
+  cancel_reason           String?
+  company_id              String?            @default("company_default")
+  branch_id               String?            @default("branch_default")
+  deleted_at              String?
+  case_info               String?
+  leg_info                String?
+  cushion_info            String?
+  fabric_code             String?
+  subtotal                Float?             @default(0)
+  tax_amount              Float?             @default(0)
+  currency                String?            @default("TRY")
+  exchange_rate           Float?             @default(1)
+  sales_representative_id String?
+  created_by              String?
+  expected_date           String?
+  type                    String?            @default("sales")
+  customer_id             String?
+  order_approvals         order_approvals[]
+  order_items             order_items[]
+  production_orders       production_orders? @relation(fields: [production_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products                products?          @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_orders_created_at")
+  @@index([dealer_name], map: "idx_orders_dealer")
+  @@index([deleted_at], map: "idx_orders_deleted_at")
+  @@index([order_date], map: "idx_orders_order_date")
+  @@index([production_order_id], map: "idx_orders_production_order_id")
+  @@index([status], map: "idx_orders_status")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model password_reset_tokens {
+  token      String @id
+  user_id    String
+  expires_at String
+  created_at String? @default("CURRENT_TIMESTAMP")
+  users      users   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model payments {
+  id             String @id
+  account_id     String
+  invoice_id     String?
+  amount         Float
+  payment_date   String
+  method         String?
+  type           String
+  cash_box_id    String?
+  bank_id        String?
+  reference_type String?
+  reference_id   String?
+  notes          String?
+  company_id     String?     @default("company_default")
+  branch_id      String?     @default("branch_default")
+  created_at     String?     @default("CURRENT_TIMESTAMP")
+  updated_at     String?     @default("CURRENT_TIMESTAMP")
+  deleted_at     String?
+  created_by     String?
+  banks          banks?      @relation(fields: [bank_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cash_boxes     cash_boxes? @relation(fields: [cash_box_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invoices       invoices?   @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  accounts       accounts    @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([type], map: "idx_payments_type")
+  @@index([payment_date], map: "idx_payments_payment_date")
+  @@index([invoice_id], map: "idx_payments_invoice_id")
+  @@index([account_id], map: "idx_payments_account_id")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model permissions {
+  key        String @id
+  name       String
+  category   String?
+  company_id String? @default("company_default")
+  branch_id  String? @default("branch_default")
+  created_at String? @default("CURRENT_TIMESTAMP")
+  updated_at String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model personnel {
+  id                          String @id
+  full_name                   String
+  role                        String?
+  phone                       String?
+  email                       String?
+  hourly_rate                 Float?                        @default(0)
+  is_active                   Int?                          @default(1)
+  created_at                  String?                       @default("CURRENT_TIMESTAMP")
+  updated_at                  String?                       @default("CURRENT_TIMESTAMP")
+  deleted_at                  String?
+  production_order_operations production_order_operations[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model price_list_items {
+  id            String @id
+  price_list_id String
+  product_id    String
+  product_name  String?
+  unit_price    Float       @default(0)
+  min_quantity  Float?      @default(1)
+  discount_rate Float?      @default(0)
+  created_at    String      @default("datetime('now')")
+  updated_at    String      @default("datetime('now')")
+  price_lists   price_lists @relation(fields: [price_list_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([product_id], map: "idx_price_list_items_product")
+  @@index([price_list_id], map: "idx_price_list_items_list")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model price_lists {
+  id                String @id
+  name              String
+  code              String?            @unique(map: "sqlite_autoindex_price_lists_2")
+  description       String?
+  currency          String?            @default("TRY")
+  is_default        Int?               @default(0)
+  valid_from        String?
+  valid_until       String?
+  status            String?            @default("active")
+  created_at        String             @default("datetime('now')")
+  updated_at        String             @default("datetime('now')")
+  deleted_at        String?
+  customer_group_id String?
+  price_list_items  price_list_items[]
+}
+
+model product_serial_numbers {
+  id                  String @id
+  product_id          String
+  serial_number       String             @unique(map: "sqlite_autoindex_product_serial_numbers_2")
+  barcode             String             @unique(map: "sqlite_autoindex_product_serial_numbers_3")
+  production_order_id String?
+  status              String?            @default("in_stock")
+  created_at          String?            @default("CURRENT_TIMESTAMP")
+  sold_at             String?
+  notes               String?
+  customer_id         String?
+  ready_for_shipment  Int?               @default(0)
+  shipment_id         String?
+  updated_at          String?            @default("CURRENT_TIMESTAMP")
+  current_station     String?
+  company_id          String?            @default("company_default")
+  branch_id           String?            @default("branch_default")
+  production_orders   production_orders? @relation(fields: [production_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products            products           @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status, shipment_id], map: "idx_psn_status_shipment")
+  @@index([barcode], map: "idx_product_serial_numbers_barcode")
+  @@index([product_id], map: "idx_product_serial_numbers_product_id")
+  @@index([customer_id], map: "idx_product_serial_numbers_customer_id")
+  @@index([shipment_id], map: "idx_product_serial_numbers_shipment_id")
+  @@index([ready_for_shipment], map: "idx_product_serial_numbers_ready_for_shipment")
+  @@index([serial_number], map: "idx_serial_numbers_serial")
+  @@index([barcode], map: "idx_serial_numbers_barcode")
+  @@index([product_id], map: "idx_serial_numbers_product")
+}
+
+model production_actual_consumption {
+  id                  String @id
+  production_order_id String
+  material_id         String
+  planned_quantity    Float
+  actual_quantity     Float?
+  fire_quantity       Float?
+  variance            Float?
+  variance_percentage Float?
+  recorded_at         String?           @default("CURRENT_TIMESTAMP")
+  actual_usage        Float?
+  scrap_reason        String?
+  materials           materials         @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  production_orders   production_orders @relation(fields: [production_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([production_order_id, material_id], map: "sqlite_autoindex_production_actual_consumption_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model production_costs {
+  id                  String @id
+  production_order_id String
+  material_cost       Float?            @default(0)
+  labor_cost          Float?            @default(0)
+  overhead_cost       Float?            @default(0)
+  total_cost          Float?            @default(0)
+  created_at          String?           @default("CURRENT_TIMESTAMP")
+  deleted_at          String?
+  production_orders   production_orders @relation(fields: [production_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([production_order_id], map: "idx_production_costs_order")
+}
+
+model production_order_operations {
+  id                       String @id
+  production_order_id      String
+  operation_id             String
+  work_center_id           String?
+  personnel_id             String?
+  planned_start            String?
+  planned_end              String?
+  actual_start             String?
+  actual_end               String?
+  planned_duration_minutes Int?              @default(0)
+  actual_duration_minutes  Int?              @default(0)
+  status                   String?           @default("planned")
+  delay_reason             String?
+  notes                    String?
+  created_at               String?           @default("CURRENT_TIMESTAMP")
+  updated_at               String?           @default("CURRENT_TIMESTAMP")
+  personnel                personnel?        @relation(fields: [personnel_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  work_centers             work_centers?     @relation(fields: [work_center_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  operations               operations        @relation(fields: [operation_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+  production_orders        production_orders @relation(fields: [production_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([production_order_id, operation_id], map: "sqlite_autoindex_production_order_operations_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model production_order_times {
+  id                  String @id
+  production_order_id String
+  work_center_id      String
+  operator_id         String?
+  start_at            String?           @default("CURRENT_TIMESTAMP")
+  end_at              String?
+  duration_minutes    Float?
+  notes               String?
+  created_at          String?           @default("CURRENT_TIMESTAMP")
+  users               users?            @relation(fields: [operator_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  work_centers        work_centers      @relation(fields: [work_center_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  production_orders   production_orders @relation(fields: [production_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model production_orders {
+  id                            String @id
+  order_number                  String                          @unique(map: "sqlite_autoindex_production_orders_2")
+  product_id                    String
+  quantity                      Int
+  status                        String?                         @default("pending")
+  created_at                    String?                         @default("CURRENT_TIMESTAMP")
+  updated_at                    String?                         @default("CURRENT_TIMESTAMP")
+  material_cost                 Float?                          @default(0)
+  labor_cost                    Float?                          @default(0)
+  total_cost                    Float?                          @default(0)
+  selling_price                 Float?                          @default(0)
+  profit                        Float?                          @default(0)
+  due_date                      String?
+  estimated_completion_date     String?
+  started_at                    String?
+  completed_at                  String?
+  current_station               String?                         @default("iskelet")
+  iskelet_started_at            String?
+  iskelet_completed_at          String?
+  d_seme_started_at             String?                         @map("döseme_started_at")
+  d_seme_completed_at           String?                         @map("döseme_completed_at")
+  montaj_started_at             String?
+  montaj_completed_at           String?
+  sevkiyat_started_at           String?
+  sevkiyat_completed_at         String?
+  stock_deducted                Int?                            @default(0)
+  terzihane_started_at          String?
+  terzihane_completed_at        String?
+  berjer_started_at             String?
+  berjer_completed_at           String?
+  iskelet_completed_count       Int?                            @default(0)
+  terzihane_completed_count     Int?                            @default(0)
+  berjer_completed_count        Int?                            @default(0)
+  d_seme_completed_count        Int?                            @default(0) @map("döseme_completed_count")
+  montaj_completed_count        Int?                            @default(0)
+  sevkiyat_completed_count      Int?                            @default(0)
+  company_id                    String?                         @default("company_default")
+  branch_id                     String?                         @default("branch_default")
+  deleted_at                    String?
+  source_order_id               String?
+  source_order_item_id          String?
+  orders                        orders[]                        @ignore
+  product_serial_numbers        product_serial_numbers[]
+  production_actual_consumption production_actual_consumption[]
+  production_costs              production_costs[]              @ignore
+  production_order_operations   production_order_operations[]
+  production_order_times        production_order_times[]        @ignore
+  products                      products                        @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sales_order_items             sales_order_items[]             @ignore
+  shipment_items                shipment_items[]                @ignore
+  work_orders                   work_orders?
+
+  @@index([status], map: "idx_production_orders_status")
+}
+
+model products {
+  id                     String @id
+  name                   String
+  sku                    String                   @unique(map: "sqlite_autoindex_products_2")
+  price                  Float?                   @default(0)
+  created_at             String?                  @default("CURRENT_TIMESTAMP")
+  updated_at             String?                  @default("CURRENT_TIMESTAMP")
+  stock_amount           Int?                     @default(0)
+  min_stock_level        Int?                     @default(5)
+  labor_cost             Float?                   @default(0)
+  selling_price          Float?                   @default(0)
+  company_id             String?                  @default("company_default")
+  branch_id              String?                  @default("branch_default")
+  deleted_at             String?
+  dealer_price           Float?                   @default(0)
+  image_url              String?
+  unit                   String?
+  bom                    bom[]                    @ignore
+  bom_versions           bom_versions[]
+  customer_return_items  customer_return_items[]  @ignore
+  invoice_items          invoice_items[]          @ignore
+  order_items            order_items[]            @ignore
+  orders                 orders[]                 @ignore
+  product_serial_numbers product_serial_numbers[]
+  production_orders      production_orders[]
+  sales_order_items      sales_order_items[]      @ignore
+  shipment_items         shipment_items[]         @ignore
+  stock_movements        stock_movements[]        @ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model purchase_order_items {
+  id                String @id
+  purchase_order_id String
+  material_id       String
+  quantity          Float
+  unit_price        Float?          @default(0)
+  total_price       Float?          @default(0)
+  created_at        String?         @default("CURRENT_TIMESTAMP")
+  updated_at        String?         @default("CURRENT_TIMESTAMP")
+  deleted_at        String?
+  company_id        String?         @default("company_default")
+  branch_id         String?         @default("branch_default")
+  materials         materials       @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchase_orders   purchase_orders @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([material_id], map: "idx_purchase_order_items_material_id")
+  @@index([purchase_order_id], map: "idx_purchase_order_items_purchase_order_id")
+}
+
+model purchase_orders {
+  id                   String @id
+  supplier_id          String
+  order_number         String                 @unique(map: "sqlite_autoindex_purchase_orders_2")
+  order_date           String
+  status               String?                @default("pending")
+  total_amount         Float?                 @default(0)
+  tax_rate             Float?                 @default(0)
+  tax_amount           Float?                 @default(0)
+  final_amount         Float?                 @default(0)
+  payment_terms_days   Int?                   @default(0)
+  company_id           String?                @default("company_default")
+  branch_id            String?                @default("branch_default")
+  created_at           String?                @default("CURRENT_TIMESTAMP")
+  updated_at           String?                @default("CURRENT_TIMESTAMP")
+  deleted_at           String?
+  purchase_order_items purchase_order_items[] @ignore
+  accounts             accounts               @relation(fields: [supplier_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_purchase_orders_status")
+  @@index([order_date], map: "idx_purchase_orders_order_date")
+  @@index([supplier_id], map: "idx_purchase_orders_supplier_id")
+}
+
+model purchase_requests {
+  id                 String @id
+  request_number     String    @unique(map: "sqlite_autoindex_purchase_requests_2")
+  material_id        String
+  requested_quantity Float
+  unit_price         Float?    @default(0)
+  total_amount       Float?    @default(0)
+  status             String?   @default("draft")
+  supplier_id        String?
+  notes              String?
+  created_at         String?   @default("CURRENT_TIMESTAMP")
+  updated_at         String?   @default("CURRENT_TIMESTAMP")
+  supplier_name      String?
+  received_quantity  Float?    @default(0)
+  deleted_at         String?
+  company_id         String?   @default("company_default")
+  branch_id          String?   @default("branch_default")
+  materials          materials @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction) @ignore
+
+  @@index([status], map: "idx_purchase_requests_status")
+  @@index([material_id], map: "idx_purchase_requests_material")
+}
+
+model push_subscriptions {
+  id         String @id
+  user_id    String?
+  endpoint   String  @unique(map: "sqlite_autoindex_push_subscriptions_2")
+  p256dh     String
+  auth       String
+  created_at String? @default("CURRENT_TIMESTAMP")
+}
+
+model quality_controls {
+  id                  String @id
+  qc_number           String  @unique(map: "sqlite_autoindex_quality_controls_2")
+  production_order_id String?
+  inspector_id        String?
+  inspection_date     String? @default("datetime('now')")
+  product_id          String?
+  product_name        String?
+  batch_number        String?
+  quantity_inspected  Int?    @default(0)
+  quantity_passed     Int?    @default(0)
+  quantity_failed     Int?    @default(0)
+  defect_type         String?
+  defect_description  String?
+  result              String? @default("pending")
+  notes               String?
+  status              String? @default("draft")
+  company_id          String?
+  created_at          String? @default("datetime('now')")
+  updated_at          String? @default("datetime('now')")
+  deleted_at          String?
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model quotation_items {
+  id            String @id
+  quotation_id  String
+  product_id    String?
+  product_name  String?
+  product_sku   String?
+  description   String?
+  quantity      Float      @default(0)
+  unit          String?    @default("ADET")
+  unit_price    Float      @default(0)
+  discount_rate Float?     @default(0)
+  tax_rate      Float?     @default(20)
+  total_price   Float?     @default(0)
+  sort_order    Int?       @default(0)
+  created_at    String     @default("datetime('now')")
+  quotations    quotations @relation(fields: [quotation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([quotation_id], map: "idx_quotation_items_quotation")
+}
+
+model quotations {
+  id                 String @id
+  quotation_number   String            @unique(map: "sqlite_autoindex_quotations_2")
+  customer_id        String
+  quotation_date     String            @default("date('now')")
+  valid_until        String?
+  status             String            @default("draft")
+  subtotal           Float?            @default(0)
+  discount_rate      Float?            @default(0)
+  discount_amount    Float?            @default(0)
+  tax_rate           Float?            @default(20)
+  tax_amount         Float?            @default(0)
+  total_amount       Float?            @default(0)
+  currency           String?           @default("TRY")
+  notes              String?
+  terms              String?
+  converted_order_id String?
+  company_id         String?
+  branch_id          String?
+  created_by         String?
+  created_at         String            @default("datetime('now')")
+  updated_at         String            @default("datetime('now')")
+  deleted_at         String?
+  quotation_items    quotation_items[] @ignore
+  accounts           accounts          @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model role_permissions {
+  id             String @id
+  role_id        String
+  permission_key String
+  can_view       Int?    @default(1)
+  can_create     Int?    @default(0)
+  can_edit       Int?    @default(0)
+  can_delete     Int?    @default(0)
+  company_id     String? @default("company_default")
+  branch_id      String? @default("branch_default")
+  created_at     String? @default("CURRENT_TIMESTAMP")
+
+  @@unique([role_id, permission_key], map: "sqlite_autoindex_role_permissions_2")
+}
+
+model roles {
+  id          String @id
+  name        String  @unique(map: "sqlite_autoindex_roles_2")
+  description String?
+  company_id  String? @default("company_default")
+  branch_id   String? @default("branch_default")
+  created_at  String? @default("CURRENT_TIMESTAMP")
+  updated_at  String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model sales_order_items {
+  id                  String @id
+  sales_order_id      String
+  product_id          String
+  quantity            Float
+  unit_price          Float?             @default(0)
+  total_price         Float?             @default(0)
+  production_order_id String?
+  status              String?            @default("pending")
+  created_at          String?            @default("CURRENT_TIMESTAMP")
+  updated_at          String?            @default("CURRENT_TIMESTAMP")
+  deleted_at          String?
+  company_id          String?            @default("company_default")
+  branch_id           String?            @default("branch_default")
+  production_orders   production_orders? @relation(fields: [production_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products            products           @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sales_orders        sales_orders       @relation(fields: [sales_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([production_order_id], map: "idx_sales_order_items_production_order_id")
+  @@index([product_id], map: "idx_sales_order_items_product_id")
+  @@index([sales_order_id], map: "idx_sales_order_items_sales_order_id")
+}
+
+model sales_orders {
+  id                 String @id
+  customer_id        String
+  order_number       String              @unique(map: "sqlite_autoindex_sales_orders_2")
+  order_date         String
+  status             String?             @default("pending")
+  total_amount       Float?              @default(0)
+  tax_rate           Float?              @default(0)
+  tax_amount         Float?              @default(0)
+  final_amount       Float?              @default(0)
+  payment_terms_days Int?                @default(0)
+  company_id         String?             @default("company_default")
+  branch_id          String?             @default("branch_default")
+  created_at         String?             @default("CURRENT_TIMESTAMP")
+  updated_at         String?             @default("CURRENT_TIMESTAMP")
+  deleted_at         String?
+  sales_order_items  sales_order_items[] @ignore
+  accounts           accounts            @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_sales_orders_status")
+  @@index([order_date], map: "idx_sales_orders_order_date")
+  @@index([customer_id], map: "idx_sales_orders_customer_id")
+}
+
+model service_tickets {
+  id                  String @id
+  ticket_number       String  @unique(map: "sqlite_autoindex_service_tickets_2")
+  customer_id         String
+  product_id          String?
+  custom_product_name String?
+  subject             String
+  description         String?
+  status              String? @default("open")
+  priority            String? @default("medium")
+  image_url           String?
+  company_id          String?
+  created_at          String? @default("CURRENT_TIMESTAMP")
+  updated_at          String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model shipment_items {
+  id                  String @id
+  shipment_id         String
+  product_id          String
+  quantity            Int
+  serial_numbers      String?
+  notes               String?
+  created_at          String?            @default("CURRENT_TIMESTAMP")
+  unit_price          Float?             @default(0)
+  total_price         Float?             @default(0)
+  deleted_at          String?
+  production_order_id String?
+  company_id          String?            @default("company_default")
+  branch_id           String?            @default("branch_default")
+  products            products           @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipments           shipments          @relation(fields: [shipment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  production_orders   production_orders? @relation(fields: [production_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([shipment_id], map: "idx_shipment_items_shipment_id")
+  @@index([shipment_id], map: "idx_shipment_items_shipment")
+}
+
+model shipments {
+  id                    String @id
+  shipment_number       String           @unique(map: "sqlite_autoindex_shipments_2")
+  customer_id           String
+  shipment_date         String
+  status                String?          @default("pending")
+  total_quantity        Int?             @default(0)
+  notes                 String?
+  created_at            String?          @default("CURRENT_TIMESTAMP")
+  updated_at            String?          @default("CURRENT_TIMESTAMP")
+  total_amount          Float?           @default(0)
+  tax_rate              Float?           @default(0)
+  tax_amount            Float?           @default(0)
+  final_amount          Float?           @default(0)
+  cancel_reason         String?
+  deleted_at            String?
+  invoice_id            String?
+  invoice_number        String?
+  discount_rate         Float?           @default(0)
+  discount_amount       Float?           @default(0)
+  approval_status       String?
+  approved_by           String?
+  approved_at           String?
+  approval_requested_at String?
+  company_id            String?          @default("company_default")
+  branch_id             String?          @default("branch_default")
+  invoices              invoices[]
+  shipment_items        shipment_items[] @ignore
+  accounts              accounts         @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  waybills              waybills[]
+
+  @@index([shipment_date], map: "idx_shipments_shipment_date")
+  @@index([customer_id], map: "idx_shipments_customer_id")
+  @@index([status], map: "idx_shipments_status")
+  @@index([shipment_date], map: "idx_shipments_date")
+  @@index([customer_id], map: "idx_shipments_customer")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_alerts {
+  id          String @id
+  material_id String
+  level       String?   @default("critical")
+  message     String?
+  status      String?   @default("open")
+  created_at  String?   @default("CURRENT_TIMESTAMP")
+  resolved_at String?
+  deleted_at  String?
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_stock_alerts_status")
+  @@index([material_id], map: "idx_stock_alerts_material")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_count_items {
+  id           String @id
+  count_id     String
+  material_id  String
+  expected_qty Float?       @default(0)
+  counted_qty  Float?       @default(0)
+  difference   Float?       @default(0)
+  created_at   String?      @default("CURRENT_TIMESTAMP")
+  company_id   String?      @default("company_default")
+  branch_id    String?      @default("branch_default")
+  materials    materials    @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stock_counts stock_counts @relation(fields: [count_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_counts {
+  id                String @id
+  warehouse_id      String
+  status            String?             @default("draft")
+  notes             String?
+  created_at        String?             @default("CURRENT_TIMESTAMP")
+  updated_at        String?             @default("CURRENT_TIMESTAMP")
+  stock_count_items stock_count_items[]
+  warehouses        warehouses          @relation(fields: [warehouse_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_movements {
+  id                String @id
+  material_id       String?
+  product_id        String?
+  movement_type     String
+  quantity          Float
+  reference_type    String?
+  reference_id      String?
+  notes             String?
+  created_at        String?    @default("CURRENT_TIMESTAMP")
+  invoice_number    String?
+  shipment_number   String?
+  user_id           String?
+  company_id        String?    @default("company_default")
+  branch_id         String?    @default("branch_default")
+  deleted_at        String?
+  warehouse_id      String?
+  from_warehouse_id String?
+  to_warehouse_id   String?
+  products          products?  @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  materials         materials? @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([warehouse_id], map: "idx_stock_movements_warehouse")
+  @@index([material_id], map: "idx_stock_movements_material_id")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_reservations {
+  id             String @id
+  material_id    String
+  quantity       Float
+  reference_type String
+  reference_id   String
+  status         String?   @default("active")
+  company_id     String?   @default("company_default")
+  branch_id      String?   @default("branch_default")
+  created_at     String?   @default("CURRENT_TIMESTAMP")
+  updated_at     String?   @default("CURRENT_TIMESTAMP")
+  deleted_at     String?
+  materials      materials @relation(fields: [material_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reference_id], map: "idx_stock_reservations_ref")
+  @@index([material_id], map: "idx_stock_reservations_material")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model stock_transfer_items {
+  id              String @id
+  transfer_id     String
+  product_id      String
+  product_name    String?
+  quantity        Float?          @default(0)
+  unit            String?         @default("adet")
+  created_at      String?         @default("datetime('now')")
+  stock_transfers stock_transfers @relation(fields: [transfer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model stock_transfers {
+  id                   String @id
+  transfer_number      String                 @unique(map: "sqlite_autoindex_stock_transfers_2")
+  from_warehouse_id    String
+  to_warehouse_id      String
+  from_warehouse_name  String?
+  to_warehouse_name    String?
+  transfer_date        String?                @default("datetime('now')")
+  status               String?                @default("draft")
+  notes                String?
+  transferred_by       String?
+  company_id           String?
+  created_at           String?                @default("datetime('now')")
+  updated_at           String?                @default("datetime('now')")
+  deleted_at           String?
+  stock_transfer_items stock_transfer_items[] @ignore
+}
+
+model system_settings {
+  id          String @id
+  key         String  @unique(map: "sqlite_autoindex_system_settings_2")
+  value       String?
+  section     String? @default("general")
+  description String?
+  company_id  String? @default("company_default")
+  updated_at  String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model unit_conversions {
+  id          String @id
+  material_id String?
+  from_unit   String
+  to_unit     String
+  factor      Float
+  created_at  String? @default("CURRENT_TIMESTAMP")
+  updated_at  String? @default("CURRENT_TIMESTAMP")
+  deleted_at  String?
+
+  @@unique([material_id, from_unit, to_unit], map: "sqlite_autoindex_unit_conversions_2")
+  @@index([from_unit, to_unit], map: "idx_unit_conversions_units")
+  @@index([material_id], map: "idx_unit_conversions_material")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model user_notification_preferences {
+  user_id             String @id
+  critical_stock      Int?    @default(1)
+  shipment_approved   Int?    @default(1)
+  new_order           Int?    @default(1)
+  order_status_change Int?    @default(0)
+  updated_at          String? @default("CURRENT_TIMESTAMP")
+  purchase_request    Int?    @default(1)
+  users               users?  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model user_permissions {
+  id         String @id
+  user_id    String
+  page_path  String
+  can_view   Int?    @default(1)
+  can_create Int?    @default(0)
+  can_edit   Int?    @default(0)
+  can_delete Int?    @default(0)
+  created_at String? @default("CURRENT_TIMESTAMP")
+  company_id String? @default("company_default")
+  branch_id  String? @default("branch_default")
+  users      users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, page_path], map: "sqlite_autoindex_user_permissions_2")
+}
+
+model user_roles {
+  id         String @id
+  user_id    String
+  role_id    String
+  company_id String? @default("company_default")
+  branch_id  String? @default("branch_default")
+  created_at String? @default("CURRENT_TIMESTAMP")
+
+  @@unique([user_id, role_id], map: "sqlite_autoindex_user_roles_2")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model user_sessions {
+  id                 String @id
+  user_id            String
+  refresh_token_hash String
+  expires_at         String
+  revoked_at         String?
+  last_used_at       String?
+  user_agent         String?
+  ip_address         String?
+  created_at         String? @default("CURRENT_TIMESTAMP")
+  updated_at         String? @default("CURRENT_TIMESTAMP")
+  deleted_at         String?
+  users              users   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model users {
+  id                                                  String @id
+  username                                            String                         @unique(map: "sqlite_autoindex_users_2")
+  email                                               String?                        @unique(map: "sqlite_autoindex_users_3")
+  password_hash                                       String
+  full_name                                           String?
+  role                                                String?                        @default("user")
+  job_title                                           String?
+  is_approved                                         Int?                           @default(0)
+  approved_by                                         String?
+  approved_at                                         String?
+  created_at                                          String?                        @default("CURRENT_TIMESTAMP")
+  updated_at                                          String?                        @default("CURRENT_TIMESTAMP")
+  last_login                                          String?
+  position                                            String?
+  company_id                                          String?                        @default("company_default")
+  branch_id                                           String?                        @default("branch_default")
+  deleted_at                                          String?
+  last_activity                                       String?
+  is_locked                                           Int?                           @default(0)
+  dealer_name                                         String?
+  can_export                                          Int?                           @default(1)
+  max_export_rows                                     Int?
+  view_only                                           Int?                           @default(0)
+  active_session_token                                String?
+  api_tokens                                          api_tokens[]
+  direct_messages_direct_messages_to_user_idTousers   direct_messages[]              @relation("direct_messages_to_user_idTousers") @ignore
+  direct_messages_direct_messages_from_user_idTousers direct_messages[]              @relation("direct_messages_from_user_idTousers") @ignore
+  hr_leave_requests                                   hr_leave_requests[]            @ignore
+  notifications                                       notifications[]                @ignore
+  password_reset_tokens                               password_reset_tokens[]        @ignore
+  production_order_times                              production_order_times[]       @ignore
+  user_notification_preferences                       user_notification_preferences? @ignore
+  user_permissions                                    user_permissions[]
+  user_sessions                                       user_sessions[]                @ignore
+  users                                               users?                         @relation("usersTousers", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_users                                         users[]                        @relation("usersTousers")
+
+  @@index([email], map: "idx_users_email")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model warehouse_locations {
+  id            String @id
+  warehouse_id  String
+  code          String
+  name          String?
+  capacity      Int?    @default(0)
+  current_load  Int?    @default(0)
+  location_type String? @default("shelf")
+  created_at    String? @default("datetime('now')")
+  updated_at    String? @default("datetime('now')")
+  deleted_at    String?
+}
+
+model warehouses {
+  id              String @id
+  code            String            @unique(map: "sqlite_autoindex_warehouses_2")
+  name            String
+  company_id      String?           @default("company_default")
+  branch_id       String?           @default("branch_default")
+  created_at      String?           @default("CURRENT_TIMESTAMP")
+  updated_at      String?           @default("CURRENT_TIMESTAMP")
+  deleted_at      String?
+  material_stocks material_stocks[]
+  stock_counts    stock_counts[]    @ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model waybill_items {
+  id           String @id
+  waybill_id   String
+  product_id   String?
+  product_name String?
+  product_sku  String?
+  quantity     Float    @default(0)
+  unit         String?  @default("ADET")
+  notes        String?
+  created_at   String   @default("datetime('now')")
+  waybills     waybills @relation(fields: [waybill_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([waybill_id], map: "idx_waybill_items_waybill")
+}
+
+model waybills {
+  id               String @id
+  waybill_number   String          @unique(map: "sqlite_autoindex_waybills_2")
+  shipment_id      String?
+  customer_id      String
+  waybill_date     String          @default("date('now')")
+  driver_name      String?
+  vehicle_plate    String?
+  delivery_address String?
+  notes            String?
+  status           String          @default("draft")
+  total_quantity   Float?          @default(0)
+  company_id       String?
+  branch_id        String?
+  created_at       String          @default("datetime('now')")
+  updated_at       String          @default("datetime('now')")
+  deleted_at       String?
+  waybill_items    waybill_items[] @ignore
+  accounts         accounts        @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipments        shipments?      @relation(fields: [shipment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model webhook_endpoints {
+  id          String @id
+  url         String
+  events      String?
+  secret      String?
+  description String?
+  active      Int?    @default(1)
+  created_at  String? @default("CURRENT_TIMESTAMP")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model webhook_logs {
+  id              String @id
+  webhook_id      String
+  event_type      String
+  status_code     Int?
+  request_payload String?
+  response_body   String?
+  duration_ms     Int?
+  company_id      String?  @default("company_default")
+  created_at      String?  @default("CURRENT_TIMESTAMP")
+  webhooks        webhooks @relation(fields: [webhook_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_webhook_logs_created_at")
+  @@index([webhook_id], map: "idx_webhook_logs_webhook_id")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model webhooks {
+  id           String @id
+  url          String
+  event_types  String
+  secret_key   String?
+  is_active    Int?           @default(1)
+  description  String?
+  company_id   String?        @default("company_default")
+  created_at   String?        @default("CURRENT_TIMESTAMP")
+  updated_at   String?        @default("CURRENT_TIMESTAMP")
+  webhook_logs webhook_logs[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model work_centers {
+  id                          String @id
+  code                        String?                       @unique(map: "sqlite_autoindex_work_centers_2")
+  name                        String
+  location                    String?
+  capacity                    Int?                          @default(1)
+  is_active                   Int?                          @default(1)
+  created_at                  String?                       @default("CURRENT_TIMESTAMP")
+  updated_at                  String?                       @default("CURRENT_TIMESTAMP")
+  deleted_at                  String?
+  company_id                  String?                       @default("company_default")
+  branch_id                   String?                       @default("branch_default")
+  production_order_operations production_order_operations[]
+  production_order_times      production_order_times[]
+}
+
+model work_order_operations {
+  id            String @id
+  work_order_id String
+  station       String
+  status        String?     @default("pending")
+  sequence      Int?        @default(0)
+  started_at    String?
+  completed_at  String?
+  notes         String?
+  created_at    String?     @default("CURRENT_TIMESTAMP")
+  updated_at    String?     @default("CURRENT_TIMESTAMP")
+  work_orders   work_orders @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([work_order_id, station], map: "sqlite_autoindex_work_order_operations_2")
+}
+
+model work_orders {
+  id                    String @id
+  production_order_id   String                  @unique(map: "sqlite_autoindex_work_orders_3")
+  work_order_number     String                  @unique(map: "sqlite_autoindex_work_orders_2")
+  status                String?                 @default("open")
+  planned_start_date    String?
+  planned_end_date      String?
+  notes                 String?
+  company_id            String?                 @default("company_default")
+  branch_id             String?                 @default("branch_default")
+  created_at            String?                 @default("CURRENT_TIMESTAMP")
+  updated_at            String?                 @default("CURRENT_TIMESTAMP")
+  deleted_at            String?
+  work_order_operations work_order_operations[]
+  production_orders     production_orders       @relation(fields: [production_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
